@@ -29,3 +29,18 @@ buatkan aplikasi GIS dengan fitur :
    - tarikan sktm, sutm, skutr,sktr, sr
    - pelanggan tegangan tinggi, pelanggan tegangan menengah, pelanggan tegangan rendah
 - menyediakan fitur downtrace, uptrace kelistrikan dan menampilkan hasil trace.  
+
+- ditambahkan objek jaringan recloser, lbs 2 way, lbs 3 way
+- ditambahkan objek pendukung jaringan ( bukan objek jaringan yang membentuk topologi jaringan) : tiang TM dan tiang TR
+- ditambahkan info atribut ssot setiap objek jaringan maupun objek pendukung jaringan
+- ditambahkan fitur manuver jaringan ( open/close objek jaringan), setiap melakukan manuver jaringan ditambahkan jenis manuver apa : GANGGUAN, PEMELIHARAAN, MLS, yang otomatis mengubah status padam dan nyala jaringan sesuai aliran kelistrikan yang membuat group padam berdasarkan gi, trafo gi, penyulang, zona, gardu distribusi. untuk penyalaan manuver jaringan juga sama akan menyalakan objek jaringan 
+- ditambahkan group jaringan untuk jtm : penyulang, untuk jtr : jurusan
+- buatkan fitur menu peta monitoring kelistrikan 
+  - peta jaringan padam dan nyala, setiap objek jaringan padam dan nyala warna dibedakan
+  - rekap gardu induk padam dan nyala
+  - rekap trafo gi padam dan nyala
+  - rekap penyulang padam dan nyala
+  - rekap gardu distribusi padam dan nyala
+  - rekap pelangaan padam dan nyala
+  - rekap beban padam dan nyala
+  - rekap dibuatkan per group kejadian padam : gi, trafo gi, penyulang, zona, gardu distribusi, trafo gardu distribusi, pelanggan
