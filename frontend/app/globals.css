@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Token warna (dataviz & permukaan). Nilai gelap dipilih, bukan dibalik otomatis. */
+:root {
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --chart-grid: #e5e7eb;
+  --chart-text: #6b7280;
+  --chart-cursor: #9ca3af;
+}
+:root.dark {
+  --surface-1: #1a1a19;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --chart-grid: #374151;
+  --chart-text: #9ca3af;
+  --chart-cursor: #6b7280;
+}
+
+html,
+body {
+  height: 100%;
+  background: #f3f4f6;
+  color: #111827;
+}
+.dark html,
+.dark body,
+html.dark,
+html.dark body {
+  background: #0f1319;
+  color: #e5e7eb;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dark * {
+  scrollbar-color: #4b5563 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+}
+.dark .maplibregl-ctrl-group {
+  background: #1f2937;
+}
+.dark .maplibregl-ctrl-group button + button {
+  border-top-color: #374151;
+}
+.dark .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+.dark .maplibregl-ctrl-attrib,
+.dark .maplibregl-ctrl-scale {
+  background: rgba(31, 41, 55, 0.8);
+  color: #d1d5db;
+  border-color: #6b7280;
+}
+.dark .maplibregl-ctrl-attrib a {
+  color: #93c5fd;
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-gray-100;
+    @apply dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:ring-brand-900 dark:disabled:bg-gray-800;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400;
+  }
+  .card {
+    @apply rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800;
+  }
+  .th {
+    @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400;
+  }
+  .td {
+    @apply px-3 py-2 text-sm text-gray-800 dark:text-gray-200;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Pemetaan palet netral ke mode gelap. Utilitas Tailwind netral yang
+   dipakai di seluruh halaman dipetakan sekali di sini agar tema gelap
+   konsisten tanpa menulis varian dark: di setiap elemen.
+   ------------------------------------------------------------------ */
+.dark .bg-white { background-color: #1f2937; }
+.dark .bg-white\/90 { background-color: rgba(31, 41, 55, 0.92); }
+.dark .bg-white\/95 { background-color: rgba(31, 41, 55, 0.95); }
+.dark .bg-gray-50 { background-color: #111827; }
+.dark .bg-gray-100 { background-color: #1f2937; }
+.dark .bg-gray-200 { background-color: #374151; }
+.dark .bg-gray-300 { background-color: #4b5563; }
+.dark .hover\:bg-gray-50:hover { background-color: #273245; }
+.dark .hover\:bg-gray-100:hover { background-color: #374151; }
+.dark .text-gray-900 { color: #f3f4f6; }
+.dark .text-gray-800 { color: #e5e7eb; }
+.dark .text-gray-700 { color: #d1d5db; }
+.dark .text-gray-600 { color: #b7bdc7; }
+.dark .text-gray-500 { color: #9ca3af; }
+.dark .text-gray-400 { color: #7c8593; }
+.dark .hover\:text-gray-800:hover { color: #f3f4f6; }
+.dark .hover\:text-gray-600:hover { color: #e5e7eb; }
+.dark .border-gray-200 { border-color: #374151; }
+.dark .border-gray-300 { border-color: #4b5563; }
+.dark .border-gray-400 { border-color: #6b7280; }
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #374151; }
+.dark .border-gray-100 { border-color: #374151; }
+.dark .bg-amber-50 { background-color: rgba(120, 53, 15, 0.35); }
+.dark .bg-blue-50 { background-color: rgba(30, 58, 138, 0.35); }
+.dark .bg-emerald-50 { background-color: rgba(6, 78, 59, 0.35); }
+.dark .bg-red-50 { background-color: rgba(127, 29, 29, 0.35); }
+.dark .bg-brand-50 { background-color: rgba(26, 52, 141, 0.4); }
+.dark .text-amber-900 { color: #fcd34d; }
+.dark .text-amber-800 { color: #fbbf24; }
+.dark .text-amber-700 { color: #fbbf24; }
+.dark .text-amber-600 { color: #f59e0b; }
+.dark .text-blue-900 { color: #bfdbfe; }
+.dark .text-blue-800 { color: #93c5fd; }
+.dark .text-emerald-900 { color: #a7f3d0; }
+.dark .text-emerald-800 { color: #6ee7b7; }
+.dark .text-red-900 { color: #fecaca; }
+.dark .text-red-800 { color: #fca5a5; }
+.dark .text-brand-700 { color: #8ec2ff; }
+.dark .text-brand-800 { color: #bcdaff; }
+.dark .bg-emerald-100 { background-color: rgba(6, 95, 70, 0.5); }
+.dark .bg-red-100 { background-color: rgba(153, 27, 27, 0.5); }
+.dark .bg-blue-100 { background-color: rgba(30, 64, 175, 0.5); }
+.dark .bg-amber-100 { background-color: rgba(146, 64, 14, 0.5); }
+.dark .bg-purple-100 { background-color: rgba(107, 33, 168, 0.5); }
+.dark .text-purple-800 { color: #d8b4fe; }
+.dark .border-red-200, .dark .border-blue-200, .dark .border-emerald-200, .dark .border-amber-200 { border-color: #4b5563; }
+.dark .bg-black\/40 { background-color: rgba(0, 0, 0, 0.65); }
+.dark .shadow, .dark .shadow-lg, .dark .shadow-xl, .dark .shadow-sm { --tw-shadow-color: rgba(0, 0, 0, 0.6); --tw-shadow: var(--tw-shadow-colored); }
+
+/* ---- monitoring kelistrikan & manuver (varian opasitas + teks status) */
+.dark .bg-red-50\/50, .dark .bg-red-50\/60 { background-color: rgba(127, 29, 29, 0.28); }
+.dark .bg-amber-50\/60 { background-color: rgba(120, 53, 15, 0.28); }
+.dark .bg-white\/70 { background-color: rgba(31, 41, 55, 0.8); }
+.dark .hover\:bg-amber-200:hover { background-color: rgba(146, 64, 14, 0.7); }
+.dark .border-red-200, .dark .border-amber-200 { border-color: rgba(248, 113, 113, 0.35); }
+.dark .border-amber-200 { border-color: rgba(251, 191, 36, 0.35); }
+.dark .text-red-700 { color: #f87171; }
+.dark .text-red-600 { color: #f87171; }
+.dark .text-emerald-700 { color: #34d399; }

@@ -1,0 +1,29 @@
+# env
+.env
+*.local
+
+# backend
+backend/bin/
+backend/tmp/
+
+# frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+
+# certs
+nginx/certs/*.pem
+nginx/certs/*.key
+nginx/certs/*.crt
+
+# misc
+.DS_Store
+Thumbs.db
+
+# artefak dev lokal
+*.log
+.tmp-*
+
+# hasil build TypeScript
+*.tsbuildinfo

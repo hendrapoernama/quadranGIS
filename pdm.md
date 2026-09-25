@@ -1,0 +1,31 @@
+buatkan aplikasi GIS dengan fitur :
+- arstiektur aplikasi
+  - BE : golang dan framework
+   - FE : nextjs
+   - DB : postgresql + timescaledb + postgis
+   - platform : web base
+   - stream db :  Kafka
+   - realtime db : redis
+- Administrasi aplikasi 
+  - administasi user
+  - administrasi roles 
+  - administrasi menu 
+  - konfigurasi aplikasi 
+  - monitoring sistem
+- manajemen login :
+   user, password + math capca
+- security https
+- support utility konektivitas kelistrikan, pembuatan topologi kelistrikan otomatis pada saat editing GIS di web 
+- menyediakan pengaturan loading yang ringan,cepat dan realtime
+- menyedikan fitur editing berbasis web yang ringan meskipun dengan data point lebih dari 10 juta record
+- menyediakan fitur viewer yang ringan dan cepat
+- menyediakan fitur untuk drawing komponen kelistrikan sepertti :
+   - power grid
+   - bangunan gi, gh, gardu distribusi
+   - trafo gi
+   - busbar
+   - kubikel 20 kv
+   - trafo distribusi
+   - tarikan sktm, sutm, skutr,sktr, sr
+   - pelanggan tegangan tinggi, pelanggan tegangan menengah, pelanggan tegangan rendah
+- menyediakan fitur downtrace, uptrace kelistrikan dan menampilkan hasil trace.  

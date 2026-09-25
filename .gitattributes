@@ -1,0 +1,5 @@
+# akhir baris LF di repositori (skrip shell, Dockerfile, SQL dipakai di Linux/container)
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.ico binary
