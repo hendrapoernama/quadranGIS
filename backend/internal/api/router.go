@@ -43,6 +43,7 @@ type Deps struct {
 	Power       *gis.Power
 	PowerFlow   *gis.PowerFlow
 	Boundaries  *gis.Boundaries
+	SLD         *gis.SLD
 	Hub         *realtime.Hub
 	Producer    *stream.Producer
 	Collector   *monitor.Collector
@@ -168,6 +169,15 @@ func NewRouter(d *Deps) *gin.Engine {
 	gm := authed.Group("/gis")
 	gm.Use(middleware.RequireAnyPermission(OperatePermissions...))
 	gm.POST("/maneuver", s.powerManeuver)
+
+	// single line diagram
+	sl := authed.Group("/sld")
+	sl.Use(middleware.RequirePermission("gis.view"))
+	sl.POST("/build", s.sldBuild)
+	sl.GET("/resolve", s.sldResolve)
+	sl.GET("/positions", s.sldPositions)
+	sl.PUT("/positions", middleware.RequirePermission("gis.edit"), s.sldSavePositions)
+	sl.DELETE("/positions", middleware.RequirePermission("gis.edit"), s.sldResetPositions)
 
 	pw := authed.Group("/power")
 	pw.Use(middleware.RequirePermission("gis.view"))

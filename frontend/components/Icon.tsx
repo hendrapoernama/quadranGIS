@@ -262,6 +262,25 @@ const paths: Record<string, React.ReactNode> = {
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="1.5" />,
+  book: (
+    <>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <line x1="9" y1="7" x2="16" y2="7" />
+      <line x1="9" y1="11" x2="14" y2="11" />
+    </>
+  ),
+  diagram: (
+    <>
+      <rect x="2" y="9" width="6" height="6" rx="1" />
+      <rect x="16" y="3" width="6" height="6" rx="1" />
+      <rect x="16" y="15" width="6" height="6" rx="1" />
+      <line x1="8" y1="12" x2="12" y2="12" />
+      <line x1="12" y1="6" x2="12" y2="18" />
+      <line x1="12" y1="6" x2="16" y2="6" />
+      <line x1="12" y1="18" x2="16" y2="18" />
+    </>
+  ),
   pause: (
     <>
       <rect x="6" y="4" width="4" height="16" rx="1" />

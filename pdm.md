@@ -57,7 +57,15 @@ buatkan aplikasi GIS dengan fitur :
   - di rekap dan outages di tambahkan SAIDI, SAIFI, ENS (KWH), ENS (Rupiah) untuk harga per kwh bisa di setting di configuration
 
   - untuk outages di group by level : GI, Trafo GI, Penyulang, ZONA, gardu DISTRIBUSI, trafo gardu distribusi, jurusan tr, pelanggan
+  - 
 
+- buat menu dokumentasi :
+  - overview apllikasi
+  - fitur fitur aplikasi
+  - arstitektur aplikasi dilengkapi dengan gambar menarik
+  - proses bisnis aplikasi
+  - instalasi dan konfigurasi
+  - buku panduan penggunaan aplikasi dilengkapi dengan capture setiap fitur
 
 
 

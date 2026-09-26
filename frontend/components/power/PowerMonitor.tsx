@@ -280,6 +280,17 @@ export default function PowerMonitor() {
   useEffect(() => {
     if (loaded) loadOutages();
   }, [loaded, loadOutages]);
+  // ?select=node:123 (mis. dari SLD): pilih & arahkan peta ke objek tersebut
+  useEffect(() => {
+    if (!loaded) return;
+    const q = new URLSearchParams(window.location.search).get('select');
+    if (!q) return;
+    const [k, idStr] = q.split(':');
+    const fid = Number(idStr);
+    if ((k !== 'node' && k !== 'edge') || !fid) return;
+    setTimeout(() => selectAndFly(k, fid), 800);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
   useEffect(() => {
     if (loaded && tab === 'feeders') loadFeeders();
   }, [loaded, tab, loadFeeders]);
@@ -838,6 +849,9 @@ export default function PowerMonitor() {
           <div className="mt-2">
             <Button size="sm" variant="secondary" icon="map" onClick={() => router.push(`/map?select=${selected.properties.kind}:${selected.id}`)}>
               {t('power.open_in_map')}
+            </Button>
+            <Button size="sm" variant="secondary" icon="diagram" onClick={() => router.push(`/sld?focus=${selected.properties.kind}:${selected.id}`)}>
+              {t('sld.open_sld')}
             </Button>
           </div>
         </div>

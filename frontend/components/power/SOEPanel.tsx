@@ -300,6 +300,7 @@ export function SOEPanel({ active, onUnread, onSelect, typeName, levelLabel }: P
           <option value="PEMELIHARAAN">PEMELIHARAAN</option>
           <option value="MLS">MLS</option>
           <option value="MANUVER">MANUVER</option>
+          <option value="BENCANA ALAM">BENCANA ALAM</option>
         </select>
       </div>
       <input className="input text-xs" placeholder={t('soe.search')} value={q} onChange={(e) => setQ(e.target.value)} />

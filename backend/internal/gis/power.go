@@ -19,7 +19,7 @@ type Power struct {
 func NewPower(pool *pgxpool.Pool) *Power { return &Power{pool: pool} }
 
 // Jenis manuver yang dikenal.
-var ManeuverKinds = []string{"GANGGUAN", "PEMELIHARAAN", "MLS", "MANUVER"}
+var ManeuverKinds = []string{"GANGGUAN", "PEMELIHARAAN", "MLS", "MANUVER", "BENCANA ALAM"}
 
 // ManeuverRecord adalah satu catatan manuver.
 type ManeuverRecord struct {

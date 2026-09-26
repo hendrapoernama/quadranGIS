@@ -259,6 +259,25 @@ export function registerSymbols(map: MLMap) {
   }
 }
 
+const urlCache = new Map<string, string>();
+
+/** Gambar simbol sebagai data URL PNG (untuk SVG diagram satu garis & ekspor). */
+export function symbolDataURL(icon: string, open: boolean, color: string, px = 96): string {
+  if (typeof document === 'undefined' || !SYMBOLS[icon]) return '';
+  const key = `${icon}|${open}|${color}|${px}`;
+  const hit = urlCache.get(key);
+  if (hit) return hit;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = px;
+  const g = cv.getContext('2d');
+  if (!g) return '';
+  g.setTransform(px / S, 0, 0, px / S, 0, 0);
+  drawOn(g, icon, open, color);
+  const url = cv.toDataURL('image/png');
+  urlCache.set(key, url);
+  return url;
+}
+
 /** Pratinjau simbol untuk legenda / pengaturan layer. */
 export function SymbolSwatch({ icon, color, size = 16, open = false, title }: { icon: string; color: string; size?: number; open?: boolean; title?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);

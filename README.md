@@ -272,7 +272,7 @@ Migrasi `014_equipment_operate.sql`:
 - **Operasi dari Monitoring Kelistrikan**: popup objek terpilih punya kotak *Buka / tutup*
   (alat switching, termasuk per arah LBS 3 way) atau *Energize / deenergize* (objek
   non-switch & saluran). Saat membuka / deenergize **kategori pemadaman wajib**:
-  GANGGUAN, PEMELIHARAAN, MLS, atau MANUVER. Saat menutup / energize kategori boleh
+  GANGGUAN, PEMELIHARAAN, MLS, MANUVER, atau BENCANA ALAM. Saat menutup / energize kategori boleh
   kosong (mengikuti kejadian padam yang ditutup). Kotak yang sama dipakai di panel Fitur
   Editor Peta. Status objek topologi tidak lagi diubah lewat formulir edit, hanya lewat
   operasi (tercatat sebagai manuver, kejadian padam, dan SOE).
@@ -376,6 +376,81 @@ manuver & kejadian padam yang sudah ada.
 - API: `POST /api/exchange/export {format: geojson|gdb, dry, bbox|polygon, types, energized}`,
   `POST /api/exchange/import?apply=0|1` (badan GeoJSON).
 
+## Single Line Diagram (SLD) otomatis
+
+Menu **Single Line Diagram** (`/sld`, migrasi `018_sld.sql`) menurunkan diagram satu garis
+langsung dari graf topologi GIS, sehingga selalu sinkron dengan peta, monitoring, trace, dan
+aliran daya. Tidak ada gambar terpisah yang perlu dirawat.
+
+**Cakupan** (panel kiri):
+
+| Cakupan | Isi diagram |
+|---|---|
+| Penyulang | GI → trafo GI → kubikel incoming → busbar → kubikel outgoing → sampai ujung penyulang |
+| Gardu induk | GI → trafo GI → busbar → seluruh penyulangnya |
+| Gardu distribusi | jalur hulu (diringkas) → gardu → trafo → rak TR → switch jurusan → jurusan → pelanggan |
+| Objek | jalur hulu objek sampai sumber + seluruh hilirnya (recloser, LBS, gardu, ...) |
+| Area GIS | poligon di peta: objek dalam area digambar penuh, jalur hulu ke sumber diringkas, jaringan yang keluar area menjadi penghubung antar-halaman |
+
+**Penyusunan** (`POST /api/sld/build {scope, id, level, polygon?}`):
+
+- Pohon dibangun dari sumber memakai **topologi normal** (posisi normal switch), sehingga
+  bentuk diagram tidak berubah karena manuver. Warna dan simbol mengikuti kondisi saat ini.
+  Switch normally-open, arah LBS 3 way yang normal terbuka, dan sambungan ke penyulang lain
+  digambar sebagai **tie** (garis putus-putus "NO → ...") dan loop sebagai sambungan berlabel.
+- **Penyederhanaan**: junction dan tiang pass-through dilipat. Segmen berurutan digabung
+  menjadi satu seksi berlabel panjang total, penghantar, dan jumlah objek yang dilipat (`+n`).
+- **Tingkat detail**: hanya TM, sampai trafo gardu, sampai jurusan TR, atau sampai pelanggan.
+  Pelanggan di bawah tingkat yang dipilih diagregasi per titik potong ("16 plg · 38,9 kVA").
+- **Tata letak** ortogonal ala SLD PLN: sumber di kiri (atau di atas), cabang utama
+  (pelanggan terbanyak) lurus, cabang lain tegak lurus. Saluran utama yang sangat panjang
+  **dilipat** menjadi beberapa baris dengan penanda kelanjutan K1, K2, ....
+- Batas `sld.max_elements` (bawaan 3000) dan tingkat detail bawaan `sld.default_level`.
+  Hasil di-cache per versi graf. Jarak topologi normal disimpan di graf dan dihitung ulang
+  hanya saat topologi diedit. Satu penyulang disusun dalam ±20–60 ms.
+
+**Integrasi dengan GIS & operasi**:
+
+- Status nyala/padam dan posisi switch diperbarui **realtime** (WebSocket `maneuver`,
+  `energized`, `topology.rebuilt`); edit jaringan di GIS membuat diagram disusun ulang.
+- Klik elemen atau seksi membuka panel objek. Dari sana tersedia kotak **operasi buka/tutup
+  atau energize/deenergize**: endpoint, kategori pemadaman, konfirmasi, dan izin per role
+  (`power.switch_*`, `power.energize_*`) sama dengan peta, dan tercatat sama di manuver,
+  kejadian padam, SOE, dan indeks keandalan.
+- **Sorot silang**: *Lihat di peta* / *Monitoring* membuka objek di peta. Tombol **Buka SLD**
+  di panel Fitur Editor Peta dan popup Monitoring membuka SLD cakupan objek itu
+  (`/sld?focus=node:ID`, cakupan dipilih otomatis lewat `GET /api/sld/resolve`).
+- **Overlay aliran daya**: warna seksi menurut pembebanan (<60 / 60–80 / 80–100 / >100 %) dan
+  tegangan pu di tiap elemen (dihitung lewat `/api/powerflow/feeder` untuk penyulang dalam
+  diagram, maksimal 6).
+
+**Ekspor & penyesuaian**:
+
+- **SVG**, **PNG** (resolusi 2×), dan **PDF** lewat dialog cetak browser: halaman A3 lanskap
+  dengan kop (aplikasi, judul diagram, penyulang, tingkat detail, tanggal cetak, pengguna)
+  dan legenda.
+- **Atur posisi manual** (izin `gis.edit`): seret elemen lalu simpan. Pergeseran disimpan per
+  cakupan & per id objek (`sld_positions`, `PUT/DELETE /api/sld/positions`), tetap berlaku saat
+  diagram disusun ulang; objek baru ditempatkan otomatis. *Kembalikan otomatis* menghapusnya.
+- Topologi tetap diedit di GIS; SLD hanya untuk melihat & mengoperasikan.
+
+## Dokumentasi (menu di aplikasi)
+
+Menu **Dokumentasi** (`/docs`, migrasi `019_docs.sql`, untuk semua peran) berisi:
+overview aplikasi, fitur, arsitektur (diagram lapisan & alur realtime), proses bisnis
+(pemeliharaan data, operasi & gangguan, perencanaan, tata kelola akses, matriks izin),
+instalasi & konfigurasi, dan buku panduan penggunaan dengan tangkapan layar tiap fitur.
+Daftar isi dengan pencarian, perbesar gambar, dan tombol **Cetak / simpan PDF** (A4, tiap
+bagian di halaman baru). Isi ada di `frontend/components/docs/content.tsx`; diagram di
+`diagrams.tsx` mengikuti tema terang/gelap.
+
+Tangkapan layar (`frontend/public/guide/*.jpg`) dapat diperbarui setelah UI berubah:
+
+```bash
+npm i -D playwright && npx playwright install chromium
+node scripts/docs-screenshots.js frontend/public/guide   # lalu build ulang frontend
+```
+
 ## Aliran daya (power flow)
 
 Menu **Aliran Daya** (`/powerflow`) menghitung aliran daya tiap penyulang dengan
@@ -467,7 +542,7 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | POST | `/api/gis/trace` | `{node_id,direction:down|up|connected,max_depth,stop_types}` |
 | GET  | `/api/gis/topology/status` / `validate` | status graf & pemeriksaan |
 | POST | `/api/gis/topology/rebuild` | muat ulang graf |
-| POST | `/api/gis/maneuver` | `{node_id\|edge_id,action:open|close,kind:GANGGUAN|PEMELIHARAAN|MLS|MANUVER (wajib saat open),note,way_edge_id?}`; izin `power.switch_*` / `power.energize_*` |
+| POST | `/api/gis/maneuver` | `{node_id\|edge_id,action:open|close,kind:GANGGUAN|PEMELIHARAAN|MLS|MANUVER|BENCANA ALAM (wajib saat open),note,way_edge_id?}`; izin `power.switch_*` / `power.energize_*` |
 | GET  | `/api/power/summary` | rekap nyala/padam (GI, trafo GI, penyulang, zona, GD, pelanggan, beban) |
 | GET  | `/api/power/feeders?state&q` | daftar penyulang beserta status |
 | GET  | `/api/power/gi?state&q` | daftar gardu induk beserta rekap penyulang |
@@ -475,6 +550,9 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | GET  | `/api/power/outages?active=1\|period=` / `/{id}` | kejadian padam per level, dengan ENS per kejadian (+ GeoJSON area terdampak) |
 | GET  | `/api/power/maneuvers?node_id` | riwayat manuver |
 | GET  | `/api/power/soe?limit&before_id&after_id&category&severity&q` | SOE (Sequence of Events), terbaru dulu |
+| POST | `/api/sld/build` | `{scope: feeder\|gi\|gd\|node\|area, id, level: tm\|gd\|jurusan\|pelanggan, polygon?}` → diagram satu garis |
+| GET  | `/api/sld/resolve?kind&id` | cakupan SLD bawaan untuk sebuah objek |
+| GET/PUT/DELETE | `/api/sld/positions?scope` | posisi manual elemen SLD (ubah: `gis.edit`) |
 | GET  | `/api/power/reliability?period=today\|month\|year` | SAIDI, SAIFI, ENS kWh & Rupiah (total, per level, per jenis) |
 | GET  | `/api/ws` | WebSocket event realtime |
 | *    | `/api/admin/...` | users, roles, menus, configs, layers, monitoring |

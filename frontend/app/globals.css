@@ -178,3 +178,25 @@ html.dark body {
   100% { background-color: transparent; }
 }
 .soe-fresh { animation: soe-flash 4s ease-out; }
+
+/* Single Line Diagram: halaman cetak (PDF lewat dialog cetak browser) */
+.sld-print { display: none; }
+@page sld { size: A3 landscape; margin: 10mm; }
+@media print {
+  /* hanya aktif saat SLD sedang dicetak (kelas body.sld-printing) */
+  body.sld-printing * { visibility: hidden !important; }
+  body.sld-printing .sld-print, body.sld-printing .sld-print * { visibility: visible !important; }
+  .sld-print { page: sld; display: block; position: fixed; inset: 0; z-index: 9999; background: #fff; color: #111827; padding: 4mm; font-size: 10pt; }
+  .sld-print-title { width: 100%; border-collapse: collapse; margin-bottom: 4mm; font-size: 9pt; }
+  .sld-print-title th, .sld-print-title td { border: 1px solid #9ca3af; padding: 2px 6px; text-align: left; vertical-align: top; }
+  .sld-print-title th { background: #f3f4f6; font-weight: 600; white-space: nowrap; }
+  .sld-print-brand { width: 42mm; font-size: 14pt; font-weight: 700; text-align: center !important; vertical-align: middle !important; }
+  .sld-print-sub { font-size: 8pt; font-weight: 400; color: #4b5563; }
+  .sld-print-svg { width: 100%; height: auto; max-height: 240mm; }
+  .sld-print-legend { margin-top: 3mm; font-size: 8pt; color: #374151; }
+}
+
+/* dokumentasi: kelas tambahan pada tema gelap */
+.dark .text-brand-900 { color: #bcdaff; }
+.dark .border-brand-200 { border-color: rgba(89, 159, 255, 0.4); }
+.dark .border-amber-300 { border-color: rgba(251, 191, 36, 0.45); }

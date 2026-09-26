@@ -8,7 +8,7 @@ import type { ComponentType, GeoFeature } from '@/lib/types';
 import { Badge, Button, Confirm } from '@/components/ui';
 
 /** Kategori pemadaman (wajib saat membuka / deenergize). */
-export const OUTAGE_KINDS = ['GANGGUAN', 'PEMELIHARAAN', 'MLS', 'MANUVER'];
+export const OUTAGE_KINDS = ['GANGGUAN', 'PEMELIHARAAN', 'MLS', 'MANUVER', 'BENCANA ALAM'];
 /** Izin operasi (lihat backend OperatePermissions). */
 export const OPERATE_PERMS = ['power.switch_tm', 'power.switch_tr', 'power.energize_tm', 'power.energize_tr'];
 

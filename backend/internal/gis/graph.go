@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type Graph struct {
 	normalOpenWays map[int64]map[int64]struct{} // posisi normal arah (untuk pengelompokan)
 
 	dist      map[int64]int32 // jarak hop dari sumber terdekat (jalur tertutup)
+	ndist     map[int64]int32 // jarak posisi normal (tidak berubah oleh manuver; nil = perlu dihitung)
 	distDirty bool
 	builtAt   time.Time
 	distAt    time.Time
@@ -139,6 +141,23 @@ func (g *Graph) lvNodeTypesLocked() []bool {
 		out[i] = ct.GeomKind != "line" && ct.VoltageKV > 0 && ct.VoltageKV < 1
 	}
 	return out
+}
+
+// sameMap: kedua map adalah objek yang sama (bukan sekadar isinya sama).
+func sameMap(a, b map[int64]int32) bool {
+	return a != nil && b != nil && reflect.ValueOf(a).Pointer() == reflect.ValueOf(b).Pointer()
+}
+
+// normalDistLocked mengembalikan jarak posisi normal (dari cache, jarak saat ini bila semua
+// switch pada posisi normal, atau dihitung penuh). Harus dipanggil dengan RLock.
+func (g *Graph) normalDistLocked() (map[int64]int32, bool) {
+	if g.ndist != nil {
+		return g.ndist, false
+	}
+	if !g.distDirty && g.switchesAtNormalLocked() {
+		return g.dist, false
+	}
+	return g.bfsLocked(true), true
 }
 
 // AdjacentMaxKV mengembalikan tegangan tertinggi saluran yang menempel pada node
@@ -332,6 +351,7 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	g.typeNames, g.typeIndex = local.typeNames, local.typeIndex
 	g.builtAt = time.Now()
 	g.distDirty = true
+	g.ndist = nil
 	g.countsDirty = true
 	g.mu.Unlock()
 	log.Printf("[graph] dimuat: %d node, %d edge (%s)", len(nodes), len(edges), time.Since(start).Round(time.Millisecond))
@@ -425,6 +445,7 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 	}
 	g.gen++
 	g.distDirty = true
+	g.ndist = nil
 	g.countsDirty = true
 	g.mu.Unlock()
 	g.scheduleRebuild()
@@ -733,6 +754,15 @@ func (g *Graph) computeGroups() {
 		}
 	}
 	g.feeders = feeders
+	if sameMap(ndist, g.dist) {
+		// jarak saat ini akan berubah oleh manuver berikutnya: simpan salinan
+		cp := make(map[int64]int32, len(ndist))
+		for k, v := range ndist {
+			cp[k] = v
+		}
+		ndist = cp
+	}
+	g.ndist = ndist
 	g.groupsAt = time.Now()
 	g.mu.Unlock()
 	g.invalidateSummary()

@@ -2,6 +2,7 @@
 
 import { OperateBox, type ManeuverBody } from '@/components/power/OperateBox';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { AttrField, ComponentType, GeoFeature, GraphInfo } from '@/lib/types';
@@ -38,6 +39,7 @@ type KV = { k: string; v: string };
 export function FeaturePanel(props: Props) {
   const { feature, loading, types, canEdit, canTrace, canManeuver = false } = props;
   const { t, pick, locale } = useT();
+  const router = useRouter();
   const toast = useToast();
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -405,6 +407,9 @@ export function FeaturePanel(props: Props) {
           </Button>
           <Button size="sm" variant="secondary" icon="link" onClick={() => props.onTrace(id!, 'connected')}>
             {t('feature.trace_connected')}
+          </Button>
+          <Button size="sm" variant="secondary" icon="diagram" onClick={() => router.push(`/sld?focus=${kind}:${id}`)}>
+            {t('sld.open_sld')}
           </Button>
         </div>
       )}

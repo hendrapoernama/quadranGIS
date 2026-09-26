@@ -77,6 +77,7 @@ func main() {
 	graph := gis.NewGraph(types)
 	graph.SetDefaultLoadVA(configs.Float("monitoring.default_daya_va", 1300))
 	powerFlow := gis.NewPowerFlow(pool, graph, types, configs)
+	sld := gis.NewSLD(pool, graph, types, func() int { return configs.Int("sld.max_elements", 3000) })
 
 	// ---------- Realtime & stream ----------
 	hub := realtime.New(ctx, rdb)
@@ -154,7 +155,7 @@ func main() {
 	router := api.NewRouter(&api.Deps{
 		Cfg: cfg, Pool: pool, Cache: rdb, JWT: jwtSvc, Captcha: captcha,
 		Users: users, Roles: roles, Menus: menus, Configs: configs, Audit: audit, MetricsRepo: metricsRepo,
-		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries,
+		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries, SLD: sld,
 		Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
 	})
 	srv := &http.Server{

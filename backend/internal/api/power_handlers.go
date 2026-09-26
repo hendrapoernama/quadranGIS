@@ -198,7 +198,7 @@ type maneuverReq struct {
 }
 
 // POST /api/gis/maneuver: buka/tutup alat switching, pemutusan objek (gardu, trafo, pelanggan)
-// atau saluran, dengan kategori GANGGUAN / PEMELIHARAAN / MLS / MANUVER.
+// atau saluran, dengan kategori GANGGUAN / PEMELIHARAAN / MLS / MANUVER / BENCANA ALAM.
 func (s *Server) powerManeuver(c *gin.Context) {
 	var req maneuverReq
 	if err := c.ShouldBindJSON(&req); err != nil || (req.NodeID <= 0 && req.EdgeID <= 0) {
@@ -361,7 +361,7 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	switch {
 	case !open:
 		sev = "good"
-	case req.Kind == "GANGGUAN":
+	case req.Kind == "GANGGUAN" || req.Kind == "BENCANA ALAM":
 		sev = "serious"
 	}
 	tid := targetID
