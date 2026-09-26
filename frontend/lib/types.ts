@@ -211,10 +211,65 @@ export interface Outage {
   restored?: GroupReport | null;
   affected_count: number;
   duration_sec: number;
+  cause_kind?: 'node' | 'edge';
+  customers?: number;
+  customer_minutes?: number;
+  ens_kwh?: number;
+  ens_rp?: number;
+  momentary?: boolean;
+}
+
+export interface SOEEvent {
+  id: number;
+  ts: string;
+  category: 'switch' | 'cut' | 'outage' | 'topology' | string;
+  event: string;
+  severity: 'good' | 'info' | 'warning' | 'serious' | 'critical' | string;
+  target_kind: 'node' | 'edge' | '';
+  target_id: number | null;
+  target_code: string;
+  target_type: string;
+  way_edge_id: number | null;
+  kind: string;
+  level: string;
+  feeder_code: string;
+  customers: number;
+  load_va: number;
+  nodes: number;
+  duration_sec: number | null;
+  maneuver_id: number | null;
+  outage_id: number | null;
+  username: string;
+  note: string;
+}
+
+export interface ReliabilityGroup {
+  outages: number;
+  momentary: number;
+  customers_out: number;
+  customer_minutes: number;
+  saidi: number;
+  saifi: number;
+  ens_kwh: number;
+  ens_rp: number;
+}
+
+export interface Reliability {
+  period: string;
+  from: string;
+  to: string;
+  customers_served: number;
+  params: { tariff_rp_per_kwh: number; load_factor: number; power_factor: number; sustained_minutes: number };
+  total: ReliabilityGroup;
+  by_level: Record<string, ReliabilityGroup>;
+  by_kind: Record<string, ReliabilityGroup>;
+  levels: string[];
+  active: number;
 }
 
 export interface ManeuverRecord {
   id: number;
+  target_kind?: 'node' | 'edge';
   node_id: number;
   node_code: string;
   node_type: string;

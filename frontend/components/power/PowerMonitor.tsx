@@ -8,30 +8,113 @@ import { useTheme } from '@/lib/theme';
 import { realtime } from '@/lib/ws';
 import { bboxOf, fmtArea, fmtDistance } from '@/lib/geo';
 import { fmtDate, fmtDuration, fmtNum, fmtTime, fmtVA } from '@/lib/format';
-import type { ComponentType, FeatureCollection, FeederStatus, GDStatus, GeoFeature, GroupReport, Outage, PowerSummary, RealtimeEvent } from '@/lib/types';
+import type { ComponentType, FeatureCollection, FeederStatus, GDStatus, GeoFeature, GroupReport, Outage, PowerSummary, RealtimeEvent, Reliability, ReliabilityGroup, TraceResponse } from '@/lib/types';
 import { Badge, Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import MapCanvas from '@/components/map/MapCanvas';
 import { OFF_STATUS, ON_STATUS } from '@/components/map/mapStyle';
 import { SearchBox } from '@/components/map/SearchBox';
+import { SectionRecap } from './SectionRecap';
+import { SOEPanel } from './SOEPanel';
+import { CustomersPanel, type CustomerState } from './CustomersPanel';
+import { BoundaryControl, useBoundaryOverlay } from '@/components/map/BoundaryOverlay';
+import { OperateBox, type ManeuverBody } from './OperateBox';
+import { TracePanel, type TraceSeed } from '@/components/map/TracePanel';
+import { useAuth } from '@/lib/auth';
+import { ExchangePanel } from '@/components/map/ExchangePanel';
 import type { BasemapKind, DrawMode, MapHandle, MeasureResult } from '@/components/map/types';
 
-type Tab = 'summary' | 'outages' | 'feeders' | 'gardu';
-const noop = async () => {};
+type Tab = 'outages' | 'soe' | 'trace' | 'gi' | 'feeders' | 'gardu' | 'customers' | 'export';
 
-function StatTile({ label, total, off, tone }: { label: string; total: number; off: number; tone?: 'green' | 'red' }) {
-  const bad = off > 0;
+interface GIStatus {
+  id: number;
+  code: string;
+  name: string;
+  energized: boolean;
+  state: 'on' | 'partial' | 'off';
+  trafo_gi: number;
+  trafo_gi_off: number;
+  feeders: number;
+  feeders_partial: number;
+  feeders_off: number;
+  gd: number;
+  gd_off: number;
+  pelanggan: number;
+  pelanggan_off: number;
+  beban_va: number;
+  beban_off_va: number;
+}
+type Period = 'today' | 'month' | 'year';
+const noop = async () => {};
+const LEVELS = ['gi', 'trafo_gi', 'penyulang', 'zona', 'gardu_distribusi', 'trafo_gd', 'jurusan', 'pelanggan'];
+const fmtDec = (n: number, d = 2) => (Number.isFinite(n) ? n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d }) : '-');
+/** Indeks keandalan: nilai sangat kecil (jutaan pelanggan) tetap terbaca dengan 3 angka penting. */
+const fmtIdx = (n: number) => {
+  if (!Number.isFinite(n) || n === 0) return '0';
+  if (Math.abs(n) >= 1) return fmtDec(n, 2);
+  return n.toLocaleString('id-ID', { maximumSignificantDigits: 3 });
+};
+const fmtRp = (n: number) => {
+  const a = Math.abs(n);
+  if (a >= 1e9) return `Rp ${fmtDec(n / 1e9, 2)} M`;
+  if (a >= 1e6) return `Rp ${fmtDec(n / 1e6, 2)} jt`;
+  return `Rp ${fmtDec(n, 0)}`;
+};
+const fmtKWh = (n: number) => (Math.abs(n) >= 1e6 ? `${fmtDec(n / 1e6, 2)} GWh` : Math.abs(n) >= 1e3 ? `${fmtDec(n / 1e3, 2)} MWh` : `${fmtDec(n, 1)} kWh`);
+
+/** Kartu indeks keandalan (SAIDI, SAIFI, ENS). */
+function RelTile({ label, value, sub, title }: { label: string; value: string; sub?: string; title?: string }) {
   return (
-    <div className={`rounded-lg border p-2 ${bad ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}>
-      <div className="text-[11px] uppercase text-gray-500">{label}</div>
-      <div className="mt-0.5 flex items-baseline justify-between">
-        <span className={`text-lg font-semibold tabular-nums ${bad ? 'text-red-700' : 'text-emerald-700'}`}>{fmtNum(bad ? off : total - off)}</span>
-        <span className="text-[11px] text-gray-500">/ {fmtNum(total)}</span>
-      </div>
-      <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-gray-200">
-        <div className="h-full" style={{ width: `${total > 0 ? ((total - off) / total) * 100 : 100}%`, background: tone === 'red' ? OFF_STATUS : ON_STATUS }} />
-      </div>
+    <div className="min-w-[6.5rem] flex-1 basis-0 rounded-md border border-gray-200 bg-white px-2 py-1" title={title}>
+      <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
+      <div className="truncate text-base font-semibold tabular-nums text-gray-900">{value}</div>
+      {sub && <div className="truncate text-[10px] text-gray-500">{sub}</div>}
     </div>
+  );
+}
+
+/** Kartu ringkas pita rekap: nilai utama nyala (atau jumlah padam bila ada), total, bilah proporsi. */
+function SumTile({ label, total, off, format = fmtNum, onClick, title }: { label: string; total: number; off: number; format?: (n: number) => string; onClick?: () => void; title?: string }) {
+  const bad = off > 0;
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag
+      className={`min-w-[5.5rem] flex-1 basis-0 rounded-md border px-2 py-1 text-left ${bad ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'} ${onClick ? 'hover:border-brand-600' : ''}`}
+      onClick={onClick}
+      title={title ?? label}
+    >
+      <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
+      <div className="flex items-baseline justify-between gap-1">
+        <span className={`whitespace-nowrap text-base font-semibold tabular-nums ${bad ? 'text-red-700' : 'text-emerald-700'}`}>{format(bad ? off : total - off)}</span>
+        <span className="min-w-0 truncate text-[10px] text-gray-500" title={format(total)}>/ {format(total)}</span>
+      </div>
+      <div className="mt-0.5 h-1 w-full overflow-hidden rounded bg-gray-200">
+        <div className="h-full" style={{ width: `${total > 0 ? ((total - off) / total) * 100 : 100}%`, background: ON_STATUS }} />
+      </div>
+    </Tag>
+  );
+}
+
+/** Kartu status group (nyala / sebagian / padam). */
+function StateTile({ label, c, labels, onClick }: { label: string; c?: { on: number; partial: number; off: number }; labels: [string, string, string]; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div';
+  const bad = (c?.off ?? 0) + (c?.partial ?? 0) > 0;
+  return (
+    <Tag className={`min-w-[10rem] flex-[2] basis-0 rounded-md border px-2 py-1 text-left ${bad ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'} ${onClick ? 'hover:border-brand-600' : ''}`} onClick={onClick} title={label}>
+      <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
+      <div className="flex justify-between gap-3">
+        {([
+          [c?.on ?? 0, labels[0], 'text-emerald-700'],
+          [c?.partial ?? 0, labels[1], 'text-amber-700'],
+          [c?.off ?? 0, labels[2], 'text-red-700'],
+        ] as const).map(([v, l, cls], i) => (
+          <div key={i}>
+            <div className={`text-sm font-semibold leading-tight tabular-nums ${i === 0 || v > 0 ? cls : 'text-gray-500'}`}>{fmtNum(v)}</div>
+            <div className="text-[10px] leading-tight text-gray-500">{l}</div>
+          </div>
+        ))}
+      </div>
+    </Tag>
   );
 }
 
@@ -53,15 +136,36 @@ export default function PowerMonitor() {
   const [feedersOff, setFeedersOff] = useState<FeederStatus[]>([]);
   const [outages, setOutages] = useState<Outage[]>([]);
   const [history, setHistory] = useState(false);
+  const [period, setPeriod] = useState<Period>('month');
+  const [rel, setRel] = useState<Reliability | null>(null);
+  const [levelFilter, setLevelFilter] = useState('all');
+  const [outageGroups, setOutageGroups] = useState<Record<string, ReliabilityGroup>>({});
   const [feeders, setFeeders] = useState<FeederStatus[]>([]);
   const [feederState, setFeederState] = useState<'all' | 'off' | 'partial' | 'on'>('all');
   const [feederQ, setFeederQ] = useState('');
+  const [gis, setGis] = useState<GIStatus[]>([]);
+  const [giCounts, setGiCounts] = useState<{ on: number; partial: number; off: number } | null>(null);
+  const [giState, setGiState] = useState<'all' | 'off' | 'partial' | 'on'>('all');
+  const [giQ, setGiQ] = useState('');
+  const [custState, setCustState] = useState<CustomerState>('all');
+  const [custRefresh, setCustRefresh] = useState(0);
   const [gardu, setGardu] = useState<GDStatus[]>([]);
   const [garduTotal, setGarduTotal] = useState(0);
   const [garduState, setGarduState] = useState<'all' | 'off' | 'partial' | 'on'>('all');
   const [garduQ, setGarduQ] = useState('');
   const [garduQd, setGarduQd] = useState(''); // kata kunci setelah jeda ketik
-  const [tab, setTab] = useState<Tab>('summary');
+  const [tab, setTab] = useState<Tab>('outages');
+  // tab aktif selalu terlihat walau bar tab lebih lebar dari panel (mis. dibuka dari widget rekap)
+  useEffect(() => {
+    document.querySelector(`aside [data-tab="${tab}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }, [tab]);
+  const [soeUnread, setSoeUnread] = useState(0);
+  const [mapReady, setMapReady] = useState(false);
+  const [bndOpen, setBndOpen] = useState(false);
+  const { has } = useAuth();
+  const canTrace = has('gis.trace');
+  const [trace, setTrace] = useState<TraceResponse | null>(null);
+  const [traceSeed, setTraceSeed] = useState<TraceSeed | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [selected, setSelected] = useState<GeoFeature | null>(null);
   const [shownOutage, setShownOutage] = useState<number | null>(null);
@@ -69,6 +173,7 @@ export default function PowerMonitor() {
   const [mode, setMode] = useState<DrawMode>({ kind: 'select' });
   const [measure, setMeasure] = useState<MeasureResult | null>(null);
   const [energy, setEnergy] = useState<'all' | 'on' | 'off'>('all');
+  const [area, setArea] = useState<[number, number][] | null>(null);
   const [wsOk, setWsOk] = useState(false);
 
   const basemap: BasemapKind = resolved === 'dark' ? 'dark' : 'light';
@@ -95,12 +200,23 @@ export default function PowerMonitor() {
 
   const loadOutages = useCallback(async () => {
     try {
-      const r = await api<{ items: Outage[] }>(`/api/power/outages?active=${history ? 0 : 1}&limit=100`);
+      const r = await api<{ items: Outage[]; groups: Record<string, ReliabilityGroup> }>(
+        history ? `/api/power/outages?period=${period}&limit=1000` : `/api/power/outages?active=1&limit=500`,
+      );
       setOutages(r.items);
+      setOutageGroups(r.groups || {});
     } catch (e: any) {
       toast.push(e.message, 'error');
     }
-  }, [history, toast]);
+  }, [history, period, toast]);
+
+  const loadReliability = useCallback(async () => {
+    try {
+      setRel(await api<Reliability>(`/api/power/reliability?period=${period}`));
+    } catch (e: any) {
+      toast.push(e.message, 'error');
+    }
+  }, [period, toast]);
 
   useEffect(() => {
     const tm = setTimeout(() => setGarduQd(garduQ.trim()), 300);
@@ -116,6 +232,16 @@ export default function PowerMonitor() {
       toast.push(e.message, 'error');
     }
   }, [garduState, garduQd, toast]);
+
+  const loadGI = useCallback(async () => {
+    try {
+      const r = await api<{ items: GIStatus[]; counts: { on: number; partial: number; off: number } }>(`/api/power/gi?state=${giState}&q=${encodeURIComponent(giQ)}`);
+      setGis(r.items);
+      setGiCounts(r.counts);
+    } catch (e: any) {
+      toast.push(e.message, 'error');
+    }
+  }, [giState, giQ, toast]);
 
   const loadFeeders = useCallback(async () => {
     try {
@@ -146,11 +272,20 @@ export default function PowerMonitor() {
     return () => clearInterval(timer);
   }, [loaded, configs, loadSummary]);
   useEffect(() => {
+    if (!loaded) return;
+    loadReliability();
+    const timer = setInterval(loadReliability, 60000); // durasi padam berjalan terus bertambah
+    return () => clearInterval(timer);
+  }, [loaded, loadReliability]);
+  useEffect(() => {
     if (loaded) loadOutages();
   }, [loaded, loadOutages]);
   useEffect(() => {
     if (loaded && tab === 'feeders') loadFeeders();
   }, [loaded, tab, loadFeeders]);
+  useEffect(() => {
+    if (loaded && tab === 'gi') loadGI();
+  }, [loaded, tab, loadGI]);
   useEffect(() => {
     if (loaded && tab === 'gardu') loadGardu();
   }, [loaded, tab, loadGardu]);
@@ -165,7 +300,10 @@ export default function PowerMonitor() {
         setTimeout(() => {
           loadSummary();
           loadOutages();
+          loadReliability();
           if (tab === 'feeders') loadFeeders();
+          if (tab === 'gi') loadGI();
+          if (tab === 'customers') setCustRefresh((x) => x + 1);
           if (tab === 'gardu') loadGardu();
         }, 600);
         if (ev.type === 'maneuver' && ev.data?.message) toast.push(ev.data.message, ev.data.action === 'open' ? 'warning' : 'success');
@@ -178,7 +316,7 @@ export default function PowerMonitor() {
       offStatus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadSummary, loadOutages, loadFeeders, loadGardu, tab]);
+  }, [loadSummary, loadOutages, loadReliability, loadFeeders, loadGI, loadGardu, tab]);
 
   useEffect(() => {
     mapRef.current?.setBasemap(basemap);
@@ -221,13 +359,75 @@ export default function PowerMonitor() {
         setShownOutage(o.id);
         const b = bboxOf(r.geojson);
         if (b) mapRef.current?.fitBBox(b);
-        select('node', o.cause_node_id);
+        select(o.cause_kind === 'edge' ? 'edge' : 'node', o.cause_node_id);
       } catch (e: any) {
         toast.push(e.message, 'error');
       }
     },
     [select, toast],
   );
+
+  const shownOutages = useMemo(() => {
+    const list = levelFilter === 'all' ? outages : outages.filter((o) => o.level === levelFilter);
+    const order = (lv: string) => (LEVELS.indexOf(lv) < 0 ? LEVELS.length : LEVELS.indexOf(lv));
+    const groups: { level: string; items: Outage[] }[] = [];
+    for (const o of list) {
+      let g = groups.find((x) => x.level === o.level);
+      if (!g) groups.push((g = { level: o.level, items: [] }));
+      g.items.push(o);
+    }
+    return groups.sort((a, b) => order(a.level) - order(b.level));
+  }, [outages, levelFilter]);
+
+  const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
+
+  // ------------------------------------------------------------ trace hilir / hulu
+  const onTraceResult = useCallback((r: TraceResponse | null) => {
+    setTrace(r);
+    setShownOutage(null);
+    if (!r) {
+      mapRef.current?.setTrace(null);
+      return;
+    }
+    const fc = {
+      ...r.geojson,
+      features: r.geojson.features.map((f) => (f.properties.kind === 'node' && f.id === r.result.start_node ? { ...f, properties: { ...f.properties, is_start: true } } : f)),
+    };
+    mapRef.current?.setTrace(fc);
+    const b = bboxOf(fc);
+    if (b) mapRef.current?.fitBBox(b);
+  }, []);
+  const startTrace = (nodeId: number, direction: 'down' | 'up') => {
+    setTab('trace');
+    setPanelOpen(true);
+    setTraceSeed({ nodeId, direction, nonce: Date.now() });
+  };
+
+  // operasi buka / tutup, energize / deenergize dari popup objek terpilih
+  const operate = async (body: ManeuverBody) => {
+    if (!selected) return;
+    const { target = 'node', ...rest } = body;
+    try {
+      const res = await api<{ message: string; tile_version: number; feature?: GeoFeature }>('/api/gis/maneuver', {
+        method: 'POST',
+        body: target === 'edge' ? { edge_id: selected.id, ...rest } : { node_id: selected.id, ...rest },
+      });
+      mapRef.current?.refreshTiles(res.tile_version);
+      if (res.tile_version) setTileVersion(res.tile_version);
+      toast.push(res.message, body.action === 'open' ? 'warning' : 'success');
+      if (res.feature) {
+        setSelected(res.feature);
+        mapRef.current?.setSelected(res.feature);
+      } else await select(target, selected.id as number);
+      setTimeout(() => {
+        loadSummary();
+        loadOutages();
+      }, 600);
+    } catch (e: any) {
+      toast.push(e.message, 'error');
+      throw e;
+    }
+  };
 
   const levelLabel = (lv: string) => {
     const key = `power.level_${lv}` as any;
@@ -263,7 +463,8 @@ export default function PowerMonitor() {
 
   const tabBtn = (tb: Tab, label: string, count?: number) => (
     <button
-      className={`flex-1 whitespace-nowrap border-b-2 px-1 py-2 text-xs font-medium ${tab === tb ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+      data-tab={tb}
+      className={`flex-1 whitespace-nowrap border-b-2 px-0.5 py-2 text-[11px] font-medium ${tab === tb ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
       onClick={() => setTab(tb)}
     >
       {label}
@@ -282,8 +483,134 @@ export default function PowerMonitor() {
       </div>
     );
 
+  const stateLabels: [string, string, string] = [t('power.on'), t('power.partial'), t('power.off')];
+  const openTab = (tb: Tab, st?: { off: number; partial: number }) => {
+    setTab(tb);
+    setPanelOpen(true);
+    if (!st) return;
+    const f = st.off > 0 ? 'off' : st.partial > 0 ? 'partial' : 'all';
+    if (tb === 'feeders') setFeederState(f);
+    if (tb === 'gardu') setGarduState(f);
+    if (tb === 'gi') setGiState(f);
+    if (tb === 'customers') setCustState(f === 'off' ? 'off' : 'all');
+  };
+
   return (
-    <div className="relative h-full w-full">
+    <div className="flex h-full w-full flex-col">
+      {/* pita rekap */}
+      <header className="shrink-0 border-b border-gray-200 bg-white px-3 pb-2 pt-1.5">
+        <div className="mb-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600">
+          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Icon name="activity" size={16} /> {t('power.title')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600 bg-white" /> {t('layers.legend_open')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-1 w-4 rounded bg-amber-500" /> {t('power.outage_area')}
+          </span>
+          <span className="ml-auto flex items-center gap-3 text-gray-500">
+            {graphLoading && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-900">{t('power.graph_loading')}</span>}
+            {updatedAt && s && (
+              <span>
+                {t('power.updated', { time: fmtTime(updatedAt.toISOString()) })} · {t('layers.nodes')} {fmtNum(s.nodes.total)} ({fmtNum(s.nodes.off)} {t('power.off')})
+              </span>
+            )}
+            <span className="flex items-center gap-1" title={wsOk ? t('map.realtime_on') : t('map.realtime_off')}>
+              <span className={`inline-block h-2 w-2 rounded-full ${wsOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              {t('map.realtime')} · {configs['monitoring.power_refresh_seconds'] || 15}s
+            </span>
+          </span>
+        </div>
+        {s ? (
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            <SumTile label={t('power.gi')} total={s.gi.total} off={s.gi.off} onClick={() => openTab('gi', { off: s.gi.off, partial: 0 })} title={t('power.tab_gi')} />
+            <SumTile label={t('power.trafo_gi')} total={s.trafo_gi.total} off={s.trafo_gi.off} />
+            <StateTile label={t('power.feeders')} c={s.penyulang} labels={stateLabels} onClick={() => openTab('feeders', s.penyulang)} />
+            <StateTile label={t('power.zones')} c={s.zona} labels={stateLabels} />
+            <StateTile label={t('power.gd')} c={s.gd_state} labels={stateLabels} onClick={() => openTab('gardu', s.gd_state)} />
+            <SumTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} />
+            <SumTile label={t('power.customers')} total={s.pelanggan.total} off={s.pelanggan.off} onClick={() => openTab('customers', { off: s.pelanggan.off, partial: 0 })} title={t('power.tab_customers')} />
+            <SumTile label={t('power.load')} total={s.beban_va} off={s.beban_off_va} format={fmtVA} />
+            <button
+              className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${activeOutages > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
+              onClick={() => openTab('outages')}
+              title={t('power.active_outages')}
+            >
+              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.active_outages')}</div>
+              <div className={`text-base font-semibold tabular-nums ${activeOutages > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{activeOutages}</div>
+            </button>
+            <div className="min-w-[5rem] flex-[0.8] basis-0 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('power.open_switches')}>
+              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.open_switches')}</div>
+              <div className="text-base font-semibold tabular-nums text-gray-800">{s.open_switches}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-12 items-center gap-2 text-xs text-gray-500">
+            <Spinner size={14} /> {t('common.loading')}
+          </div>
+        )}
+        <div className="mt-1.5 flex items-stretch gap-1.5 overflow-x-auto pb-0.5">
+          <div className="flex min-w-[7rem] flex-col justify-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-600">{t('rel.title')}</div>
+            <select className="input !h-6 !py-0 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
+              <option value="today">{t('rel.period_today')}</option>
+              <option value="month">{t('rel.period_month')}</option>
+              <option value="year">{t('rel.period_year')}</option>
+            </select>
+          </div>
+          {rel ? (
+            <>
+              <RelTile label="SAIDI" value={`${fmtIdx(rel.total.saidi)} ${t('rel.min_cust')}`} sub={t('rel.saidi_desc')} title={t('rel.saidi_hint')} />
+              <RelTile label="SAIFI" value={`${fmtIdx(rel.total.saifi)} ${t('rel.times_cust')}`} sub={t('rel.saifi_desc')} title={t('rel.saifi_hint')} />
+              <RelTile label="ENS (kWh)" value={fmtKWh(rel.total.ens_kwh)} sub={t('rel.ens_desc')} title={t('rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })} />
+              <RelTile
+                label="ENS (Rupiah)"
+                value={fmtRp(rel.total.ens_rp)}
+                sub={t('rel.tariff', { rp: fmtDec(rel.params.tariff_rp_per_kwh, 2) })}
+                title={t('rel.tariff_hint')}
+              />
+              <RelTile
+                label={t('rel.events')}
+                value={fmtNum(rel.total.outages)}
+                sub={t('rel.events_sub', { m: rel.total.momentary, c: fmtNum(rel.total.customers_out) })}
+                title={t('rel.momentary_hint', { min: rel.params.sustained_minutes })}
+              />
+              <div className="flex min-w-[14rem] flex-[2] basis-0 flex-wrap content-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('rel.by_level')}>
+                {LEVELS.filter((lv) => rel.by_level[lv]).map((lv) => (
+                  <button
+                    key={lv}
+                    className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 hover:bg-gray-200"
+                    onClick={() => {
+                      setHistory(true);
+                      setLevelFilter(lv);
+                      openTab('outages');
+                    }}
+                    title={`SAIDI ${fmtIdx(rel.by_level[lv].saidi)} · SAIFI ${fmtIdx(rel.by_level[lv].saifi)} · ENS ${fmtKWh(rel.by_level[lv].ens_kwh)} / ${fmtRp(rel.by_level[lv].ens_rp)}`}
+                  >
+                    {levelLabel(lv)} <b className="tabular-nums">{rel.by_level[lv].outages}</b>
+                  </button>
+                ))}
+                {rel.total.outages === 0 && <span className="text-[11px] text-gray-500">{t('rel.no_events')}</span>}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 px-2 text-xs text-gray-500">
+              <Spinner size={12} /> {t('common.loading')}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+      {/* peta kerja */}
+      <div className="relative min-w-0 flex-1">
       <MapCanvas
         ref={mapRef}
         types={types}
@@ -304,7 +631,12 @@ export default function PowerMonitor() {
         onMeasure={setMeasure}
         onCursor={() => {}}
         onCancelMode={() => setMode({ kind: 'select' })}
+        onArea={(ring) => {
+          setArea(ring);
+          setMode({ kind: 'select' });
+        }}
         onReady={() => {
+          setMapReady(true);
           mapRef.current?.setVisibleTypes(types.map((x) => x.code));
           mapRef.current?.setBasemap(basemap);
           mapRef.current?.setDarkLabels(basemap === 'dark');
@@ -316,25 +648,6 @@ export default function PowerMonitor() {
 
       {/* judul & legenda */}
       <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
-        <div className="rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow-lg">
-          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-            <Icon name="activity" size={16} /> {t('power.title')}
-          </div>
-          <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-gray-600">
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600 bg-white" /> {t('layers.legend_open')}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-1 w-4 rounded bg-amber-500" /> {t('power.outage_area')}
-            </span>
-          </div>
-        </div>
         <div className="flex items-start gap-2">
           <SearchBox
             typeName={typeName}
@@ -378,7 +691,21 @@ export default function PowerMonitor() {
               </button>
             );
           })}
+          <span className="h-5 w-px bg-gray-300" />
+          <button
+            className={`flex h-7 items-center gap-1 rounded-md px-1.5 text-xs ${bndOpen ? 'bg-brand-600 text-white' : boundary.style.show ? 'text-brand-700 hover:bg-gray-100' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={t('bnd.title')}
+            aria-expanded={bndOpen}
+            onClick={() => setBndOpen(!bndOpen)}
+          >
+            <Icon name="layers" size={16} /> UP3
+          </button>
         </div>
+        {bndOpen && (
+          <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
+            <BoundaryControl state={boundary} compact />
+          </div>
+        )}
         {mode.kind === 'measure' && (
           <div className="w-fit max-w-sm rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow">
             {mode.what === 'length' ? t('map.mode_measure_length') : t('map.mode_measure_area')}
@@ -426,7 +753,7 @@ export default function PowerMonitor() {
       )}
       {/* objek terpilih */}
       {selected && (
-        <div className="w-72 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
+        <div className="w-80 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-900">{typeName(selected.properties.type_code)}</span>
             <button
@@ -494,6 +821,20 @@ export default function PowerMonitor() {
               </>
             )}
           </dl>
+          <SectionRecap sec={selected.properties.section} />
+          {canTrace && selected.properties.kind === 'node' && selected.properties.graph?.in_graph && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              <Button size="sm" variant="secondary" icon="arrow-down" onClick={() => startTrace(selected.id as number, 'down')}>
+                {t('power.downtrace')}
+              </Button>
+              <Button size="sm" variant="secondary" icon="arrow-up" onClick={() => startTrace(selected.id as number, 'up')}>
+                {t('power.uptrace')}
+              </Button>
+            </div>
+          )}
+          <div className="mt-2">
+            <OperateBox feature={selected} types={types} submit={operate} />
+          </div>
           <div className="mt-2">
             <Button size="sm" variant="secondary" icon="map" onClick={() => router.push(`/map?select=${selected.properties.kind}:${selected.id}`)}>
               {t('power.open_in_map')}
@@ -504,113 +845,75 @@ export default function PowerMonitor() {
 
       </div>
 
-      {/* panel kanan */}
-      <div className={`absolute right-3 top-3 z-10 mr-11 flex max-h-[calc(100%-4.5rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-xl transition-all ${panelOpen ? 'w-[26rem]' : 'w-10'}`}>
-        <div className="flex items-center border-b border-gray-200">
+      </div>
+
+      {/* panel tab info: kejadian padam, penyulang, gardu */}
+      <aside className={`flex shrink-0 flex-col border-l border-gray-200 bg-white transition-all ${panelOpen ? 'w-[26rem]' : 'w-10'}`}>
+        <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">
           {panelOpen && (
             <>
-              {tabBtn('summary', t('power.tab_summary'))}
               {tabBtn('outages', t('power.tab_outages'), activeOutages)}
+              {tabBtn('soe', 'SOE', soeUnread)}
+              {canTrace && tabBtn('trace', t('map.tab_trace'))}
+              {tabBtn('gi', t('power.tab_gi'), s ? s.gi.off : 0)}
               {tabBtn('feeders', t('power.tab_feeders'), s ? s.penyulang.off + s.penyulang.partial : 0)}
               {tabBtn('gardu', t('power.tab_gardu'), s?.gd_state ? s.gd_state.off + s.gd_state.partial : 0)}
+              {tabBtn('customers', t('power.tab_customers'), s ? s.pelanggan.off : 0)}
+              {tabBtn('export', t('power.tab_export'))}
             </>
           )}
-          <button className="p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')}>
-            <Icon name={panelOpen ? 'chevron-right' : 'activity'} size={16} />
+          <button className="sticky right-0 shrink-0 bg-white p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')} title={t('map.collapse_panel')}>
+            <Icon name={panelOpen ? 'chevron-right' : 'chevron-left'} size={16} />
           </button>
         </div>
         {panelOpen && (
           <div className="flex-1 overflow-y-auto p-3 text-sm">
-            {graphLoading && <div className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">{t('power.graph_loading')}</div>}
-
-            {tab === 'summary' && s && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <StatTile label={t('power.gi')} total={s.gi.total} off={s.gi.off} />
-                  <StatTile label={t('power.trafo_gi')} total={s.trafo_gi.total} off={s.trafo_gi.off} />
-                  <StatTile label={t('power.feeders')} total={s.penyulang.total} off={s.penyulang.off + s.penyulang.partial} />
-                  <StatTile label={t('power.zones')} total={s.zona.total} off={s.zona.off + s.zona.partial} />
-                  <StatTile label={t('power.gd')} total={s.gd.total} off={s.gd.off} />
-                  <StatTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} />
-                  <StatTile label={t('power.customers')} total={s.pelanggan.total} off={s.pelanggan.off} />
-                  <div className={`rounded-lg border p-2 ${s.beban_off_va > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}>
-                    <div className="text-[11px] uppercase text-gray-500">{t('power.load')}</div>
-                    <div className="mt-0.5 flex items-baseline justify-between">
-                      <span className={`text-lg font-semibold tabular-nums ${s.beban_off_va > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtVA(s.beban_off_va > 0 ? s.beban_off_va : s.beban_va - s.beban_off_va)}</span>
-                      <span className="text-[11px] text-gray-500">/ {fmtVA(s.beban_va)}</span>
-                    </div>
-                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-gray-200">
-                      <div className="h-full" style={{ width: `${s.beban_va > 0 ? ((s.beban_va - s.beban_off_va) / s.beban_va) * 100 : 100}%`, background: ON_STATUS }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {[
-                    { label: t('power.feeders'), c: s.penyulang },
-                    { label: t('power.gd'), c: s.gd_state },
-                  ].map(({ label, c }) => (
-                    <div key={label} className="rounded-md bg-gray-50 p-2">
-                      <div className="text-[11px] text-gray-500">{label}</div>
-                      <div className="mt-0.5 grid grid-cols-3 gap-1">
-                        <div>
-                          <div className="text-sm font-semibold tabular-nums text-emerald-700">{fmtNum(c?.on ?? 0)}</div>
-                          <div className="text-[10px] text-gray-500">{t('power.on')}</div>
-                        </div>
-                        <div>
-                          <div className={`text-sm font-semibold tabular-nums ${(c?.partial ?? 0) > 0 ? 'text-amber-700' : 'text-gray-500'}`}>{fmtNum(c?.partial ?? 0)}</div>
-                          <div className="text-[10px] text-gray-500">{t('power.partial')}</div>
-                        </div>
-                        <div>
-                          <div className={`text-sm font-semibold tabular-nums ${(c?.off ?? 0) > 0 ? 'text-red-700' : 'text-gray-500'}`}>{fmtNum(c?.off ?? 0)}</div>
-                          <div className="text-[10px] text-gray-500">{t('power.off')}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="rounded-md bg-gray-50 p-2">
-                    <div className="text-[11px] text-gray-500">{t('power.active_outages')}</div>
-                    <div className={`mt-0.5 text-base font-semibold ${activeOutages > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{activeOutages}</div>
-                  </div>
-                  <div className="rounded-md bg-gray-50 p-2">
-                    <div className="text-[11px] text-gray-500">{t('power.open_switches')}</div>
-                    <div className="mt-0.5 text-base font-semibold text-gray-800">{s.open_switches}</div>
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-1 text-xs font-semibold uppercase text-gray-500">{t('power.feeders_off')}</div>
-                  {feedersOff.length === 0 && <div className="text-xs text-gray-500">{t('power.no_feeders_off')}</div>}
-                  <ul className="space-y-1">
-                    {feedersOff.map((f) => (
-                      <li key={f.head_id} className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1 text-xs">
-                        <button className="flex-1 truncate text-left text-brand-700 hover:underline" onClick={() => select('node', f.head_id)}>
-                          {f.code || `#${f.head_id}`} <span className="text-gray-400">· {f.gi_code}</span>
-                        </button>
-                        <span className="text-gray-600">
-                          {fmtNum(f.pelanggan_off)}/{fmtNum(f.pelanggan)} {t('power.customers').toLowerCase()}
-                        </span>
-                        {stateBadge(f.state)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="text-[11px] text-gray-400">
-                  {updatedAt && t('power.updated', { time: fmtTime(updatedAt.toISOString()) })} · {t('layers.nodes')} {fmtNum(s.nodes.total)} ({fmtNum(s.nodes.off)} {t('power.off')})
-                </div>
-              </div>
-            )}
 
             {tab === 'outages' && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <label className="flex items-center gap-2 text-xs text-gray-700">
-                    <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> {t('power.show_history')}
+                    <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> {t('rel.history_period')}
                   </label>
                   <Button size="sm" variant="secondary" icon="refresh" onClick={loadOutages}>
                     {t('common.refresh')}
                   </Button>
                 </div>
-                {outages.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('power.no_outages')}</div>}
-                {outages.map((o) => (
+                <div className="flex gap-1">
+                  <select className="input flex-1 text-xs" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} aria-label={t('rel.level')}>
+                    <option value="all">{t('rel.all_levels')}</option>
+                    {LEVELS.map((lv) => (
+                      <option key={lv} value={lv}>
+                        {levelLabel(lv)}
+                      </option>
+                    ))}
+                  </select>
+                  {history && (
+                    <select className="input w-28 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
+                      <option value="today">{t('rel.period_today')}</option>
+                      <option value="month">{t('rel.period_month')}</option>
+                      <option value="year">{t('rel.period_year')}</option>
+                    </select>
+                  )}
+                </div>
+                {shownOutages.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('power.no_outages')}</div>}
+                {shownOutages.map((grp) => (
+                  <section key={grp.level} className="space-y-1.5">
+                    <div className="sticky top-0 z-[1] -mx-1 rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700">
+                      <div className="flex items-center justify-between font-semibold uppercase tracking-wide">
+                        <span>{levelLabel(grp.level)}</span>
+                        <span className="tabular-nums">{grp.items.length}</span>
+                      </div>
+                      {outageGroups[grp.level] && (
+                        <div className="flex flex-wrap gap-x-3 tabular-nums text-gray-600">
+                          <span>SAIDI {fmtIdx(outageGroups[grp.level].saidi)}</span>
+                          <span>SAIFI {fmtIdx(outageGroups[grp.level].saifi)}</span>
+                          <span>ENS {fmtKWh(outageGroups[grp.level].ens_kwh)}</span>
+                          <span>{fmtRp(outageGroups[grp.level].ens_rp)}</span>
+                        </div>
+                      )}
+                    </div>
+                {grp.items.map((o) => (
                   <div key={o.id} className={`rounded-md border p-2 text-xs ${o.ended_at ? 'border-gray-200' : 'border-red-200 bg-red-50/50'}`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-1">
@@ -621,12 +924,21 @@ export default function PowerMonitor() {
                       <span className="text-gray-500">#{o.id}</span>
                     </div>
                     <div className="mt-1 text-gray-600">
-                      {t('power.cause')}: {typeName(o.cause_node_type)} {o.cause_node_code}
+                      {t('power.cause')}: {typeName(o.cause_node_type)} {o.cause_node_code || `#${o.cause_node_id}`}
+                      {o.cause_kind === 'edge' ? ` (${t('rel.line')})` : ''}
                       {o.way_edge_id ? ` (way #${o.way_edge_id})` : ''}
                     </div>
                     <div className="text-gray-600">
                       {t('power.started')} {fmtDate(o.started_at)} · {t('power.duration')} {fmtDuration(Math.round(o.duration_sec))}
                       {o.ended_at ? ` · ${t('power.ended')} ${fmtDate(o.ended_at)}` : ` · ${t('power.ongoing')}`}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 rounded bg-gray-50 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-700">
+                      <span title={t('rel.cust_min_hint')}>
+                        {fmtNum(Math.round(o.customer_minutes || 0))} {t('rel.cust_min')}
+                      </span>
+                      <span>ENS {fmtKWh(o.ens_kwh || 0)}</span>
+                      <span>{fmtRp(o.ens_rp || 0)}</span>
+                      {o.momentary && <span className="text-amber-700">{t('rel.momentary')}</span>}
                     </div>
                     <div className="mt-1 text-[11px] font-semibold uppercase text-gray-500">{t('power.group_counts')}</div>
                     {report(o.summary)}
@@ -637,6 +949,83 @@ export default function PowerMonitor() {
                     </div>
                   </div>
                 ))}
+                  </section>
+                ))}
+              </div>
+            )}
+
+            {tab === 'gi' && (
+              <div className="space-y-2">
+                <div className="flex gap-1">
+                  <input className="input flex-1" placeholder={t('common.search')} value={giQ} onChange={(e) => setGiQ(e.target.value)} />
+                  <select className="input w-28" value={giState} onChange={(e) => setGiState(e.target.value as any)} aria-label={t('common.status')}>
+                    <option value="all">{t('power.filter_all')}</option>
+                    <option value="off">{t('power.off')}</option>
+                    <option value="partial">{t('power.partial')}</option>
+                    <option value="on">{t('power.on')}</option>
+                  </select>
+                </div>
+                {giCounts && (
+                  <div className="flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                    <span>
+                      {t('power.gi')}: {fmtNum(giCounts.on + giCounts.partial + giCounts.off)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')} {giCounts.on}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-2 w-2 rounded-full bg-amber-500" /> {t('power.partial')} {giCounts.partial}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')} {giCounts.off}
+                    </span>
+                  </div>
+                )}
+                {gis.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
+                <ul className="space-y-1">
+                  {gis.map((g) => (
+                    <li key={g.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
+                      <div className="flex items-center gap-2">
+                        <button className="truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', g.id)}>
+                          {g.code || `#${g.id}`}
+                        </button>
+                        <span className="flex-1 truncate text-gray-500">{g.name}</span>
+                        {stateBadge(g.state)}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                        <span>
+                          {t('power.trafo_gi')} {fmtNum(g.trafo_gi - g.trafo_gi_off)}/{fmtNum(g.trafo_gi)}
+                        </span>
+                        <span>
+                          {t('power.feeders')} {fmtNum(g.feeders - g.feeders_off - g.feeders_partial)}/{fmtNum(g.feeders)}
+                          {g.feeders_partial > 0 && <span className="text-amber-700"> · {t('power.partial')} {g.feeders_partial}</span>}
+                          {g.feeders_off > 0 && <span className="text-red-700"> · {t('power.off')} {g.feeders_off}</span>}
+                        </span>
+                        <span>
+                          {t('power.gd')} {fmtNum(g.gd - g.gd_off)}/{fmtNum(g.gd)}
+                        </span>
+                        <span>
+                          {t('power.customers')} {fmtNum(g.pelanggan - g.pelanggan_off)}/{fmtNum(g.pelanggan)}
+                        </span>
+                        <span>
+                          {t('power.load')} {fmtVA(g.beban_va - g.beban_off_va)}/{fmtVA(g.beban_va)}
+                        </span>
+                      </div>
+                      {g.feeders > 0 && (
+                        <button
+                          className="mt-0.5 text-[11px] text-brand-700 hover:underline"
+                          onClick={() => {
+                            setFeederQ(g.code);
+                            setFeederState('all');
+                            setTab('feeders');
+                          }}
+                        >
+                          {t('power.gi_show_feeders', { n: g.feeders })} →
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
@@ -727,17 +1116,46 @@ export default function PowerMonitor() {
                 </ul>
               </div>
             )}
+            <div className={tab === 'soe' ? 'h-full' : 'hidden'}>
+              <SOEPanel active={tab === 'soe'} onUnread={setSoeUnread} onSelect={selectAndFly} typeName={typeName} levelLabel={levelLabel} />
+            </div>
+            {tab === 'trace' && canTrace && (
+              <TracePanel
+                types={types}
+                seed={traceSeed}
+                selectedNodeId={selected?.properties.kind === 'node' ? (selected.id as number) : null}
+                result={trace}
+                onResult={onTraceResult}
+                directions={['down', 'up']}
+                onSelect={(k, id) => {
+                  const f = trace?.geojson.features.find((x) => x.id === id && x.properties.kind === k);
+                  const b = f ? bboxOf([f]) : null;
+                  if (b) mapRef.current?.fitBBox(b);
+                  select(k, id);
+                }}
+              />
+            )}
+            {tab === 'customers' && (
+              <CustomersPanel active={tab === 'customers'} state={custState} onState={setCustState} refreshKey={custRefresh} onSelect={selectAndFly} typeName={typeName} />
+            )}
+            {tab === 'export' && (
+              <ExchangePanel
+                mapRef={mapRef}
+                types={types}
+                format="gdb"
+                energyFilter
+                area={area}
+                drawing={mode.kind === 'area'}
+                onDrawArea={() => setMode({ kind: 'area' })}
+                onClearArea={() => {
+                  setArea(null);
+                  mapRef.current?.setArea(null);
+                }}
+              />
+            )}
           </div>
         )}
-      </div>
-
-      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-3 rounded-md bg-white/90 px-3 py-1 text-[11px] text-gray-700 shadow">
-        <span title={t('map.tile_version')}>v{tileVersion}</span>
-        <span className="flex items-center gap-1" title={wsOk ? t('map.realtime_on') : t('map.realtime_off')}>
-          <span className={`inline-block h-2 w-2 rounded-full ${wsOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
-          {t('map.realtime')}
-        </span>
-        <span className="text-gray-500">{locale === 'en' ? 'auto refresh' : 'refresh otomatis'} {configs['monitoring.power_refresh_seconds'] || 15}s</span>
+      </aside>
       </div>
     </div>
   );

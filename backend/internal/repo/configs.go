@@ -134,7 +134,8 @@ func (c *Configs) Public() map[string]string {
 	defer c.mu.RUnlock()
 	out := map[string]string{}
 	for k, v := range c.values {
-		if strings.HasPrefix(k, "app.") || strings.HasPrefix(k, "loading.") || strings.HasPrefix(k, "topology.") || strings.HasPrefix(k, "trace.") {
+		if strings.HasPrefix(k, "app.") || strings.HasPrefix(k, "loading.") || strings.HasPrefix(k, "topology.") || strings.HasPrefix(k, "trace.") ||
+			strings.HasPrefix(k, "map.") || strings.HasPrefix(k, "monitoring.") {
 			out[k] = v
 		}
 	}

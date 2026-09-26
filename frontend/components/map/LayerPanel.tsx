@@ -8,6 +8,7 @@ import { Button, useToast } from '@/components/ui';
 import { fmtNum } from '@/lib/format';
 import type { BasemapPref, ColorMode } from './types';
 import { OFF_STATUS, ON_STATUS } from './mapStyle';
+import { SymbolSwatch, isSymbol } from './symbols';
 
 interface Props {
   types: ComponentType[];
@@ -23,9 +24,10 @@ interface Props {
   graph: Record<string, any> | null;
   canEdit: boolean;
   zoom: number;
+  overlay?: React.ReactNode; // kontrol overlay (batas wilayah)
 }
 
-export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labels, onLabels, colorMode = 'type', onColorMode, onReload, graph, canEdit, zoom }: Props) {
+export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labels, onLabels, colorMode = 'type', onColorMode, onReload, graph, canEdit, zoom, overlay }: Props) {
   const { t, pick } = useT();
   const toast = useToast();
   const [validating, setValidating] = useState(false);
@@ -125,6 +127,7 @@ export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labe
           </div>
         )}
       </div>
+      {overlay}
       {cats.map((cat) => (
         <div key={cat}>
           <div className="mb-1 text-xs font-semibold uppercase text-gray-500">{cat}</div>
@@ -138,8 +141,17 @@ export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labe
                     <input type="checkbox" checked={visible.has(x.code)} onChange={() => toggle(x.code)} />
                     {x.geom_kind === 'line' ? (
                       <span className="inline-block h-1 w-4 rounded" style={{ background: x.color }} />
+                    ) : isSymbol(x.icon) ? (
+                      <SymbolSwatch icon={x.icon!} color={x.color} size={16} />
                     ) : x.geom_kind === 'polygon' ? (
                       <span className="inline-block h-3 w-3 border border-gray-500" style={{ background: x.color, opacity: 0.8 }} />
+                    ) : x.is_sink ? (
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center" style={{ color: x.color }} aria-hidden>
+                        <svg viewBox="0 0 48 48" width="14" height="14" fill="currentColor">
+                          <path d="M5 23 24 6l19 17h-6v18H11V23z" />
+                          <rect x="21" y="29" width="7" height="12" fill="#fff" />
+                        </svg>
+                      </span>
                     ) : (
                       <span className="inline-block h-3 w-3 rounded-full border border-white shadow" style={{ background: x.color }} />
                     )}

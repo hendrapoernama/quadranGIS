@@ -41,6 +41,8 @@ type Deps struct {
 	Features    *gis.Features
 	Graph       *gis.Graph
 	Power       *gis.Power
+	PowerFlow   *gis.PowerFlow
+	Boundaries  *gis.Boundaries
 	Hub         *realtime.Hub
 	Producer    *stream.Producer
 	Collector   *monitor.Collector
@@ -137,6 +139,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	g := authed.Group("/gis")
 	g.Use(middleware.RequirePermission("gis.view"))
 	g.GET("/types", s.gisTypes)
+	g.GET("/boundaries", s.gisBoundaries)
 	g.GET("/tiles/:z/:x/:y", s.gisTile)
 	g.GET("/features/bbox", s.gisBBox)
 	g.GET("/features/:kind/:id", s.gisGetFeature)
@@ -163,17 +166,34 @@ func NewRouter(d *Deps) *gin.Engine {
 
 	// manuver jaringan & monitoring kelistrikan (nyala/padam)
 	gm := authed.Group("/gis")
-	gm.Use(middleware.RequirePermission("gis.maneuver"))
+	gm.Use(middleware.RequireAnyPermission(OperatePermissions...))
 	gm.POST("/maneuver", s.powerManeuver)
 
 	pw := authed.Group("/power")
 	pw.Use(middleware.RequirePermission("gis.view"))
 	pw.GET("/summary", s.powerSummary)
 	pw.GET("/feeders", s.powerFeeders)
+	pw.GET("/gi", s.powerGI)
+	pw.GET("/customers", s.powerCustomers)
 	pw.GET("/gardu", s.powerGardu)
 	pw.GET("/outages", s.powerOutages)
 	pw.GET("/outages/:id", s.powerOutage)
 	pw.GET("/maneuvers", s.powerManeuvers)
+	pw.GET("/reliability", s.powerReliability)
+	pw.GET("/soe", s.powerSOE)
+
+	// pertukaran data GIS: export (GeoJSON / GDB) butuh gis.view, import butuh gis.edit
+	xg := authed.Group("/exchange")
+	xg.POST("/export", middleware.RequirePermission("gis.view"), s.exchangeExport)
+	xg.POST("/import", middleware.RequirePermission("gis.edit"), s.exchangeImport)
+
+	// aliran daya (power flow)
+	pf := authed.Group("/powerflow")
+	pf.Use(middleware.RequirePermission("gis.view"))
+	pf.GET("/params", s.pfGetParams)
+	pf.GET("/results", s.pfResults)
+	pf.POST("/feeder", s.pfFeeder)
+	pf.POST("/run-all", s.pfRunAll)
 
 	// asisten AI (LLM)
 	aig := authed.Group("/ai")

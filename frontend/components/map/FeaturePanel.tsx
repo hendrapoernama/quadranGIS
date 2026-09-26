@@ -1,5 +1,6 @@
 'use client';
 
+import { OperateBox, type ManeuverBody } from '@/components/power/OperateBox';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -7,13 +8,9 @@ import type { AttrField, ComponentType, GeoFeature, GraphInfo } from '@/lib/type
 import { Badge, Button, Confirm, useToast } from '@/components/ui';
 import { fmtDate, fmtLength, fmtVA } from '@/lib/format';
 import { fmtArea } from '@/lib/geo';
+import { SectionRecap } from '@/components/power/SectionRecap';
 
-export interface ManeuverBody {
-  action: 'open' | 'close';
-  kind: string;
-  note: string;
-  way_edge_id?: number;
-}
+export type { ManeuverBody } from '@/components/power/OperateBox';
 
 interface Props {
   feature: GeoFeature | null;
@@ -37,7 +34,6 @@ interface Props {
 }
 
 type KV = { k: string; v: string };
-const MANEUVER_KINDS = ['GANGGUAN', 'PEMELIHARAAN', 'MLS'];
 
 export function FeaturePanel(props: Props) {
   const { feature, loading, types, canEdit, canTrace, canManeuver = false } = props;
@@ -54,10 +50,6 @@ export function FeaturePanel(props: Props) {
   const [deleting, setDeleting] = useState(false);
   const [neighbors, setNeighbors] = useState<any[]>([]);
   const [history, setHistory] = useState<any[] | null>(null);
-  const [mKind, setMKind] = useState('GANGGUAN');
-  const [mNote, setMNote] = useState('');
-  const [mBusy, setMBusy] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState<null | { wayEdgeId?: number; label: string }>(null);
 
   const kind = feature?.properties.kind as 'node' | 'edge' | undefined;
   const id = feature?.id;
@@ -143,18 +135,6 @@ export function FeaturePanel(props: Props) {
       setHistory(r.items);
     } catch (e: any) {
       toast.push(e.message, 'error');
-    }
-  }
-
-  async function maneuver(action: 'open' | 'close', wayEdgeId?: number) {
-    if (!props.onManeuver) return;
-    setMBusy(true);
-    try {
-      await props.onManeuver(id!, { action, kind: mKind, note: mNote, way_edge_id: wayEdgeId });
-      setMNote('');
-      setConfirmOpen(null);
-    } finally {
-      setMBusy(false);
     }
   }
 
@@ -268,6 +248,9 @@ export function FeaturePanel(props: Props) {
             )}
           </dl>
         )}
+        {inGraph && p.section && (
+          <SectionRecap sec={p.section} />
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -287,9 +270,9 @@ export function FeaturePanel(props: Props) {
         </div>
         <div>
           <label className="label">{t('common.status')}</label>
-          {isSwitch && kind === 'node' ? (
+          {ct?.topology !== false && !isBuilding ? (
             <div className="input flex items-center justify-between bg-gray-50 text-xs" title={t('feature.status_switch_hint')}>
-              <span>{status === 'open' ? t('feature.status_open') : t('feature.status_closed')}</span>
+              <span>{status === 'open' ? (isSwitch ? t('feature.status_open') : t('op.state_deenergized')) : isSwitch ? t('feature.status_closed') : t('op.state_energized')}</span>
               <span className="text-gray-400">⚡</span>
             </div>
           ) : (
@@ -305,76 +288,8 @@ export function FeaturePanel(props: Props) {
         </div>
       </div>
 
-      {/* ---- manuver jaringan (alat switching) */}
-      {isSwitch && kind === 'node' && (
-        <div className="rounded-md border border-amber-200 bg-amber-50/60 p-2 text-xs">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="font-semibold uppercase text-amber-800">{t('feature.maneuver')}</span>
-            {ways > 0 && <span className="text-gray-500">{ways} way</span>}
-          </div>
-          {!canManeuver && <div className="text-gray-500">{t('feature.maneuver_no_perm')}</div>}
-          {canManeuver && !inGraph && <div className="text-gray-500">{t('feature.not_in_graph')}</div>}
-          {canManeuver && inGraph && (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="label">{t('feature.maneuver_kind')}</label>
-                  <select className="input" value={mKind} onChange={(e) => setMKind(e.target.value)}>
-                    {MANEUVER_KINDS.map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">{t('feature.maneuver_note')}</label>
-                  <input className="input" value={mNote} onChange={(e) => setMNote(e.target.value)} placeholder="-" />
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {graph!.open ? (
-                  <Button size="sm" icon="check" loading={mBusy} onClick={() => maneuver('close')}>
-                    {t('feature.maneuver_close')}
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="danger" icon="alert" loading={mBusy} onClick={() => setConfirmOpen({ label: code || `#${id}` })}>
-                    {t('feature.maneuver_open')}
-                  </Button>
-                )}
-              </div>
-              {ways >= 3 && neighbors.length > 0 && (
-                <div>
-                  <div className="mb-0.5 text-[11px] font-semibold uppercase text-gray-500">{t('feature.maneuver_ways')}</div>
-                  <ul className="space-y-0.5">
-                    {neighbors.map((n, i) => {
-                      const wayOpen = (graph!.open_ways || []).includes(n.edge_id);
-                      return (
-                        <li key={n.edge_id} className="flex items-center gap-1 rounded bg-white/70 px-1 py-0.5">
-                          <span className="w-4 text-gray-400">{i + 1}</span>
-                          <button className="flex-1 truncate text-left text-brand-700 hover:underline" onClick={() => props.onSelect('edge', n.edge_id)}>
-                            {n.edge_code || `#${n.edge_id}`} <span className="text-gray-400">→ {n.node_code || `#${n.node_id}`}</span>
-                          </button>
-                          {wayOpen ? <Badge tone="red">{t('feature.way_state_open')}</Badge> : <Badge tone="green">{t('feature.way_state_closed')}</Badge>}
-                          {wayOpen ? (
-                            <button className="text-brand-700 hover:underline" disabled={mBusy} onClick={() => maneuver('close', n.edge_id)}>
-                              {t('feature.way_close')}
-                            </button>
-                          ) : (
-                            <button className="text-red-700 hover:underline" disabled={mBusy} onClick={() => setConfirmOpen({ wayEdgeId: n.edge_id, label: n.edge_code || `#${n.edge_id}` })}>
-                              {t('feature.way_open')}
-                            </button>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {/* ---- operasi: buka / tutup alat switching, energize / deenergize objek & saluran */}
+      {props.onManeuver && <OperateBox feature={feature} types={types} submit={(body) => props.onManeuver!(id!, body)} />}
 
       {kind === 'edge' && (
         <div className="rounded-md border border-gray-200 p-2 text-xs">
@@ -567,14 +482,6 @@ export function FeaturePanel(props: Props) {
         onCancel={() => setConfirmDel(false)}
         onConfirm={del}
         loading={deleting}
-      />
-      <Confirm
-        open={!!confirmOpen}
-        title={t('feature.maneuver')}
-        message={t('feature.maneuver_confirm_open', { code: confirmOpen?.label || '', kind: mKind })}
-        onCancel={() => setConfirmOpen(null)}
-        onConfirm={() => maneuver('open', confirmOpen?.wayEdgeId)}
-        loading={mBusy}
       />
     </div>
   );

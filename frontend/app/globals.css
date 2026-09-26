@@ -168,3 +168,13 @@ html.dark body {
 .dark .text-red-700 { color: #f87171; }
 .dark .text-red-600 { color: #f87171; }
 .dark .text-emerald-700 { color: #34d399; }
+
+/* tombol pilih file (input type=file) mengikuti tema gelap */
+.dark input[type=file]::file-selector-button { background-color: #374151; color: #e5e7eb; }
+
+/* SOE: sorot baris event baru selama beberapa detik (terang & gelap) */
+@keyframes soe-flash {
+  0% { background-color: rgba(250, 178, 25, 0.35); }
+  100% { background-color: transparent; }
+}
+.soe-fresh { animation: soe-flash 4s ease-out; }

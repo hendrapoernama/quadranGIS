@@ -1,3 +1,4 @@
+import { SYMBOLS, isSymbol, symbolImage } from './symbols';
 import type { Map as MLMap } from 'maplibre-gl';
 import type { ComponentType } from '@/lib/types';
 
@@ -73,6 +74,75 @@ export function nodeLabelExpr(types: ComponentType[]): any {
   return expr;
 }
 
+/** Tipe titik yang digambar dengan simbol standar kelistrikan (ikon SDF), bukan lingkaran. */
+export function symbolTypes(types: ComponentType[]): ComponentType[] {
+  return types.filter((t) => t.geom_kind !== 'line' && isSymbol(t.icon));
+}
+
+/** Ekspresi icon-image: simbol per tipe, varian terbuka untuk alat switching berstatus open. */
+function symbolImageExpr(types: ComponentType[]): any {
+  const sym = symbolTypes(types);
+  if (sym.length === 0) return '';
+  const open = ['==', ['get', 'status'], 'open'];
+  const arms: any[] = [];
+  for (const t of sym) arms.push(t.code, SYMBOLS[t.icon!].switchable ? ['case', open, symbolImage(t.icon!, true), t.icon] : t.icon);
+  return ['match', ['get', 'type_code'], ...arms, ''];
+}
+
+/** Warna pewarnaan peta UP3 (5 warna; UP3 bersebelahan selalu berbeda). Hindari merah/hijau status. */
+export const BOUNDARY_PALETTE = ['#2a78d6', '#d98a1c', '#8b5cf6', '#0f9fb0', '#d6508a'];
+const boundaryColor: any = ['match', ['get', 'color'], 0, BOUNDARY_PALETTE[0], 1, BOUNDARY_PALETTE[1], 2, BOUNDARY_PALETTE[2], 3, BOUNDARY_PALETTE[3], BOUNDARY_PALETTE[4]];
+export const BOUNDARY_LAYERS = ['bnd-fill', 'bnd-ulp-line', 'bnd-line', 'bnd-ulp-label', 'bnd-label'];
+
+/** Layer overlay batas wilayah (paling bawah, di bawah jaringan). */
+function boundaryLayers(textFont: string[]): any[] {
+  const area = (lv: string) => ['all', ['==', ['get', 'kind'], 'area'], ['==', ['get', 'level'], lv]];
+  const label = (lv: string) => ['all', ['==', ['get', 'kind'], 'label'], ['==', ['get', 'level'], lv]];
+  return [
+    { id: 'bnd-fill', type: 'fill', source: 'boundary', filter: area('up3'), paint: { 'fill-color': boundaryColor, 'fill-opacity': 0.15 } },
+    {
+      id: 'bnd-ulp-line',
+      type: 'line',
+      source: 'boundary',
+      filter: area('ulp'),
+      layout: { visibility: 'none', 'line-join': 'round' },
+      paint: { 'line-color': boundaryColor, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 14, 1.4], 'line-dasharray': [3, 2], 'line-opacity': 0.85 },
+    },
+    {
+      id: 'bnd-line',
+      type: 'line',
+      source: 'boundary',
+      filter: area('up3'),
+      layout: { 'line-join': 'round' },
+      paint: { 'line-color': boundaryColor, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.4, 14, 2.6, 18, 3.6], 'line-opacity': 0.9 },
+    },
+    {
+      id: 'bnd-ulp-label',
+      type: 'symbol',
+      source: 'boundary',
+      filter: label('ulp'),
+      minzoom: 11,
+      maxzoom: 16,
+      layout: { visibility: 'none', 'text-field': ['get', 'name'], 'text-font': textFont, 'text-size': 10, 'text-letter-spacing': 0.04 },
+      paint: { 'text-color': '#374151', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 },
+    },
+    {
+      id: 'bnd-label',
+      type: 'symbol',
+      source: 'boundary',
+      filter: label('up3'),
+      maxzoom: 15,
+      layout: {
+        'text-field': ['concat', 'UP3 ', ['get', 'name']],
+        'text-font': textFont,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 12, 13, 14, 15],
+        'text-letter-spacing': 0.06,
+      },
+      paint: { 'text-color': '#111827', 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 },
+    },
+  ];
+}
+
 export const baseFilters: Record<string, any> = {
   'edges-open': ['==', ['get', 'status'], 'open'],
   'edges-off': ['!', ['coalesce', ['get', 'energized'], true]],
@@ -84,6 +154,10 @@ export function applyColorMode(map: MLMap, types: ComponentType[], mode: ColorMo
   if (map.getLayer('nodes')) {
     map.setPaintProperty('nodes', 'circle-color', color);
     map.setPaintProperty('nodes', 'circle-stroke-color', nodeStrokeColorExpr(mode, dark));
+  }
+  if (map.getLayer('nodes-symbol')) {
+    map.setPaintProperty('nodes-symbol', 'icon-color', color);
+    map.setPaintProperty('nodes-symbol', 'icon-halo-color', nodeStrokeColorExpr(mode, dark));
   }
   if (map.getLayer('edges')) map.setPaintProperty('edges', 'line-color', color);
   if (map.getLayer('buildings-fill')) map.setPaintProperty('buildings-fill', 'fill-color', color);
@@ -97,8 +171,13 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
   const pSize = sizeExpr(types, ['point', 'polygon']);
   const lSize = sizeExpr(types, ['line']);
   const textFont = [font];
+  const symCodes = symbolTypes(types).map((t) => t.code);
+  baseFilters['nodes'] = ['!', ['in', ['get', 'type_code'], ['literal', symCodes]]];
+  baseFilters['nodes-symbol'] = ['in', ['get', 'type_code'], ['literal', symCodes]];
 
   return [
+    // ---- overlay batas wilayah UP3 / ULP (paling bawah)
+    ...boundaryLayers(textFont),
     // ---- kepadatan (zoom rendah)
     {
       id: 'density',
@@ -185,6 +264,27 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#f59e0b', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 14, 6, 18, 10], 'line-opacity': 0.75 },
     },
+    // ---- overlay hasil analisis (aliran daya): warna dari properti "color"
+    {
+      id: 'overlay-edges',
+      type: 'line',
+      source: 'overlay',
+      filter: ['==', ['get', 'kind'], 'edge'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 13, 3.5, 17, 7] },
+    },
+    {
+      id: 'overlay-nodes',
+      type: 'circle',
+      source: 'overlay',
+      filter: ['all', ['==', ['get', 'kind'], 'node'], ['has', 'color']],
+      paint: {
+        'circle-color': ['get', 'color'],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, ['case', ['get', 'big'], 4, 1.5], 14, ['case', ['get', 'big'], 8, 3.5], 18, ['case', ['get', 'big'], 12, 6]],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': ['case', ['get', 'big'], 1.5, 0.5],
+      },
+    },
     {
       id: 'selected-building',
       type: 'line',
@@ -206,11 +306,34 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
       type: 'circle',
       source: SOURCE,
       'source-layer': 'nodes',
+      filter: baseFilters['nodes'],
       paint: {
         'circle-color': color,
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, ['*', pSize, 0.5], 13, ['*', pSize, 0.9], 18, ['*', pSize, 1.7]],
         'circle-stroke-color': nodeStrokeColorExpr(mode),
         'circle-stroke-width': nodeStrokeWidthExpr(),
+      },
+    },
+    // ---- peralatan & pelanggan: simbol standar kelistrikan (warna = tipe / status,
+    //      tepi merah bila padam / terbuka; alat switching terbuka memakai varian simbol terbuka)
+    {
+      id: 'nodes-symbol',
+      type: 'symbol',
+      source: SOURCE,
+      'source-layer': 'nodes',
+      filter: baseFilters['nodes-symbol'],
+      layout: {
+        'icon-image': symbolImageExpr(types),
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, ['*', pSize, 0.06], 13, ['*', pSize, 0.13], 18, ['*', pSize, 0.27]],
+        'icon-rotation-alignment': 'viewport',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: {
+        'icon-color': color,
+        'icon-halo-color': nodeStrokeColorExpr(mode),
+        'icon-halo-width': ['case', ['==', ['get', 'status'], 'open'], 1.1, ['!', energizedExpr()], 1.5, 0.8],
+        'icon-halo-blur': 0.3,
       },
     },
     {
@@ -241,6 +364,19 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
       'source-layer': 'nodes',
       layout: { 'text-field': nodeLabelExpr(types), 'text-font': textFont, 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
       paint: { 'text-color': '#111827', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 },
+    },
+    // ---- area seleksi (export)
+    {
+      id: 'area-fill',
+      type: 'fill',
+      source: 'area',
+      paint: { 'fill-color': '#7c3aed', 'fill-opacity': 0.08 },
+    },
+    {
+      id: 'area-line',
+      type: 'line',
+      source: 'area',
+      paint: { 'line-color': '#7c3aed', 'line-width': 2, 'line-dasharray': [3, 2] },
     },
     // ---- alat gambar
     {
@@ -341,4 +477,7 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
   ];
 }
 
-export const typeFilteredLayers = ['density', 'density-label', 'buildings-fill', 'buildings-outline', 'edges', 'edges-open', 'edges-off', 'edge-labels', 'nodes', 'node-labels'];
+export const typeFilteredLayers = ['density', 'density-label', 'buildings-fill', 'buildings-outline', 'edges', 'edges-open', 'edges-off', 'edge-labels', 'nodes', 'nodes-symbol', 'node-labels'];
+
+/** Layer titik yang dapat diklik (lingkaran + ikon pelanggan). */
+export const NODE_LAYERS = ['nodes', 'nodes-symbol'];

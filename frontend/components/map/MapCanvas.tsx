@@ -6,8 +6,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { API_BASE, api, getToken } from '@/lib/api';
 import { closestOnPolyline, fmtArea, fmtDistance, haversine, metersPerPixel, midpoint, pathLength, ringArea } from '@/lib/geo';
 import type { ComponentType, FeatureCollection, GeoFeature } from '@/lib/types';
-import { SOURCE, applyColorMode, baseFilters, buildLayers, energizedExpr, typeFilter, typeFilteredLayers, type ColorMode } from './mapStyle';
-import type { BasemapKind, ConnectedEdge, DrawMode, MapHandle, MeasureResult } from './types';
+import { BOUNDARY_LAYERS, NODE_LAYERS, SOURCE, applyColorMode, baseFilters, buildLayers, energizedExpr, typeFilter, typeFilteredLayers, type ColorMode } from './mapStyle';
+import { registerSymbols } from './symbols';
+import type { BasemapKind, ConnectedEdge, DrawMode, MapHandle, MeasureResult, BoundaryStyle } from './types';
 
 interface Props {
   types: ComponentType[];
@@ -31,6 +32,8 @@ interface Props {
   onCancelMode: () => void;
   onReady?: () => void;
   onError?: (sourceId: string, message: string) => void;
+  /** poligon area seleksi selesai digambar (mode 'area') */
+  onArea?: (ring: [number, number][]) => void;
 }
 
 type Coord = [number, number];
@@ -88,13 +91,29 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
   const darkRef = useRef(props.initialBasemap === 'dark');
 
   // ------------------------------------------------------------ helpers
+  const boundaryData = useRef<FeatureCollection | null>(null);
+  const boundaryStyle = useRef<BoundaryStyle>({ show: true, ulp: false, labels: true, opacity: 0.15 });
+  const applyBoundary = () => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer('bnd-fill')) return;
+    const st = boundaryStyle.current;
+    const vis: Record<string, boolean> = {
+      'bnd-fill': st.show,
+      'bnd-line': st.show,
+      'bnd-ulp-line': st.show && st.ulp,
+      'bnd-label': st.show && st.labels,
+      'bnd-ulp-label': st.show && st.ulp && st.labels,
+    };
+    for (const id of BOUNDARY_LAYERS) map.setLayoutProperty(id, 'visibility', vis[id] ? 'visible' : 'none');
+    map.setPaintProperty('bnd-fill', 'fill-opacity', Math.max(0, Math.min(1, st.opacity)));
+  };
   const setSource = (id: string, data: FeatureCollection) => {
     const src = mapRef.current?.getSource(id) as GeoJSONSource | undefined;
     src?.setData(data as any);
   };
   const modeKind = () => p.current.mode.kind;
   const isLineDraw = () => modeKind() === 'line' || modeKind() === 'reshape';
-  const isPolyDraw = () => modeKind() === 'polygon' || modeKind() === 'reshape-polygon';
+  const isPolyDraw = () => modeKind() === 'polygon' || modeKind() === 'reshape-polygon' || modeKind() === 'area';
   const isMeasure = () => modeKind() === 'measure';
   const isDrawing = () => isLineDraw() || isPolyDraw() || isMeasure();
 
@@ -228,6 +247,13 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       }
       return;
     }
+    if (mode.kind === 'area') {
+      if (coords.length < 3) return;
+      clearDraw();
+      setSource('area', { type: 'FeatureCollection', features: [pg(coords)] });
+      p.current.onArea?.(coords);
+      return;
+    }
     if (mode.kind === 'reshape-polygon') {
       if (coords.length < 3) return;
       clearDraw();
@@ -254,9 +280,9 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     if (map.getLayer('nodes')) applyColorMode(map, p.current.types, colorMode.current, dark);
     const text = dark ? '#f9fafb' : '#111827';
     const halo = dark ? '#111827' : '#ffffff';
-    for (const id of ['node-labels', 'edge-labels', 'density-label']) {
+    for (const id of ['node-labels', 'edge-labels', 'density-label', 'bnd-label', 'bnd-ulp-label']) {
       if (map.getLayer(id)) {
-        map.setPaintProperty(id, 'text-color', id === 'edge-labels' ? (dark ? '#d1d5db' : '#374151') : text);
+        map.setPaintProperty(id, 'text-color', id === 'edge-labels' || id === 'bnd-ulp-label' ? (dark ? '#d1d5db' : '#374151') : text);
         map.setPaintProperty(id, 'text-halo-color', halo);
       }
     }
@@ -404,9 +430,12 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     map.on('load', () => {
       map.resize();
       map.addSource(SOURCE, { type: 'vector', tiles: [tileUrl(versionRef.current)], minzoom: 0, maxzoom: 22 });
-      for (const id of ['trace', 'selected', 'draw', 'snap', 'edit', 'measure']) map.addSource(id, { type: 'geojson', data: EMPTY as any });
+      for (const id of ['trace', 'overlay', 'area', 'selected', 'draw', 'snap', 'edit', 'measure']) map.addSource(id, { type: 'geojson', data: EMPTY as any });
+      map.addSource('boundary', { type: 'geojson', data: (boundaryData.current || EMPTY) as any, tolerance: 0.5 });
+      registerSymbols(map);
       for (const layer of buildLayers(p.current.types, font, colorMode.current)) map.addLayer(layer);
       applyDarkLabels(p.current.initialBasemap === 'dark');
+      applyBoundary();
       for (const id of ['edit-vertices', 'edit-midpoints', 'edit-node']) {
         map.on('mousedown', id, onHandleDown);
         map.on('mouseenter', id, () => {
@@ -429,7 +458,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       const kind = modeKind();
       if (kind === 'vertex') return; // kursor diatur oleh handle
       if (kind === 'select') {
-        const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: ['nodes', 'edges', 'buildings-fill', 'density'] });
+        const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density'].filter((l) => map.getLayer(l)) });
         map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
         return;
       }
@@ -440,9 +469,9 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         return;
       }
       // indikator snap visual untuk titik & garis
-      const hits = map.queryRenderedFeatures([[e.point.x - 7, e.point.y - 7], [e.point.x + 7, e.point.y + 7]], { layers: ['nodes', 'edges'] });
+      const hits = map.queryRenderedFeatures([[e.point.x - 7, e.point.y - 7], [e.point.x + 7, e.point.y + 7]], { layers: [...NODE_LAYERS, 'edges'] });
       let snap: Coord | null = null;
-      const node = hits.find((h) => h.layer.id === 'nodes');
+      const node = hits.find((h) => NODE_LAYERS.includes(h.layer.id));
       if (node && node.geometry.type === 'Point') snap = node.geometry.coordinates as Coord;
       else {
         const edge = hits.find((h) => h.layer.id === 'edges');
@@ -467,8 +496,8 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       const { lng, lat } = e.lngLat;
       if (!map.getLayer('nodes')) return;
       if (mode.kind === 'select') {
-        const hits = map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: ['nodes', 'edges', 'buildings-fill', 'density'] });
-        const node = hits.find((h) => h.layer.id === 'nodes');
+        const hits = map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density'].filter((l) => map.getLayer(l)) });
+        const node = hits.find((h) => NODE_LAYERS.includes(h.layer.id));
         const edge = hits.find((h) => h.layer.id === 'edges');
         const bldg = hits.find((h) => h.layer.id === 'buildings-fill');
         const dens = hits.find((h) => h.layer.id === 'density');
@@ -616,6 +645,15 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         src?.setTiles([tileUrl(versionRef.current)]);
       },
       setTrace: (fc) => setSource('trace', fc || EMPTY),
+      setOverlay: (fc) => setSource('overlay', fc || EMPTY),
+      setBoundary: (fc) => {
+        boundaryData.current = fc;
+        setSource('boundary', fc || EMPTY);
+      },
+      setBoundaryStyle: (st) => {
+        boundaryStyle.current = st;
+        applyBoundary();
+      },
       setSelected: (f) => {
         if (!f) {
           setSource('selected', EMPTY);
@@ -660,6 +698,11 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         renderEdit();
       },
       clearMeasure: () => clearMeasure(),
+      getBounds: () => {
+        const b = mapRef.current?.getBounds();
+        return b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] : null;
+      },
+      setArea: (ring) => setSource('area', ring && ring.length >= 3 ? { type: 'FeatureCollection', features: [pg(ring)] } : EMPTY),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],

@@ -70,8 +70,13 @@ func main() {
 	tiles.StartDensityRefresher(ctx)
 	features := gis.NewFeatures(pool, configs, types)
 	power := gis.NewPower(pool)
+	boundaries := gis.NewBoundaries(pool)
+	if err := boundaries.EnsureSeed(ctx); err != nil {
+		log.Printf("[gis] muat batas wilayah gagal: %v", err)
+	}
 	graph := gis.NewGraph(types)
 	graph.SetDefaultLoadVA(configs.Float("monitoring.default_daya_va", 1300))
+	powerFlow := gis.NewPowerFlow(pool, graph, types, configs)
 
 	// ---------- Realtime & stream ----------
 	hub := realtime.New(ctx, rdb)
@@ -89,8 +94,42 @@ func main() {
 		v := tiles.BumpVersion(pctx)
 		data, _ := json.Marshal(map[string]int{"nodes_on": len(d.NodesOn), "nodes_off": len(d.NodesOff), "edges_on": len(d.EdgesOn), "edges_off": len(d.EdgesOff)})
 		hub.Publish(stream.Event{Type: "energized", Version: v, At: time.Now(), Data: data})
+		// SOE: perubahan energisasi karena edit jaringan / muat ulang graf
+		for _, x := range []struct {
+			event, sev string
+			nodes      []int64
+			edges      int
+		}{{"DEENERGIZED", "warning", d.NodesOff, len(d.EdgesOff)}, {"ENERGIZED", "good", d.NodesOn, len(d.EdgesOn)}} {
+			if len(x.nodes) == 0 && x.edges == 0 {
+				continue
+			}
+			sum := graph.Summarize(x.nodes, x.edges)
+			e := gis.SOEEvent{Category: "topology", Event: x.event, Severity: x.sev, Customers: sum.Customers, LoadVA: sum.LoadVA, Nodes: len(x.nodes)}
+			if err := power.InsertSOE(pctx, &e); err != nil {
+				log.Printf("[soe] simpan gagal: %v", err)
+				continue
+			}
+			ed, _ := json.Marshal(e)
+			sev := stream.Event{Type: "soe", At: e.TS, Data: ed}
+			hub.Publish(sev)
+			producer.Publish(sev)
+		}
 		log.Printf("[power] energisasi disimpan: +%d/-%d node, +%d/-%d edge", len(d.NodesOn), len(d.NodesOff), len(d.EdgesOn), len(d.EdgesOff))
 	})
+	go func() { // retensi SOE
+		for {
+			if n, err := power.PruneSOE(ctx, configs.Int("monitoring.soe_retention_days", 365)); err != nil {
+				log.Printf("[soe] retensi gagal: %v", err)
+			} else if n > 0 {
+				log.Printf("[soe] %d event lama dihapus", n)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(6 * time.Hour):
+			}
+		}
+	}()
 	go func() {
 		if err := graph.Load(ctx, pool); err != nil {
 			log.Printf("[graph] muat graf gagal: %v", err)
@@ -115,7 +154,7 @@ func main() {
 	router := api.NewRouter(&api.Deps{
 		Cfg: cfg, Pool: pool, Cache: rdb, JWT: jwtSvc, Captcha: captcha,
 		Users: users, Roles: roles, Menus: menus, Configs: configs, Audit: audit, MetricsRepo: metricsRepo,
-		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power,
+		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries,
 		Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
 	})
 	srv := &http.Server{

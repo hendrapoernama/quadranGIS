@@ -9,7 +9,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/quadran
 
 # ---- runtime ----
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 app
+# gdal-tools: ogr2ogr untuk export Esri File Geodatabase (.gdb)
+RUN apk add --no-cache ca-certificates tzdata gdal-tools && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=build /out/quadrangis /app/quadrangis
 USER app

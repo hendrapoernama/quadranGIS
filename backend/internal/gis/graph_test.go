@@ -110,7 +110,7 @@ func checkConsistent(t *testing.T, g *Graph, step int) {
 }
 
 func TestManeuverIncrementalMatchesFullRebuild(t *testing.T) {
-	for seed := int64(1); seed <= 40; seed++ {
+	for seed := int64(1); seed <= 150; seed++ {
 		r := rand.New(rand.NewSource(seed))
 		g := randomGraph(r, 60+r.Intn(400), r.Intn(40))
 		g.rebuild()
@@ -118,16 +118,34 @@ func TestManeuverIncrementalMatchesFullRebuild(t *testing.T) {
 		if len(sw) == 0 {
 			continue
 		}
-		for step := 0; step < 120; step++ {
-			id := sw[r.Intn(len(sw))]
-			in := ManeuverInput{NodeID: id, Open: r.Intn(2) == 0}
-			g.mu.RLock()
-			n := g.nodes[id]
-			ways := g.adj[id]
-			multi := n.typ == g.typeIndex["lbs_3way"]
-			g.mu.RUnlock()
-			if multi && len(ways) > 0 && r.Intn(2) == 0 {
-				in.WayEdge = ways[r.Intn(len(ways))]
+		g.mu.RLock()
+		allNodes := make([]int64, 0, len(g.nodes))
+		for id := range g.nodes {
+			allNodes = append(allNodes, id)
+		}
+		allEdges := make([]int64, 0, len(g.edges))
+		for id := range g.edges {
+			allEdges = append(allEdges, id)
+		}
+		g.mu.RUnlock()
+		for step := 0; step < 160; step++ {
+			var in ManeuverInput
+			switch r.Intn(4) {
+			case 0: // node non-switch (gardu / pelanggan / sumber): ikut padam
+				in = ManeuverInput{NodeID: allNodes[r.Intn(len(allNodes))], Open: r.Intn(2) == 0}
+			case 1: // saluran
+				in = ManeuverInput{EdgeID: allEdges[r.Intn(len(allEdges))], Open: r.Intn(2) == 0}
+			default: // alat switching (seluruh / per arah)
+				id := sw[r.Intn(len(sw))]
+				in = ManeuverInput{NodeID: id, Open: r.Intn(2) == 0}
+				g.mu.RLock()
+				n := g.nodes[id]
+				ways := g.adj[id]
+				multi := n.typ == g.typeIndex["lbs_3way"]
+				g.mu.RUnlock()
+				if multi && len(ways) > 0 && r.Intn(2) == 0 {
+					in.WayEdge = ways[r.Intn(len(ways))]
+				}
 			}
 			diff, err := g.Maneuver(in)
 			if err != nil {
@@ -173,7 +191,40 @@ func TestManeuverDiffReportsDownstream(t *testing.T) {
 	if len(diff.NodesOn) != 2 || len(diff.EdgesOn) != 2 {
 		t.Fatalf("tutup: diharapkan 2 node & 2 edge menyala, dapat %+v", diff)
 	}
-	if _, err := g.Maneuver(ManeuverInput{NodeID: 2, Open: true}); err != ErrNotSwitch {
-		t.Fatalf("junction bukan switch: err=%v", err)
+	if _, err := g.Maneuver(ManeuverInput{NodeID: 2, Open: true, WayEdge: 1}); err != ErrNotSwitch {
+		t.Fatalf("arah hanya untuk switch: err=%v", err)
 	}
+}
+
+func TestManeuverNonSwitchAndLine(t *testing.T) {
+	// sumber(1) - j(2) - j(3) - pelanggan(4)
+	g := NewGraph(testTypes())
+	g.mu.Lock()
+	for i, tc := range []string{"power_grid", "junction", "junction", "pelanggan_tr"} {
+		g.nodes[int64(i+1)] = g.makeNodeRecLocked(nodeRow{typ: tc, status: "closed", loadVA: 900}, nil)
+	}
+	for i := int64(1); i < 4; i++ {
+		g.edges[i] = edgeRec{from: i, to: i + 1, typ: g.typeIdxLocked("sutm")}
+		g.adj[i] = append(g.adj[i], i)
+		g.adj[i+1] = append(g.adj[i+1], i)
+	}
+	g.mu.Unlock()
+	g.rebuild()
+	d, err := g.Maneuver(ManeuverInput{NodeID: 4, Open: true})
+	if err != nil || len(d.NodesOff) != 1 || d.NodesOff[0] != 4 {
+		t.Fatalf("pelanggan diputus harus padam sendiri: %+v %v", d, err)
+	}
+	d, _ = g.Maneuver(ManeuverInput{NodeID: 4, Open: false})
+	if len(d.NodesOn) != 1 {
+		t.Fatalf("pelanggan dinormalkan harus menyala: %+v", d)
+	}
+	d, _ = g.Maneuver(ManeuverInput{EdgeID: 2, Open: true})
+	if len(d.NodesOff) != 2 {
+		t.Fatalf("saluran 2-3 diputus: node 3 & 4 padam, dapat %+v", d)
+	}
+	d, _ = g.Maneuver(ManeuverInput{EdgeID: 2, Open: false})
+	if len(d.NodesOn) != 2 {
+		t.Fatalf("saluran disambung: node 3 & 4 menyala, dapat %+v", d)
+	}
+	checkConsistent(t, g, 0)
 }

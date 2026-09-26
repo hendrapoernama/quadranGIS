@@ -14,6 +14,7 @@ const GROUP_KEYS: Record<string, string> = {
   topology: 'config.group_topology',
   trace: 'config.group_trace',
   monitoring: 'config.group_monitoring',
+  reliability: 'config.group_reliability',
 };
 
 export default function ConfigPage() {

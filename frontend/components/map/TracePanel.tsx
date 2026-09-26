@@ -21,9 +21,10 @@ interface Props {
   result: TraceResponse | null;
   onResult: (r: TraceResponse | null) => void;
   onSelect: (kind: 'node' | 'edge', id: number) => void;
+  directions?: ('down' | 'up' | 'connected')[]; // arah yang ditawarkan (bawaan: semua)
 }
 
-export function TracePanel({ types, seed, selectedNodeId, result, onResult, onSelect }: Props) {
+export function TracePanel({ types, seed, selectedNodeId, result, onResult, onSelect, directions = ['down', 'up', 'connected'] }: Props) {
   const { t, pick } = useT();
   const toast = useToast();
   const [nodeId, setNodeId] = useState<string>('');
@@ -87,7 +88,7 @@ export function TracePanel({ types, seed, selectedNodeId, result, onResult, onSe
         <div className="col-span-2">
           <label className="label">{t('trace.direction')}</label>
           <div className="flex gap-1">
-            {(['down', 'up', 'connected'] as const).map((d) => (
+            {directions.map((d) => (
               <button
                 key={d}
                 className={`flex-1 rounded-md border px-2 py-1 text-xs ${direction === d ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-300 hover:bg-gray-50'}`}

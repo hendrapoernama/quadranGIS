@@ -59,6 +59,7 @@ type Graph struct {
 	sumCache *PowerSummary
 	sumFeed  []FeederStatus
 	sumGD    []GDStatus
+	sumSec   map[int64]SectionStat // kunci: id switch kepala zona / gardu / kepala penyulang
 	sumAt    time.Time
 }
 
@@ -92,6 +93,7 @@ type edgeRec struct {
 	typ       uint16
 	open      bool
 	energized bool
+	lengthM   float32 // panjang saluran (meter), untuk perhitungan aliran daya
 }
 
 func (e edgeRec) other(id int64) int64 {
@@ -127,6 +129,34 @@ var ErrNotSwitch = errors.New("not a switch")
 func NewGraph(types *Types) *Graph {
 	return &Graph{types: types, typeIndex: map[string]uint16{}, nodes: map[int64]nodeRec{}, edges: map[int64]edgeRec{}, adj: map[int64][]int64{},
 		openWays: map[int64]map[int64]struct{}{}, normalOpenWays: map[int64]map[int64]struct{}{}, dist: map[int64]int32{}, feeders: map[int64]*feederInfo{}, defaultLoadVA: 1300}
+}
+
+// lvNodeTypesLocked menandai tipe titik tegangan rendah (switch jurusan TR, rak TR, trafo distribusi, ...).
+func (g *Graph) lvNodeTypesLocked() []bool {
+	out := make([]bool, len(g.typeNames))
+	for i, name := range g.typeNames {
+		ct, _ := g.types.Get(name)
+		out[i] = ct.GeomKind != "line" && ct.VoltageKV > 0 && ct.VoltageKV < 1
+	}
+	return out
+}
+
+// AdjacentMaxKV mengembalikan tegangan tertinggi saluran yang menempel pada node
+// (untuk menentukan domain TM / TR objek tanpa tegangan, mis. junction).
+func (g *Graph) AdjacentMaxKV(id int64) float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	best := 0.0
+	for _, eid := range g.adj[id] {
+		e := g.edges[eid]
+		if int(e.typ) >= len(g.typeNames) {
+			continue
+		}
+		if ct, ok := g.types.Get(g.typeNames[e.typ]); ok && ct.VoltageKV > best {
+			best = ct.VoltageKV
+		}
+	}
+	return best
 }
 
 // OnEnergyChange memasang hook persistensi status energisasi.
@@ -180,6 +210,7 @@ func (g *Graph) makeNodeRecLocked(r nodeRow, old *nodeRec) nodeRec {
 	// posisi normal: atribut SSOT "normal" bila ada; bila tidak, pertahankan yang lama
 	// (node yang sudah ada) atau ikuti status saat dimuat (node baru).
 	switch {
+	case !ct.IsSwitch:
 	case r.normal != nil && *r.normal == "open":
 		flags |= flagNormalOpen
 	case r.normal != nil:
@@ -273,7 +304,7 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 
-	rows, err = pool.Query(ctx, `SELECT id, from_node_id, to_node_id, type_code, status, energized FROM gis_edges`)
+	rows, err = pool.Query(ctx, `SELECT id, from_node_id, to_node_id, type_code, status, energized, length_m FROM gis_edges`)
 	if err != nil {
 		return err
 	}
@@ -281,11 +312,12 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 		var id, from, to int64
 		var typ, status string
 		var energized bool
-		if err := rows.Scan(&id, &from, &to, &typ, &status, &energized); err != nil {
+		var length float64
+		if err := rows.Scan(&id, &from, &to, &typ, &status, &energized, &length); err != nil {
 			rows.Close()
 			return err
 		}
-		edges[id] = edgeRec{from: from, to: to, typ: local.typeIdxLocked(typ), open: status == "open", energized: energized}
+		edges[id] = edgeRec{from: from, to: to, typ: local.typeIdxLocked(typ), open: status == "open", energized: energized, lengthM: float32(length)}
 		adj[from] = append(adj[from], id)
 		adj[to] = append(adj[to], id)
 	}
@@ -333,7 +365,7 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 	presentE := map[int64]edgeRec{}
 	presentET := map[int64]string{}
 	if len(edgeIDs) > 0 {
-		rows, err := pool.Query(ctx, `SELECT id, from_node_id, to_node_id, type_code, status, energized FROM gis_edges WHERE id = ANY($1::bigint[])`, edgeIDs)
+		rows, err := pool.Query(ctx, `SELECT id, from_node_id, to_node_id, type_code, status, energized, length_m FROM gis_edges WHERE id = ANY($1::bigint[])`, edgeIDs)
 		if err != nil {
 			return err
 		}
@@ -341,11 +373,12 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 			var id, from, to int64
 			var typ, status string
 			var energized bool
-			if err := rows.Scan(&id, &from, &to, &typ, &status, &energized); err != nil {
+			var length float64
+			if err := rows.Scan(&id, &from, &to, &typ, &status, &energized, &length); err != nil {
 				rows.Close()
 				return err
 			}
-			presentE[id] = edgeRec{from: from, to: to, open: status == "open", energized: energized}
+			presentE[id] = edgeRec{from: from, to: to, open: status == "open", energized: energized, lengthM: float32(length)}
 			presentET[id] = typ
 		}
 		rows.Close()
@@ -471,6 +504,9 @@ func (g *Graph) bfsLocked(useNormal bool) map[int64]int32 {
 			if wayOpen(ways, nb, eid) {
 				continue // masuk lewat arah yang terbuka
 			}
+			if nn := g.nodes[nb]; nn.flags&openFlag != 0 && !nn.isSwitch() {
+				continue // objek non-switch diputus (gardu, trafo, pelanggan): ikut padam
+			}
 			if _, seen := dist[nb]; seen {
 				continue
 			}
@@ -570,11 +606,14 @@ func (g *Graph) computeGroups() {
 	giIdx := g.typeIndex["gi"]
 	trafoIdx := g.typeIndex["trafo_gi"]
 	gdIdx, hasGD := g.typeIndex["gd"]
+	tdIdx, hasTD := g.typeIndex["trafo_distribusi"]
 	lv := make([]bool, len(g.typeNames))
+	lvNode := g.lvNodeTypesLocked()
 	for i, name := range g.typeNames {
 		ct, _ := g.types.Get(name)
 		lv[i] = ct.GeomKind == "line" && ct.VoltageKV > 0 && ct.VoltageKV < 1
 	}
+	rakIdx, hasRak := g.typeIndex["rak_tr"]
 	type asg struct{ feeder, zone, route, gd int64 }
 	assign := make(map[int64]asg, len(g.nodes))
 	feeders := map[int64]*feederInfo{}
@@ -652,14 +691,30 @@ func (g *Graph) computeGroups() {
 				continue
 			}
 			na := a
-			if cn.isSwitch() {
-				na.zone = cur
+			if cn.isSwitch() && !lvNode[cn.typ] {
+				na.zone = cur // zona hanya dibentuk alat switching TM (switch jurusan TR tidak)
 			}
-			if lv[e.typ] && na.route == 0 {
+			switch {
+			case hasRak && cn.typ == rakIdx && lv[e.typ]:
+				na.route = eid // tiap saluran keluar rak TR adalah satu jurusan
+			case lv[e.typ] && na.route == 0:
 				na.route = eid
 			}
-			if hasGD && g.nodes[nb].typ == gdIdx {
+			// gardu hanya mencakup trafo distribusinya dan jaringan TR di bawahnya:
+			// melewati saluran TM (ke gardu berikutnya, recloser, dll.) melepas penanda gardu
+			nbTyp := g.nodes[nb].typ
+			if hasRak && nbTyp == rakIdx {
+				na.route = 0 // rak TR sendiri bukan bagian satu jurusan
+			}
+			switch {
+			case hasGD && nbTyp == gdIdx:
 				na.gd = nb
+			case lv[e.typ]:
+			case hasTD && nbTyp == tdIdx:
+			case g.nodes[nb].sink():
+				// pelanggan TM yang disambung langsung dari kubikel gardu tetap milik gardu itu
+			default:
+				na.gd = 0
 			}
 			assign[nb] = na
 			queue = append(queue, nb)
@@ -712,56 +767,100 @@ func (g *Graph) switchesAtNormalLocked() bool {
 // manuver jaringan
 // ---------------------------------------------------------------------
 
-// ManeuverInput adalah perintah buka/tutup alat switching (seluruh alat atau satu arah).
+// ManeuverInput adalah perintah buka/tutup: alat switching (seluruhnya atau satu arah),
+// objek non-switch (gardu, trafo, pelanggan: objek itu sendiri ikut padam), atau saluran.
 type ManeuverInput struct {
 	NodeID  int64
+	EdgeID  int64 // bila diisi: memutus / menyambung saluran (NodeID diabaikan)
 	Open    bool
 	WayEdge int64 // 0 = seluruh alat
 }
 
-// Maneuver mengubah posisi switch lalu memperbarui energisasi secara inkremental: hanya
-// wilayah hilir yang terdampak yang dihitung ulang (bukan seluruh jaringan). Perubahan
-// dikembalikan ke pemanggil (tidak lewat hook) agar dapat dicatat sebagai kejadian.
+// blocked: node non-switch yang diputus (tidak dijangkau sumber, ikut padam).
+func (n nodeRec) blocked() bool { return n.open() && !n.isSwitch() }
+
+// Maneuver mengubah posisi lalu memperbarui energisasi secara inkremental: hanya wilayah
+// hilir yang terdampak yang dihitung ulang (bukan seluruh jaringan). Perubahan dikembalikan
+// ke pemanggil (tidak lewat hook) agar dapat dicatat sebagai kejadian.
 func (g *Graph) Maneuver(in ManeuverInput) (EnergyDiff, error) {
 	g.mu.Lock()
-	n, ok := g.nodes[in.NodeID]
-	if !ok {
-		g.mu.Unlock()
-		return EnergyDiff{}, ErrNotFound
-	}
-	if !n.isSwitch() {
-		g.mu.Unlock()
-		return EnergyDiff{}, ErrNotSwitch
-	}
-	var wayEdge edgeRec
-	if in.WayEdge != 0 {
-		found := false
-		for _, eid := range g.adj[in.NodeID] {
-			if eid == in.WayEdge {
-				found = true
-				break
+	var roots, seeds []int64
+	if in.EdgeID != 0 {
+		e, ok := g.edges[in.EdgeID]
+		if !ok {
+			g.mu.Unlock()
+			return EnergyDiff{}, ErrNotFound
+		}
+		if e.open == in.Open {
+			g.mu.Unlock()
+			return EnergyDiff{}, nil
+		}
+		if in.Open && !g.distDirty && g.passableLocked(e.from, in.EdgeID, e) {
+			df, okF := g.dist[e.from]
+			dt, okT := g.dist[e.to]
+			switch {
+			case okF && okT && dt == df+1 && !g.nodes[e.from].open():
+				roots = []int64{e.to}
+			case okF && okT && df == dt+1 && !g.nodes[e.to].open():
+				roots = []int64{e.from}
 			}
 		}
-		if !found {
+		e.open = in.Open
+		g.edges[in.EdgeID] = e
+		seeds = []int64{e.from, e.to}
+	} else {
+		n, ok := g.nodes[in.NodeID]
+		if !ok {
 			g.mu.Unlock()
-			return EnergyDiff{}, ErrBadRequest
+			return EnergyDiff{}, ErrNotFound
 		}
-		wayEdge = g.edges[in.WayEdge]
-		if wayOpen(g.openWays, in.NodeID, in.WayEdge) == in.Open {
+		var wayEdge edgeRec
+		if in.WayEdge != 0 {
+			if !n.isSwitch() {
+				g.mu.Unlock()
+				return EnergyDiff{}, ErrNotSwitch
+			}
+			found := false
+			for _, eid := range g.adj[in.NodeID] {
+				if eid == in.WayEdge {
+					found = true
+					break
+				}
+			}
+			if !found {
+				g.mu.Unlock()
+				return EnergyDiff{}, ErrBadRequest
+			}
+			wayEdge = g.edges[in.WayEdge]
+			if wayOpen(g.openWays, in.NodeID, in.WayEdge) == in.Open {
+				g.mu.Unlock()
+				return EnergyDiff{}, nil // posisi sudah sesuai
+			}
+		} else if n.open() == in.Open {
 			g.mu.Unlock()
 			return EnergyDiff{}, nil // posisi sudah sesuai
 		}
-	} else if n.open() == in.Open {
-		g.mu.Unlock()
-		return EnergyDiff{}, nil // posisi sudah sesuai
-	}
 
-	// akar wilayah terdampak dihitung dari jarak LAMA (sebelum posisi berubah)
-	var roots []int64
-	if in.Open && !g.distDirty {
-		ds, reached := g.dist[in.NodeID]
-		if in.WayEdge == 0 {
-			if reached {
+		// akar wilayah terdampak dihitung dari jarak LAMA (sebelum posisi berubah)
+		if in.Open && !g.distDirty {
+			ds, reached := g.dist[in.NodeID]
+			switch {
+			case in.WayEdge != 0:
+				if g.passableLocked(in.NodeID, in.WayEdge, wayEdge) {
+					other := wayEdge.other(in.NodeID)
+					do, okO := g.dist[other]
+					switch {
+					case reached && okO && do == ds+1 && !n.open():
+						roots = append(roots, other)
+					case reached && okO && ds == do+1 && !g.nodes[other].open():
+						roots = append(roots, in.NodeID)
+					}
+				}
+			case !n.isSwitch():
+				if reached {
+					roots = append(roots, in.NodeID) // objek itu sendiri ikut padam
+				}
+			case reached:
 				for _, eid := range g.adj[in.NodeID] {
 					e := g.edges[eid]
 					if !g.passableLocked(in.NodeID, eid, e) {
@@ -773,38 +872,31 @@ func (g *Graph) Maneuver(in ManeuverInput) (EnergyDiff, error) {
 					}
 				}
 			}
-		} else if g.passableLocked(in.NodeID, in.WayEdge, wayEdge) {
-			other := wayEdge.other(in.NodeID)
-			do, okO := g.dist[other]
-			switch {
-			case reached && okO && do == ds+1 && !n.open():
-				roots = append(roots, other)
-			case reached && okO && ds == do+1 && !g.nodes[other].open():
-				roots = append(roots, in.NodeID)
-			}
 		}
-	}
 
-	// terapkan posisi baru
-	if in.WayEdge != 0 {
-		if in.Open {
-			if g.openWays[in.NodeID] == nil {
-				g.openWays[in.NodeID] = map[int64]struct{}{}
+		// terapkan posisi baru
+		if in.WayEdge != 0 {
+			if in.Open {
+				if g.openWays[in.NodeID] == nil {
+					g.openWays[in.NodeID] = map[int64]struct{}{}
+				}
+				g.openWays[in.NodeID][in.WayEdge] = struct{}{}
+			} else if m := g.openWays[in.NodeID]; m != nil {
+				delete(m, in.WayEdge)
+				if len(m) == 0 {
+					delete(g.openWays, in.NodeID)
+				}
 			}
-			g.openWays[in.NodeID][in.WayEdge] = struct{}{}
-		} else if m := g.openWays[in.NodeID]; m != nil {
-			delete(m, in.WayEdge)
-			if len(m) == 0 {
-				delete(g.openWays, in.NodeID)
-			}
-		}
-	} else {
-		if in.Open {
-			n.flags |= flagOpen
+			seeds = []int64{in.NodeID, wayEdge.other(in.NodeID)}
 		} else {
-			n.flags &^= flagOpen
+			if in.Open {
+				n.flags |= flagOpen
+			} else {
+				n.flags &^= flagOpen
+			}
+			g.nodes[in.NodeID] = n
+			seeds = []int64{in.NodeID}
 		}
-		g.nodes[in.NodeID] = n
 	}
 	g.gen++
 	g.countsDirty = true
@@ -819,20 +911,20 @@ func (g *Graph) Maneuver(in ManeuverInput) (EnergyDiff, error) {
 	if in.Open {
 		touched = g.reseedConeLocked(roots)
 	} else {
-		var seeds []int64
-		if in.WayEdge == 0 {
-			seeds = []int64{in.NodeID}
-		} else {
-			seeds = []int64{in.NodeID, wayEdge.other(in.NodeID)}
-		}
 		touched = g.relaxFromLocked(seeds)
 	}
+	// objek yang dimanuver (dan saluran di sekitarnya) selalu diselaraskan, walau jarak tidak berubah
+	touched = append(touched, seeds...)
 	diff := g.applyEnergyLocked(touched)
 	g.distAt = time.Now()
 	g.mu.Unlock()
 	g.invalidateSummary()
+	target := in.NodeID
+	if in.EdgeID != 0 {
+		target = in.EdgeID
+	}
 	log.Printf("[graph] manuver #%d inkremental: %d node dihitung ulang, +%d/-%d node (%s)",
-		in.NodeID, len(touched), len(diff.NodesOn), len(diff.NodesOff), time.Since(start).Round(time.Microsecond))
+		target, len(touched), len(diff.NodesOn), len(diff.NodesOff), time.Since(start).Round(time.Microsecond))
 	return diff, nil
 }
 
@@ -863,7 +955,7 @@ func (h *distHeap) Pop() any {
 // dapat dicapai dari akar lewat langkah jarak +1, yaitu node yang jalur terpendeknya mungkin
 // melewati elemen yang dibuka. Jarak node di luar kerucut pasti tidak berubah. Jarak node
 // kerucut dihitung ulang dari tetangga di luar kerucut (Dijkstra bobot satuan); node yang
-// tidak tercapai menjadi padam.
+// tidak tercapai (atau diputus) menjadi padam.
 func (g *Graph) reseedConeLocked(roots []int64) []int64 {
 	if len(roots) == 0 {
 		return nil
@@ -876,12 +968,17 @@ func (g *Graph) reseedConeLocked(roots []int64) []int64 {
 			queue = append(queue, r)
 		}
 	}
+	nRoots := len(queue)
 	for head := 0; head < len(queue); head++ {
 		cur := queue[head]
-		if g.nodes[cur].open() {
+		// akar selalu diekspansi (posisinya baru berubah); node terbuka lain tidak meneruskan daya
+		if head >= nRoots && g.nodes[cur].open() {
 			continue
 		}
-		d := g.dist[cur]
+		d, ok := g.dist[cur]
+		if !ok {
+			continue
+		}
 		for _, eid := range g.adj[cur] {
 			e := g.edges[eid]
 			if !g.passableLocked(cur, eid, e) {
@@ -903,6 +1000,9 @@ func (g *Graph) reseedConeLocked(roots []int64) []int64 {
 	// benih: tetangga di luar kerucut yang masih bertegangan
 	h := &distHeap{}
 	for id := range cone {
+		if g.nodes[id].blocked() {
+			continue
+		}
 		for _, eid := range g.adj[id] {
 			e := g.edges[eid]
 			if !g.passableLocked(id, eid, e) {
@@ -932,7 +1032,7 @@ func (g *Graph) reseedConeLocked(roots []int64) []int64 {
 				continue
 			}
 			nb := e.other(it.id)
-			if _, in := cone[nb]; !in {
+			if _, in := cone[nb]; !in || g.nodes[nb].blocked() {
 				continue
 			}
 			if _, done := g.dist[nb]; !done {
@@ -944,15 +1044,40 @@ func (g *Graph) reseedConeLocked(roots []int64) []int64 {
 }
 
 // relaxFromLocked menangani penutupan elemen: jarak hanya dapat berkurang, jadi cukup
-// relaksasi dari benih (Dijkstra bobot satuan). Mengembalikan node yang jaraknya berubah.
+// relaksasi dari benih (Dijkstra bobot satuan). Benih yang belum bertegangan (mis. gardu
+// yang baru dinormalkan) diberi jarak dari tetangga terdekatnya. Mengembalikan node yang
+// jaraknya berubah.
 func (g *Graph) relaxFromLocked(seeds []int64) []int64 {
 	h := &distHeap{}
+	changed := []int64{}
 	for _, s := range seeds {
 		if d, ok := g.dist[s]; ok {
 			heap.Push(h, distItem{d, s})
+			continue
+		}
+		if g.nodes[s].blocked() {
+			continue
+		}
+		best := int32(-1)
+		if sn := g.nodes[s]; sn.source() && !sn.open() {
+			best = 0 // sumber yang dinormalkan kembali menjadi titik awal daya
+		}
+		for _, eid := range g.adj[s] {
+			e := g.edges[eid]
+			if !g.passableLocked(s, eid, e) {
+				continue
+			}
+			nb := e.other(s)
+			if dn, ok := g.dist[nb]; ok && !g.nodes[nb].open() && (best < 0 || dn+1 < best) {
+				best = dn + 1
+			}
+		}
+		if best >= 0 {
+			g.dist[s] = best
+			changed = append(changed, s)
+			heap.Push(h, distItem{best, s})
 		}
 	}
-	changed := []int64{}
 	for h.Len() > 0 {
 		it := heap.Pop(h).(distItem)
 		if d, ok := g.dist[it.id]; ok && d < it.d {
@@ -967,6 +1092,9 @@ func (g *Graph) relaxFromLocked(seeds []int64) []int64 {
 				continue
 			}
 			nb := e.other(it.id)
+			if g.nodes[nb].blocked() {
+				continue
+			}
 			if dn, ok := g.dist[nb]; !ok || it.d+1 < dn {
 				g.dist[nb] = it.d + 1
 				changed = append(changed, nb)
@@ -1229,6 +1357,43 @@ type GDStatus struct {
 	real         bool
 }
 
+// SectionStat adalah rekap pelanggan & daya terpasang (daya kontrak) di hilir sebuah objek:
+// seluruh penyulang (kubikel outgoing), seluruh hilir switch sampai ujung (recloser / LBS),
+// atau pelanggan yang dilayani gardu distribusi. Keanggotaan mengikuti topologi normal,
+// status nyala/padam mengikuti kondisi saat ini.
+type SectionStat struct {
+	Kind         string  `json:"kind"` // feeder | zone | gd | rak | route
+	Customers    int     `json:"customers"`
+	CustomersOff int     `json:"customers_off"`
+	LoadVA       float64 `json:"load_va"`
+	LoadOffVA    float64 `json:"load_off_va"`
+}
+
+func (x *SectionStat) add(on bool, va float64) {
+	x.Customers++
+	x.LoadVA += va
+	if !on {
+		x.CustomersOff++
+		x.LoadOffVA += va
+	}
+}
+
+func (x *SectionStat) merge(o SectionStat) {
+	x.Customers += o.Customers
+	x.CustomersOff += o.CustomersOff
+	x.LoadVA += o.LoadVA
+	x.LoadOffVA += o.LoadOffVA
+}
+
+// Section mengembalikan rekap hilir objek (kubikel outgoing, switch kepala zona, atau gardu).
+func (g *Graph) Section(id int64) (SectionStat, bool) {
+	g.PowerSummary()
+	g.sumMu.Lock()
+	defer g.sumMu.Unlock()
+	x, ok := g.sumSec[id]
+	return x, ok
+}
+
 // GDStatuses mengembalikan rekap seluruh gardu distribusi (dari cache ringkasan).
 func (g *Graph) GDStatuses() []GDStatus {
 	g.PowerSummary()
@@ -1277,6 +1442,11 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 	trafoIdx, hasTrafo := g.typeIndex["trafo_gi"]
 	gdIdx, hasGD := g.typeIndex["gd"]
 	tdIdx, hasTD := g.typeIndex["trafo_distribusi"]
+	rakIdx, hasRak := g.typeIndex["rak_tr"]
+	lvNode := g.lvNodeTypesLocked()
+	routeSec := map[int64]*SectionStat{} // pelanggan per jurusan (kunci = saluran kepala jurusan)
+	lvSwitch := map[int64]int64{}        // switch jurusan TR -> jurusan
+	raks := []int64{}
 	s := PowerSummary{At: time.Now(), DistDirty: g.distDirty}
 	feed := make(map[int64]*FeederStatus, len(g.feeders))
 	for h, fi := range g.feeders {
@@ -1284,6 +1454,7 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 	}
 	zones := map[int64]*Counter{}
 	zoneFeeder := map[int64]int64{}
+	zoneOwn := map[int64]*SectionStat{} // pelanggan & daya di zona itu sendiri (tanpa zona hilir)
 	gds := map[int64]*GDStatus{}
 	gdOf := func(id int64) *GDStatus {
 		x := gds[id]
@@ -1330,6 +1501,20 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 			if !on {
 				s.TrafoGD.Off++
 			}
+		}
+		if n.sink() && n.route != 0 {
+			rs := routeSec[n.route]
+			if rs == nil {
+				rs = &SectionStat{Kind: "route"}
+				routeSec[n.route] = rs
+			}
+			rs.add(on, float64(n.loadVA))
+		}
+		if n.isSwitch() && lvNode[n.typ] {
+			lvSwitch[id] = n.route
+		}
+		if hasRak && n.typ == rakIdx {
+			raks = append(raks, id)
 		}
 		if n.sink() {
 			s.Customers.Total++
@@ -1392,7 +1577,32 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 			if !on {
 				z.Off++
 			}
+			if n.sink() {
+				zs := zoneOwn[n.zone]
+				if zs == nil {
+					zs = &SectionStat{}
+					zoneOwn[n.zone] = zs
+				}
+				zs.add(on, float64(n.loadVA))
+			}
 		}
+	}
+	// induk zona: zona tempat switch kepala zona itu sendiri berada
+	zoneParent := make(map[int64]int64, len(zones))
+	for zid := range zones {
+		if zn, ok := g.nodes[zid]; ok && zn.zone != zid {
+			zoneParent[zid] = zn.zone
+		}
+	}
+	rakSec := make(map[int64]SectionStat, len(raks))
+	for _, id := range raks {
+		x := SectionStat{Kind: "rak"}
+		for _, eid := range g.adj[id] {
+			if rs := routeSec[eid]; rs != nil {
+				x.merge(*rs)
+			}
+		}
+		rakSec[id] = x
 	}
 	for _, e := range g.edges {
 		s.Edges.Total++
@@ -1457,7 +1667,40 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 		list = append(list, *f)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Head < list[j].Head })
-	g.sumCache, g.sumFeed, g.sumGD, g.sumAt = &s, list, gdList, time.Now()
+	sec := make(map[int64]SectionStat, len(zones)+len(gdList)+len(list))
+	for zid, own := range zoneOwn {
+		// tambahkan ke zona itu dan seluruh zona di hulunya (pohon zona dangkal)
+		cur, guard := zid, 0
+		for cur != 0 && guard < 256 {
+			x := sec[cur]
+			x.Kind = "zone"
+			x.merge(*own)
+			sec[cur] = x
+			nxt, ok := zoneParent[cur]
+			if !ok {
+				break
+			}
+			cur = nxt
+			guard++
+		}
+	}
+	for _, x := range gdList {
+		sec[x.ID] = SectionStat{Kind: "gd", Customers: x.Customers, CustomersOff: x.CustomersOff, LoadVA: x.LoadVA, LoadOffVA: x.LoadOffVA}
+	}
+	for _, f := range list {
+		sec[f.Head] = SectionStat{Kind: "feeder", Customers: f.Customers, CustomersOff: f.CustomersOff, LoadVA: f.LoadVA, LoadOffVA: f.LoadOffVA}
+	}
+	for id, x := range rakSec {
+		sec[id] = x
+	}
+	for id, r := range lvSwitch {
+		x := SectionStat{Kind: "route"}
+		if rs := routeSec[r]; rs != nil {
+			x = *rs
+		}
+		sec[id] = x
+	}
+	g.sumCache, g.sumFeed, g.sumGD, g.sumSec, g.sumAt = &s, list, gdList, sec, time.Now()
 	return s, list
 }
 

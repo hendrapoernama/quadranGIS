@@ -215,6 +215,198 @@ Migrasi `007_power_monitoring.sql` menambahkan:
   ke-3 = tie normally-open ke penyulang GMB-05), tiang TM tiap ±45 m di SUTM,
   tiang TR di tiap tiang sambungan SKUTR.
 
+### Pemutusan objek & indeks keandalan (SAIDI, SAIFI, ENS)
+
+Migrasi `012_reliability.sql`:
+
+- **Pemutusan objek non-switch dan saluran**: `POST /api/gis/maneuver` juga menerima
+  `{edge_id, action, kind, note}` (memutus / menyambung saluran; status disimpan di
+  `gis_edges.status`) dan `node_id` objek non-switch (gardu, trafo distribusi,
+  pelanggan, dsb.: objek itu sendiri ikut padam). Panel Fitur menampilkan kotak
+  *Pemutusan* (Putus / Normalkan) untuk objek tersebut. `maneuvers.target_kind` dan
+  `outages.cause_kind` (`node`|`edge`) membedakan target.
+- **Level kejadian padam** (8 level): GI, trafo GI, penyulang, zona, gardu
+  distribusi, trafo gardu distribusi, jurusan TR, pelanggan. Ditentukan dari objek
+  penyebab (mis. SUTM/SKTM/recloser/LBS → zona, SKUTR/SUTR → jurusan, SR/pelanggan →
+  pelanggan) dan dinaikkan ke GI / trafo GI bila dampaknya mencakup GI / trafo GI.
+- **Indeks keandalan** (`GET /api/power/reliability?period=today|month|year|30d`
+  atau `from`/`to`), dihitung dari kejadian yang beririsan dengan periode (durasi
+  dipotong ke periode; kejadian aktif dihitung sampai sekarang):
+  - SAIDI = Σ(pelanggan padam × menit) ÷ jumlah pelanggan dilayani (menit/plg)
+  - SAIFI = Σ pelanggan padam ÷ jumlah pelanggan dilayani (kali/plg)
+  - ENS (kWh) = daya terpasang padam (kVA) × faktor beban × cos φ × jam
+  - ENS (Rupiah) = ENS (kWh) × harga per kWh
+
+  Padam lebih singkat dari `reliability.sustained_minutes` dihitung *momentary*:
+  tidak masuk SAIDI/SAIFI, tetap masuk ENS. Parameter diatur di *Konfigurasi* grup
+  *Keandalan*: `reliability.tariff_rp_per_kwh` (bawaan 1444,70),
+  `reliability.load_factor` (0,6), `reliability.power_factor` (0,85),
+  `reliability.sustained_minutes` (5). Hasil juga dipecah per level dan per jenis
+  (GANGGUAN / PEMELIHARAAN / MLS).
+- **Monitoring Kelistrikan**: baris *Keandalan* di bawah pita rekap (pilihan periode,
+  SAIDI, SAIFI, ENS kWh, ENS Rupiah, jumlah kejadian, jumlah per level). Tab
+  *Kejadian padam* dikelompokkan per level (subtotal SAIDI/SAIFI/ENS tiap level),
+  punya filter level, dan tiap kejadian menampilkan pelanggan·menit, ENS kWh, dan
+  ENS Rupiah. *Riwayat periode* menampilkan kejadian pada periode terpilih.
+
+### Rak TR, switch jurusan TR, simbol standar & operasi per role
+
+Migrasi `014_equipment_operate.sql`:
+
+- **Peralatan baru**: `rak_tr` (Rak TR / PHB-TR, busbar TR di gardu) dan
+  `switch_jurusan_tr` (NH fuse / NFB per jurusan, alat switching TR). Data contoh: tiap
+  trafo distribusi mendapat rak TR (6 m dari trafo) dan satu switch jurusan per saluran
+  TR keluar (trafo -[kabel]- rak -[kabel]- switch -[jurusan]).
+  Pengelompokan: zona hanya dibentuk alat switching TM; tiap saluran keluar rak TR
+  menjadi satu jurusan. Popup switch jurusan menampilkan rekap pelanggan jurusan itu,
+  rak TR menampilkan rekap seluruh jurusannya. Level kejadian: rak TR → trafo gardu
+  distribusi, switch jurusan → jurusan TR.
+- **Simbol standar kelistrikan** (gaya diagram satu garis IEC 60617): sumber AC, gardu
+  induk, gardu hubung, gardu distribusi, transformator (dua lingkaran), pemutus tenaga /
+  kubikel, recloser, LBS 2/3 arah, switch jurusan (NH fuse), rak TR (busbar), tiang,
+  dan pelanggan (rumah). Alat switching punya varian **terbuka** (kotak berongga / pisau
+  miring). Simbol digambar sebagai ikon SDF sehingga tetap berwarna per tipe atau
+  nyala/padam, dengan tepi merah bila padam / terbuka. Simbol per tipe dapat diganti di
+  *Pengaturan Layer* (kolom *Simbol*, `component_types.icon`, mis. `sym_trafo`); legenda
+  di tab *Layer* memakai simbol yang sama.
+- **Operasi dari Monitoring Kelistrikan**: popup objek terpilih punya kotak *Buka / tutup*
+  (alat switching, termasuk per arah LBS 3 way) atau *Energize / deenergize* (objek
+  non-switch & saluran). Saat membuka / deenergize **kategori pemadaman wajib**:
+  GANGGUAN, PEMELIHARAAN, MLS, atau MANUVER. Saat menutup / energize kategori boleh
+  kosong (mengikuti kejadian padam yang ditutup). Kotak yang sama dipakai di panel Fitur
+  Editor Peta. Status objek topologi tidak lagi diubah lewat formulir edit, hanya lewat
+  operasi (tercatat sebagai manuver, kejadian padam, dan SOE).
+- **Tab GI (gardu induk)** di Monitoring Kelistrikan (setelah tab *Trace*;
+  `GET /api/power/gi?state=all|on|partial|off&q=`): tiap GI dengan status nyala /
+  sebagian / padam (padam bila GI padam atau seluruh penyulangnya padam; sebagian bila ada
+  penyulang padam/sebagian atau trafo GI padam), trafo GI, penyulang, gardu distribusi,
+  pelanggan, dan beban (nyala/total). Filter status, pencarian, klik kode untuk menuju GI,
+  dan *Lihat n penyulang* membuka tab *Penyulang* yang tersaring ke GI itu.
+- **Tab Pelanggan** di Monitoring Kelistrikan (setelah tab *Gardu*;
+  `GET /api/power/customers?state=all|on|off&q=&limit=&offset=`): daftar pelanggan nyala /
+  padam dengan paging di server (100 per halaman, *Muat berikutnya*), padam ditampilkan
+  lebih dulu. Tiap baris: tipe, daya, penyulang, gardu distribusi, jurusan, kode SSOT; untuk
+  pelanggan padam: waktu mulai padam, kategori, dan nomor kejadian aktif. Pencarian kode /
+  nama / kode SSOT. Klik widget rekap *Pelanggan* membuka tab ini (filter padam bila ada).
+  Indeks `gis_nodes (energized, code, id)` (migrasi 017) menjaga paging tetap < 0,4 detik
+  pada 2 juta pelanggan.
+- **Downtrace / uptrace di Monitoring Kelistrikan** (izin `gis.trace`): tombol di popup
+  objek terpilih dan tab *Trace* (hilir / hulu, kedalaman maks, berhenti pada tipe,
+  unduh hasil). Hasil disorot di peta dan dirangkum: jumlah node / garis, panjang,
+  pelanggan, sumber, switch terbuka, rekap per tipe; klik baris untuk memilih objek.
+- **Hak akses per role** (menggantikan `gis.maneuver`):
+
+  | Izin | Untuk |
+  |---|---|
+  | `power.switch_tm` | buka / tutup alat switching TM (kubikel, recloser, LBS) |
+  | `power.switch_tr` | buka / tutup switch jurusan TR |
+  | `power.energize_tm` | energize / deenergize objek & saluran TM (GI, GD, SUTM, SKTM, ...) |
+  | `power.energize_tr` | energize / deenergize objek & saluran TR (trafo distribusi, rak TR, SKUTR, SR, pelanggan) |
+
+  Domain TM/TR ditentukan dari tegangan tipe (objek tanpa tegangan, mis. junction:
+  dari saluran yang menempel) dan diperiksa di backend. Role bawaan baru: `operator`
+  (seluruh izin operasi) dan `operator_tr` (hanya TR). Role yang sebelumnya memiliki
+  `gis.maneuver` mendapat keempat izin.
+
+### Overlay batas wilayah UP3 / ULP
+
+Migrasi `015_boundaries.sql` membuat tabel `gis_boundaries`. Shapefile `docs/bts_area`
+(34 wilayah ULP, WGS84; UP3 Cikupa, Teluk Naga, Serpong, dan Cikokol dikeluarkan lewat migrasi 016, sehingga tersisa 27 ULP) dikonversi ke GeoJSON (`backend/internal/gis/seed/bts_area.geojson`,
+disematkan di backend) dan dimuat otomatis saat tabel masih kosong. Batas **UP3** (16)
+adalah gabungan (dissolve) poligon ULP per `nama_area`.
+
+- `GET /api/gis/boundaries` (izin `gis.view`): poligon UP3 & ULP (disederhanakan ~5 m)
+  dan titik label; di-cache di server, ETag + gzip (±120 KB).
+- Warna isi memakai **pewarnaan peta 5 warna** (UP3 bersebelahan selalu berbeda); warna
+  tidak mewakili nilai. Merah/hijau tidak dipakai agar tidak tertukar dengan status nyala/padam.
+- Di **Editor Peta** (tab *Layer*) dan **Monitoring Kelistrikan** (tombol *UP3* di toolbar
+  peta): tampilkan/sembunyikan batas UP3, garis batas ULP (putus-putus), label nama wilayah,
+  dan slider **transparansi isi** (0–100%). Pilihan tiap pengguna diingat di browser;
+  bawaan dari konfigurasi `map.boundary_visible` dan `map.boundary_opacity`.
+- Overlay digambar paling bawah (di bawah jaringan). Label UP3 tampil sampai zoom 15,
+  label ULP pada zoom 11–16.
+- Mengganti data: kosongkan tabel (`TRUNCATE gis_boundaries`), ganti file seed, lalu
+  build ulang & restart backend.
+
+### SOE (Sequence of Events) realtime
+
+Migrasi `013_soe.sql` menambah tabel `soe_events`: log kronologis kejadian jaringan
+dengan cap waktu presisi milidetik (`clock_timestamp()`), diisi awal dari riwayat
+manuver & kejadian padam yang sudah ada.
+
+- **Event yang dicatat**: switch BUKA / TUTUP (termasuk per arah LBS 3 way),
+  pemutusan / penormalan objek & saluran, PADAM mulai / selesai (level, pelanggan,
+  beban, durasi), serta bagian jaringan padam / nyala akibat edit jaringan atau muat
+  ulang graf (kategori *topologi*). Tiap event membawa objek, penyulang, jenis
+  (GANGGUAN / PEMELIHARAAN / MLS), pengguna, dan catatan.
+- **Keparahan**: normal (pemulihan), peringatan, serius (manuver GANGGUAN; padam
+  zona / gardu distribusi), kritis (padam GI / trafo GI / penyulang).
+- **Realtime**: setiap event disiarkan lewat WebSocket (`type: "soe"`) dan Kafka.
+  Klien yang tersambung ulang menyinkronkan event yang terlewat (`after_id`).
+- **Tab SOE** di Monitoring Kelistrikan: daftar terbaru di atas dengan jam
+  `hh:mm:ss.mmm`, sorot baris baru, *Jeda* / *Lanjut* (event baru ditahan selama
+  dijeda), filter kategori / keparahan / jenis, pencarian, *Muat lebih lama*,
+  unduh CSV, bunyi alarm opsional untuk event serius & kritis, badge jumlah event
+  belum dibaca saat tab lain aktif; klik kode objek untuk memilih & terbang ke objek.
+- **API**: `GET /api/power/soe?limit&before_id&after_id&category&severity&kind&q&from&to&target_kind&target_id`.
+- **Retensi**: `monitoring.soe_retention_days` (bawaan 365 hari), dibersihkan tiap 6 jam.
+
+## Export / import data GIS
+
+- **Peta Jaringan → tab Data**: export **GeoJSON** dan import kembali hasil edit
+  **QGIS**. **Monitoring Kelistrikan → tab Export**: export **Esri File
+  Geodatabase** (`.gdb` dalam zip, satu feature class per tipe komponen, dibuat
+  dengan GDAL `ogr2ogr` driver OpenFileGDB di container backend), dengan filter
+  status nyala / padam.
+- Data wajib dipilih dulu: **area** (tampilan peta saat ini atau poligon yang
+  digambar) dan **layer**. *Periksa ukuran* menampilkan jumlah fitur & ukuran;
+  export ditolak bila melebihi **10 MB**.
+- GeoJSON (EPSG:4326) berisi kolom datar: `qgis_kind` (node/edge), `qgis_id`,
+  `type_code`, `code`, `name`, `status`, atribut objek sebagai kolom sendiri, dan
+  kolom informasi (`energized`, `from_node_id`, `to_node_id`, `length_m`). Gardu
+  & GI diekspor sebagai poligon denah.
+- **Import** (izin `gis.edit`, maks. 10 MB, 5.000 perubahan): fitur ber-`qgis_id`
+  dibandingkan dengan data saat ini (toleransi presisi koordinat QGIS,
+  Multi* satu bagian diterima) lalu diperbarui lewat editor bertopologi; fitur
+  tanpa `qgis_id` (wajib `type_code`) dibuat baru, kecuali bertipe & berkode sama
+  sudah ada di lokasi itu (import ulang aman). Ujung garis mengikuti sambungan
+  di aplikasi: menggeser node di QGIS memindahkan node (garis ikut), mengubah
+  vertex tengah membentuk ulang garis. Fitur yang dihapus di QGIS **tidak**
+  dihapus. Selalu ada pratinjau sebelum diterapkan.
+- API: `POST /api/exchange/export {format: geojson|gdb, dry, bbox|polygon, types, energized}`,
+  `POST /api/exchange/import?apply=0|1` (badan GeoJSON).
+
+## Aliran daya (power flow)
+
+Menu **Aliran Daya** (`/powerflow`) menghitung aliran daya tiap penyulang dengan
+metode *backward/forward sweep* (jaringan distribusi radial), dari kubikel
+outgoing 20 kV sampai pelanggan TR, pada kondisi jaringan saat ini (switch
+terbuka/tertutup ikut diperhitungkan).
+
+- **Model**: satu fase ekuivalen seimbang, per-unit (Sbase 1 MVA). Saluran R+jX
+  per km menurut tipe; trafo distribusi (impedansi `powerflow.trafo_z_pct`, X/R
+  `powerflow.trafo_xr`) di titik peralihan TM ke TR, kapasitas dari atribut
+  `daya_kva` trafo/gardu atau `powerflow.default_trafo_kva`. Beban daya konstan
+  = daya kontrak pelanggan × faktor beban, cos φ tetap. Loop (mesh) diabaikan
+  dan dilaporkan.
+- **Parameter penghantar bawaan** (Ω/km, KHA): SKTM 0,125+j0,097 / 400 A,
+  SUTM 0,2162+j0,3305 / 425 A, SKUTR 0,443+j0,1 / 196 A, SKTR 0,268+j0,08 /
+  206 A, SR 3,08+j0,1 / 54 A. Ganti per tipe lewat `powerflow.line_params`
+  (JSON) atau per saluran lewat atribut SSOT `r_ohm_km`, `x_ohm_km`, `kha_a`.
+- **Hasil**: tegangan tiap node (pu, kV/V), arus & pembebanan saluran terhadap
+  KHA, pembebanan trafo, susut (kW, %), daya kirim, pelanggaran batas tegangan
+  (`powerflow.v_min_pu` / `v_max_pu`, bawaan 0,90–1,05 pu) dan beban lebih.
+  Peta mewarnai saluran/trafo menurut pembebanan atau tegangan (Normal, Waspada,
+  Berat, Kritis).
+- **Skenario**: faktor beban, cos φ, dan tegangan kirim dapat diubah di halaman
+  tanpa mengubah konfigurasi.
+- **API**: `POST /api/powerflow/feeder {head_id,...}`,
+  `POST /api/powerflow/run-all`, `GET /api/powerflow/results`,
+  `GET /api/powerflow/params`.
+- Terukur pada data massal: satu penyulang (2.701 node) ±0,1 detik; seluruh
+  1.005 penyulang (2,7 juta node) 2–3 detik. Diverifikasi terhadap solusi
+  analitik dua bus (`internal/gis/powerflow_test.go`).
+
 ## AI Assistant
 
 Menu **AI Assistant** (`/ai`, izin `ai.use`) memakai LLM pilihan: Claude
@@ -275,11 +467,15 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | POST | `/api/gis/trace` | `{node_id,direction:down|up|connected,max_depth,stop_types}` |
 | GET  | `/api/gis/topology/status` / `validate` | status graf & pemeriksaan |
 | POST | `/api/gis/topology/rebuild` | muat ulang graf |
-| POST | `/api/gis/maneuver` | `{node_id,action:open|close,kind:GANGGUAN|PEMELIHARAAN|MLS,note,way_edge_id?}` |
+| POST | `/api/gis/maneuver` | `{node_id\|edge_id,action:open|close,kind:GANGGUAN|PEMELIHARAAN|MLS|MANUVER (wajib saat open),note,way_edge_id?}`; izin `power.switch_*` / `power.energize_*` |
 | GET  | `/api/power/summary` | rekap nyala/padam (GI, trafo GI, penyulang, zona, GD, pelanggan, beban) |
 | GET  | `/api/power/feeders?state&q` | daftar penyulang beserta status |
-| GET  | `/api/power/outages?active=1` / `/{id}` | kejadian padam (+ GeoJSON area terdampak) |
+| GET  | `/api/power/gi?state&q` | daftar gardu induk beserta rekap penyulang |
+| GET  | `/api/power/customers?state&q&limit&offset` | daftar pelanggan nyala / padam (paging) |
+| GET  | `/api/power/outages?active=1\|period=` / `/{id}` | kejadian padam per level, dengan ENS per kejadian (+ GeoJSON area terdampak) |
 | GET  | `/api/power/maneuvers?node_id` | riwayat manuver |
+| GET  | `/api/power/soe?limit&before_id&after_id&category&severity&q` | SOE (Sequence of Events), terbaru dulu |
+| GET  | `/api/power/reliability?period=today\|month\|year` | SAIDI, SAIFI, ENS kWh & Rupiah (total, per level, per jenis) |
 | GET  | `/api/ws` | WebSocket event realtime |
 | *    | `/api/admin/...` | users, roles, menus, configs, layers, monitoring |
 

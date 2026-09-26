@@ -1,5 +1,6 @@
 'use client';
 
+import { OPERATE_PERMS } from '@/components/power/OperateBox';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -13,12 +14,14 @@ import { Icon } from '@/components/Icon';
 import MapCanvas from './MapCanvas';
 import { DrawToolbar } from './DrawToolbar';
 import { SearchBox } from './SearchBox';
+import { BoundaryControl, useBoundaryOverlay } from './BoundaryOverlay';
 import { LayerPanel } from './LayerPanel';
 import { FeaturePanel, type ManeuverBody } from './FeaturePanel';
 import { TracePanel, type TraceSeed } from './TracePanel';
+import { ExchangePanel } from './ExchangePanel';
 import { modeLabel, type BasemapKind, type BasemapPref, type ColorMode, type ConnectedEdge, type DrawMode, type MapHandle, type MeasureResult } from './types';
 
-type Tab = 'layers' | 'feature' | 'trace';
+type Tab = 'layers' | 'feature' | 'trace' | 'data';
 const BASEMAP_KEY = 'qgis_basemap';
 
 function readBasemapPref(): BasemapPref {
@@ -39,6 +42,7 @@ export default function MapWorkspace() {
 
   const [types, setTypes] = useState<ComponentType[]>([]);
   const [configs, setConfigs] = useState<Record<string, string>>({});
+  const [mapReady, setMapReady] = useState(false);
   const [tileVersion, setTileVersion] = useState(0);
   const [graph, setGraph] = useState<Record<string, any> | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -62,10 +66,11 @@ export default function MapWorkspace() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [measure, setMeasure] = useState<MeasureResult | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>('type');
+  const [area, setArea] = useState<[number, number][] | null>(null);
 
   const canEdit = has('gis.edit');
   const canTrace = has('gis.trace');
-  const canManeuver = has('gis.maneuver');
+  const canManeuver = OPERATE_PERMS.some((x) => has(x));
   const typeName = useCallback(
     (c: string) => {
       const x = types.find((y) => y.code === c);
@@ -412,16 +417,20 @@ export default function MapWorkspace() {
   );
 
   const doManeuver = useCallback(
-    async (nodeId: number, body: ManeuverBody) => {
+    async (targetId: number, body: ManeuverBody) => {
+      const { target = 'node', ...rest } = body;
       try {
-        const res = await api<{ message: string; tile_version: number; feature?: GeoFeature }>('/api/gis/maneuver', { method: 'POST', body: { node_id: nodeId, ...body } });
+        const res = await api<{ message: string; tile_version: number; feature?: GeoFeature }>('/api/gis/maneuver', {
+          method: 'POST',
+          body: target === 'edge' ? { edge_id: targetId, ...rest } : { node_id: targetId, ...rest },
+        });
         mapRef.current?.refreshTiles(res.tile_version);
         if (res.tile_version) setTileVersion(res.tile_version);
         toast.push(res.message, body.action === 'open' ? 'warning' : 'success');
         if (res.feature) {
           setSelected(res.feature);
           mapRef.current?.setSelected(res.feature);
-        } else await reloadSelected('node', nodeId);
+        } else await reloadSelected(target, targetId);
         api('/api/gis/topology/status').then(setGraph).catch(() => {});
       } catch (e: any) {
         toast.push(e.message, 'error');
@@ -445,6 +454,8 @@ export default function MapWorkspace() {
     },
     [afterEdit, toast, t],
   );
+
+  const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
 
   // ------------------------------------------------------------ trace
   const onTraceResult = useCallback((r: TraceResponse | null) => {
@@ -533,12 +544,17 @@ export default function MapWorkspace() {
         onCursor={(lng, lat, zoom) => setCursor({ lng, lat, zoom })}
         onCancelMode={() => setMode({ kind: 'select' })}
         onReady={() => {
+          setMapReady(true);
           mapRef.current?.setVisibleTypes(Array.from(visible));
           mapRef.current?.setBasemap(effectiveBasemap);
           mapRef.current?.setDarkLabels(effectiveBasemap === 'dark');
           mapRef.current?.setColorMode(colorMode);
         }}
         onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
+        onArea={(ring) => {
+          setArea(ring);
+          setMode({ kind: 'select' });
+        }}
       />
 
       <div className="absolute left-3 top-3 z-10 flex items-start gap-2">
@@ -635,6 +651,7 @@ export default function MapWorkspace() {
               {tabBtn('layers', t('map.tab_layers'))}
               {tabBtn('feature', selected ? t('map.tab_feature_id', { id: selected.id }) : t('map.tab_feature'))}
               {canTrace && tabBtn('trace', t('map.tab_trace'))}
+              {tabBtn('data', t('map.tab_data'))}
             </>
           )}
           <button className="p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')}>
@@ -658,6 +675,7 @@ export default function MapWorkspace() {
                 graph={graph}
                 canEdit={canEdit}
                 zoom={cursor.zoom}
+                overlay={<BoundaryControl state={boundary} />}
               />
             )}
             {tab === 'feature' && (
@@ -697,6 +715,26 @@ export default function MapWorkspace() {
                   const f = trace?.geojson.features.find((x) => x.id === id && x.properties.kind === k);
                   const b = f ? bboxOf([f]) : null;
                   if (b) mapRef.current?.fitBBox(b);
+                }}
+              />
+            )}
+            {tab === 'data' && (
+              <ExchangePanel
+                mapRef={mapRef}
+                types={types}
+                visibleTypes={Array.from(visible)}
+                format="geojson"
+                allowImport={canEdit}
+                area={area}
+                drawing={mode.kind === 'area'}
+                onDrawArea={() => setMode({ kind: 'area' })}
+                onClearArea={() => {
+                  setArea(null);
+                  mapRef.current?.setArea(null);
+                }}
+                onImported={() => {
+                  mapRef.current?.refreshTiles();
+                  api('/api/gis/topology/status').then(setGraph).catch(() => {});
                 }}
               />
             )}

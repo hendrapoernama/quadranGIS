@@ -148,6 +148,8 @@ func (s *Server) afterEdit(c *gin.Context, res *gis.EditResult) {
 		s.d.Audit.Log(&cl.UserID, cl.Username, "feature."+res.Action, res.Kind, strconv.FormatInt(res.ID, 10),
 			gin.H{"touched_nodes": len(res.TouchedNodes), "touched_edges": len(res.TouchedEdges)}, clientIP(c))
 	}
+	// atribut penghantar / kapasitas trafo mungkin berubah
+	s.d.PowerFlow.InvalidateOverrides()
 	// fitur hasil edit dilengkapi status graf (energisasi, penyulang, zona, jurusan)
 	if res.Feature != nil {
 		s.enrichFeature(ctx, res.Feature)
@@ -374,4 +376,20 @@ func (s *Server) gisTrace(c *gin.Context) {
 	s.d.Audit.Log(&cl.UserID, cl.Username, "trace."+req.Direction, "node", strconv.FormatInt(req.NodeID, 10),
 		gin.H{"nodes": len(res.Nodes), "edges": len(res.Edges), "duration_ms": res.DurationMS}, clientIP(c))
 	ok(c, gin.H{"result": res, "geojson": fc, "length_by_type": lengthByType, "total_length_m": total})
+}
+
+// GET /api/gis/boundaries: overlay batas wilayah UP3 / ULP (GeoJSON, di-cache; ETag)
+func (s *Server) gisBoundaries(c *gin.Context) {
+	data, etag, err := s.d.Boundaries.GeoJSON(c.Request.Context())
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	c.Header("ETag", etag)
+	c.Header("Cache-Control", "private, max-age=3600")
+	if strings.TrimPrefix(c.GetHeader("If-None-Match"), "W/") == etag { // nginx gzip menjadikan ETag lemah
+		c.Status(http.StatusNotModified)
+		return
+	}
+	c.Data(http.StatusOK, "application/geo+json", data)
 }

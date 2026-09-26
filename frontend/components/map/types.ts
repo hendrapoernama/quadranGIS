@@ -11,7 +11,8 @@ export type DrawMode =
   | { kind: 'reshape-polygon'; nodeId: number }
   | { kind: 'vertex'; target: 'edge' | 'node'; id: number } // edit vertex / geser node secara realtime
   | { kind: 'split'; edgeId: number }
-  | { kind: 'measure'; what: 'length' | 'area' };
+  | { kind: 'measure'; what: 'length' | 'area' }
+  | { kind: 'area' }; // gambar poligon area seleksi (export)
 
 export type BasemapKind = 'light' | 'dark' | 'none';
 export type BasemapPref = 'auto' | BasemapKind;
@@ -37,6 +38,8 @@ export interface MapHandle {
   fitBBox: (bbox: BBox) => void;
   refreshTiles: (version?: number) => void;
   setTrace: (fc: FeatureCollection | null) => void;
+  /** overlay analisis: fitur dengan properti color (dan big untuk titik besar) */
+  setOverlay: (fc: FeatureCollection | null) => void;
   setSelected: (f: GeoFeature | null) => void;
   setVisibleTypes: (codes: string[]) => void;
   setBasemap: (kind: BasemapKind) => void;
@@ -50,6 +53,21 @@ export interface MapHandle {
   startVertexEdit: (feature: GeoFeature, connected: ConnectedEdge[]) => void;
   stopVertexEdit: () => void;
   clearMeasure: () => void;
+  /** batas tampilan peta [minx,miny,maxx,maxy] */
+  getBounds: () => [number, number, number, number] | null;
+  /** tampilkan area seleksi (null = hapus) */
+  setArea: (ring: [number, number][] | null) => void;
+  /** overlay batas wilayah UP3 / ULP (data disimpan bila peta belum siap) */
+  setBoundary: (fc: FeatureCollection | null) => void;
+  setBoundaryStyle: (s: BoundaryStyle) => void;
+}
+
+/** Tampilan overlay batas wilayah. opacity = kepekatan isi UP3 (0..1). */
+export interface BoundaryStyle {
+  show: boolean;
+  ulp: boolean;
+  labels: boolean;
+  opacity: number;
 }
 
 type TFn = (key: any, params?: Record<string, string | number>) => string;
@@ -76,5 +94,7 @@ export function modeLabel(mode: DrawMode, typeName: (code: string) => string, t:
       return t('map.mode_split', { id: mode.edgeId });
     case 'measure':
       return mode.what === 'length' ? t('map.mode_measure_length') : t('map.mode_measure_area');
+    case 'area':
+      return t('xchg.mode_area');
   }
 }

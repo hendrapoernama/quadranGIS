@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { AppConfig, ComponentType } from '@/lib/types';
 import { Badge, Button, PageHeader, useToast } from '@/components/ui';
+import { SYMBOLS, SYMBOL_KEYS, SymbolSwatch, isSymbol } from '@/components/map/symbols';
 
 const LOADING_KEYS = [
   'loading.tile_cache_ttl_seconds',
@@ -138,6 +139,7 @@ export default function LayersPage() {
                 <th className="th">{t('layerspage.name_id')}</th>
                 <th className="th">{t('layerspage.name_en')}</th>
                 <th className="th">{t('layerspage.color')}</th>
+                <th className="th">{t('layerspage.symbol')}</th>
                 <th className="th">{t('layerspage.min_zoom')}</th>
                 <th className="th">{t('layerspage.label_zoom')}</th>
                 <th className="th">{t('layerspage.size')}</th>
@@ -171,6 +173,30 @@ export default function LayersPage() {
                   </td>
                   <td className="td">
                     <input type="color" className="h-8 w-12 cursor-pointer rounded border border-gray-300" value={val(x, 'color')} onChange={(e) => set(x.code, { color: e.target.value })} />
+                  </td>
+                  <td className="td">
+                    {x.geom_kind === 'line' ? (
+                      <span className="text-xs text-gray-400">-</span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        {isSymbol(val(x, 'icon')) ? (
+                          <>
+                            <SymbolSwatch icon={val(x, 'icon')} color={val(x, 'color')} size={22} />
+                            {SYMBOLS[val(x, 'icon')].switchable && <SymbolSwatch icon={val(x, 'icon')} color={val(x, 'color')} size={22} open title={t('layerspage.symbol_open')} />}
+                          </>
+                        ) : (
+                          <span className="inline-block h-4 w-4 rounded-full" style={{ background: val(x, 'color') }} />
+                        )}
+                        <select className="input w-60 text-xs" value={isSymbol(val(x, 'icon')) ? val(x, 'icon') : 'circle'} onChange={(e) => set(x.code, { icon: e.target.value })}>
+                          <option value="circle">{t('layerspage.symbol_circle')}</option>
+                          {SYMBOL_KEYS.map((k) => (
+                            <option key={k} value={k}>
+                              {pick(SYMBOLS[k].label, SYMBOLS[k].labelEN)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </td>
                   <td className="td">
                     <input className="input w-16" type="number" min={0} max={22} value={val(x, 'min_zoom')} onChange={(e) => set(x.code, { min_zoom: Number(e.target.value) })} />

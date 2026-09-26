@@ -44,3 +44,21 @@ buatkan aplikasi GIS dengan fitur :
   - rekap pelangaan padam dan nyala
   - rekap beban padam dan nyala
   - rekap dibuatkan per group kejadian padam : gi, trafo gi, penyulang, zona, gardu distribusi, trafo gardu distribusi, pelanggan
+- ditambahkan fitur :
+  - perhitungan power flow
+
+- simbol pelanggan di ganti jadi simbol rumah
+- di menu power monitor : done 
+  - disediakan export data gis ke format gdb, agar data tidak besar, maka data yang akan di export select dulu, dan dibatasi maksimum 10mb
+- di menu network map : done
+   - disediakan export dan import data gis ke format geojson, agar data tidak besar, maka data yang akan di export select dulu, dan dibatasi maksimum 10mb, data bisa di edit di qgis dan di import kembali ke aplikasi done
+
+- di menu power monitor ditambahkan fitur:
+  - di rekap dan outages di tambahkan SAIDI, SAIFI, ENS (KWH), ENS (Rupiah) untuk harga per kwh bisa di setting di configuration
+
+  - untuk outages di group by level : GI, Trafo GI, Penyulang, ZONA, gardu DISTRIBUSI, trafo gardu distribusi, jurusan tr, pelanggan
+
+
+
+
+      
