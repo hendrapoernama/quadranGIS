@@ -44,6 +44,9 @@ type Deps struct {
 	PowerFlow   *gis.PowerFlow
 	Boundaries  *gis.Boundaries
 	SLD         *gis.SLD
+	Ops         *gis.Ops
+	Exec        *gis.Exec
+	Field       *gis.Field
 	Hub         *realtime.Hub
 	Producer    *stream.Producer
 	Collector   *monitor.Collector
@@ -170,6 +173,58 @@ func NewRouter(d *Deps) *gin.Engine {
 	gm.Use(middleware.RequireAnyPermission(OperatePermissions...))
 	gm.POST("/maneuver", s.powerManeuver)
 
+	// pusat operasi: simulasi what-if, rencana manuver, FLISR, laporan gangguan pelanggan
+	op := authed.Group("/ops")
+	op.Use(middleware.RequirePermission("gis.view"))
+	op.POST("/simulate", s.opsSimulate)
+	op.GET("/plans", s.opsListPlans)
+	op.GET("/plans/:id", s.opsGetPlan)
+	op.POST("/plans", middleware.RequirePermission("power.plan"), s.opsSavePlan)
+	op.PUT("/plans/:id", middleware.RequirePermission("power.plan"), s.opsSavePlan)
+	op.DELETE("/plans/:id", middleware.RequirePermission("power.plan"), s.opsDeletePlan)
+	op.POST("/plans/:id/simulate", s.opsSimulatePlan)
+	op.POST("/plans/:id/approve", middleware.RequirePermission("power.plan_approve"), s.opsPlanStatus("approved", "draft"))
+	op.POST("/plans/:id/cancel", middleware.RequirePermission("power.plan"), s.opsPlanStatus("cancelled", "draft", "approved", "executing"))
+	op.POST("/plans/:id/reopen", middleware.RequirePermission("power.plan"), s.opsPlanStatus("draft", "approved", "cancelled"))
+	op.POST("/plans/:id/steps/:seq/execute", middleware.RequirePermission("power.plan"), s.opsStep(false))
+	op.POST("/plans/:id/steps/:seq/skip", middleware.RequirePermission("power.plan"), s.opsStep(true))
+	op.GET("/flisr/sections", s.opsFlisrSections)
+	op.POST("/flisr", s.opsFlisr)
+	op.GET("/reports", s.opsListReports)
+	op.GET("/reports/suspects", s.opsReportSuspects)
+	op.POST("/reports", middleware.RequirePermission("report.manage"), s.opsCreateReport)
+	op.PUT("/reports/:id", middleware.RequirePermission("report.manage"), s.opsUpdateReport)
+	op.GET("/insights", s.opsInsights)
+
+	// lapangan (versi mobile): aset terdekat, foto aset
+	fd := authed.Group("/field")
+	fd.Use(middleware.RequirePermission("gis.view"))
+	fd.GET("/nearby", s.fieldNearby)
+	fd.GET("/photos", s.fieldListPhotos)
+	fd.GET("/photos/:id/image", s.fieldPhotoImage)
+	fd.POST("/photos", middleware.RequirePermission("field.photo"), s.fieldUploadPhoto)
+	fd.DELETE("/photos/:id", middleware.RequirePermission("field.photo"), s.fieldDeletePhoto)
+
+	// notifikasi Web Push (semua pengguna yang login)
+	pu := authed.Group("/push")
+	pu.GET("/key", s.pushKey)
+	pu.POST("/subscribe", s.pushSubscribe)
+	pu.POST("/unsubscribe", s.pushUnsubscribe)
+	pu.POST("/test", s.pushTest)
+
+	// dasbor eksekutif, laporan berkala, keandalan per wilayah UP3/ULP
+	ex := authed.Group("/exec")
+	ex.Use(middleware.RequirePermission("exec.view"))
+	ex.GET("/dashboard", s.execDashboard)
+	ex.GET("/regions", s.execRegions)
+	ex.GET("/regions/:id", s.execRegion)
+	ex.POST("/regions/recompute", middleware.RequirePermission("exec.report"), s.execRecomputeRegions)
+	ex.GET("/reports", s.execListReports)
+	ex.GET("/reports/:id", s.execGetReport)
+	ex.POST("/reports", middleware.RequirePermission("exec.report"), s.execGenerateReport)
+	ex.PUT("/reports/:id/narrative", middleware.RequirePermission("exec.report"), s.execSetNarrative)
+	ex.DELETE("/reports/:id", middleware.RequirePermission("exec.report"), s.execDeleteReport)
+
 	// single line diagram
 	sl := authed.Group("/sld")
 	sl.Use(middleware.RequirePermission("gis.view"))
@@ -210,6 +265,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	aig.Use(middleware.RequirePermission("ai.use"))
 	aig.GET("/providers", s.aiProviders)
 	aig.POST("/chat", s.aiChat)
+	aig.POST("/ops", s.aiOps)
 
 	// administrasi
 	adm := authed.Group("/admin")

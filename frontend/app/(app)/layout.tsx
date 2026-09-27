@@ -7,6 +7,10 @@ import { Icon } from '@/components/Icon';
 import { Spinner } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
+import { useIsMobile } from '@/lib/mobile';
+import { MobileShell } from '@/components/pwa/MobileShell';
+import { usePwa } from '@/components/pwa/PwaProvider';
+import { useFieldT } from '@/components/field/i18n';
 
 const HIDDEN_KEY = 'qgis_sidebar_hidden';
 
@@ -15,6 +19,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useT();
   const router = useRouter();
   const [hidden, setHidden] = useState(false);
+  const mobile = useIsMobile();
+  const pwa = usePwa();
+  const f = useFieldT();
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -58,6 +65,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (mobile) return <MobileShell>{children}</MobileShell>;
+
   return (
     <div className="flex h-screen overflow-hidden">
       {!hidden && <Sidebar onHide={toggle} />}
@@ -71,7 +80,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Icon name="chevron-right" size={14} />
         </button>
       )}
-      <main className="relative flex-1 overflow-hidden bg-gray-100 dark:bg-gray-950">{children}</main>
+      <main className="relative flex flex-1 flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
+        {!pwa.online && <div className="shrink-0 bg-amber-100 px-3 py-1 text-xs text-amber-900">{f('offline_banner')}</div>}
+        <div className="relative min-h-0 flex-1">{children}</div>
+      </main>
     </div>
   );
 }

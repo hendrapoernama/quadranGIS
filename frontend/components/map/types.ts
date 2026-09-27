@@ -57,6 +57,9 @@ export interface MapHandle {
   getBounds: () => [number, number, number, number] | null;
   /** tampilkan area seleksi (null = hapus) */
   setArea: (ring: [number, number][] | null) => void;
+  /** titik GPS pengguna + lingkar akurasi (null = sembunyikan) */
+  setUserLocation: (pos: { lng: number; lat: number; accuracy: number } | null) => void;
+  getCenter: () => [number, number] | null;
   /** overlay batas wilayah UP3 / ULP (data disimpan bila peta belum siap) */
   setBoundary: (fc: FeatureCollection | null) => void;
   setBoundaryStyle: (s: BoundaryStyle) => void;

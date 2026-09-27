@@ -152,12 +152,21 @@ func main() {
 	collector.Start(ctx)
 
 	// ---------- HTTP ----------
-	router := api.NewRouter(&api.Deps{
+	deps := &api.Deps{
 		Cfg: cfg, Pool: pool, Cache: rdb, JWT: jwtSvc, Captcha: captcha,
 		Users: users, Roles: roles, Menus: menus, Configs: configs, Audit: audit, MetricsRepo: metricsRepo,
-		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries, SLD: sld,
-		Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
-	})
+		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries, SLD: sld, Ops: gis.NewOps(pool),
+		Exec: gis.NewExec(pool), Field: gis.NewField(pool), Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
+	}
+	router := api.NewRouter(deps)
+	api.StartExecScheduler(ctx, deps)
+	go func() { // wilayah UP3/ULP untuk kejadian padam lama (sesudah migrasi 023)
+		if n, err := power.BackfillOutageRegions(ctx); err != nil {
+			log.Printf("[power] hitung wilayah kejadian gagal: %v", err)
+		} else if n > 0 {
+			log.Printf("[power] wilayah %d kejadian padam dihitung", n)
+		}
+	}()
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,

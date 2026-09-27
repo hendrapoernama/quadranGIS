@@ -135,7 +135,7 @@ func (c *Configs) Public() map[string]string {
 	out := map[string]string{}
 	for k, v := range c.values {
 		if strings.HasPrefix(k, "app.") || strings.HasPrefix(k, "loading.") || strings.HasPrefix(k, "topology.") || strings.HasPrefix(k, "trace.") ||
-			strings.HasPrefix(k, "map.") || strings.HasPrefix(k, "monitoring.") {
+			strings.HasPrefix(k, "map.") || strings.HasPrefix(k, "monitoring.") || strings.HasPrefix(k, "mobile.") {
 			out[k] = v
 		}
 	}

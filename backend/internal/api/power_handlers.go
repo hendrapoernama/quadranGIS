@@ -336,10 +336,20 @@ func (s *Server) powerManeuver(c *gin.Context) {
 		}
 		outageID = &oid
 		_ = s.d.Power.LinkManeuverOutage(pctx, mid, oid)
+		// laporan gangguan pelanggan yang tercakup padam ini ditautkan
+		if n, _ := s.d.Ops.LinkReportsToOutage(pctx, oid, affectedNodes); n > 0 {
+			s.publishReportEvent("linked", oid)
+		}
 	} else if !open {
 		closedOutages, _ = s.d.Power.CloseOutages(pctx, targetKind, targetID, wayEdge, mid, reportJSON)
 		if len(closedOutages) > 0 {
 			_ = s.d.Power.LinkManeuverOutage(pctx, mid, closedOutages[0])
+			// sisa padam (pemulihan sebagian): dicatat sebagai kejadian lanjutan per switch isolasi
+			s.openContinuations(pctx, closedOutages, mid, username, feederCodeOf(s, pctx, targetKind, targetID))
+			// laporan yang tertaut ke kejadian yang pulih diselesaikan otomatis
+			if ids, _ := s.d.Ops.ResolveReportsForOutages(pctx, closedOutages); len(ids) > 0 {
+				s.publishReportEvent("resolved", closedOutages[0])
+			}
 		}
 	}
 
@@ -393,6 +403,7 @@ func (s *Server) powerManeuver(c *gin.Context) {
 		ev.Customers, ev.LoadVA, ev.Nodes, ev.ManeuverID, ev.OutageID, ev.DurationSec = osum.Customers, osum.LoadVA, o.AffectedCount, &mid, &id, &dur
 		s.recordSOE(pctx, &ev)
 	}
+	s.notifyOutage(outageID, closedOutages, req.Kind, level, code, report.Customers, feederCode)
 
 	version := s.d.Tiles.BumpVersion(pctx)
 	msgKey := "power.msg_close"

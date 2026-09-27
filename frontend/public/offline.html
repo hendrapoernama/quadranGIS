@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1d59f0" />
+  <title>QuadranGIS · Offline</title>
+  <link rel="icon" href="/favicon.svg" />
+  <style>
+    :root { --bg: #f3f4f6; --card: #ffffff; --text: #111827; --muted: #6b7280; --border: #e5e7eb; --brand: #1d59f0; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f1319; --card: #171c24; --text: #e5e7eb; --muted: #9ca3af; --border: #2b3340; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 16px;
+      background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; text-align: center; }
+    img { width: 64px; height: 64px; border-radius: 14px; }
+    h1 { font-size: 18px; margin: 14px 0 6px; }
+    p { color: var(--muted); margin: 0 0 10px; }
+    ul { text-align: left; color: var(--muted); padding-left: 20px; margin: 8px 0 16px; }
+    button { border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-weight: 600; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+    a { color: var(--brand); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/icons/icon-192.png" alt="" />
+    <h1>Anda sedang offline</h1>
+    <p>Halaman ini belum tersimpan di perangkat. Halaman yang pernah dibuka tetap bisa dipakai tanpa sinyal.</p>
+    <ul>
+      <li>Laporan &amp; foto lapangan disimpan di antrean dan dikirim otomatis saat online.</li>
+      <li>Peta area kerja yang sudah diunduh tetap tampil.</li>
+    </ul>
+    <button onclick="location.reload()">Coba lagi</button>
+    <p style="margin-top:14px"><a href="/field">Buka menu Lapangan</a> · <a href="/monitoring">Pusat Operasi</a></p>
+  </div>
+  <script>window.addEventListener('online', function () { location.reload(); });</script>
+</body>
+</html>

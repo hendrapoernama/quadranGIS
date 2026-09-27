@@ -411,7 +411,7 @@ export const en: Dict = {
   'feature.status_switch_hint': 'Switching devices are operated through the maneuver box below so outage state and events are recorded.',
   'map.maneuver_event': 'Maneuver: {msg}',
   'map.energized_event': 'Energized state updated',
-  'help.step_maneuver': 'Maneuvers: select a recloser / LBS / cubicle → in the Feature panel pick the kind (GANGGUAN, PEMELIHARAAN, MLS) and Open or Close; downstream objects are de-energized/energized automatically and recorded in Power Monitoring. A 3-way LBS can be opened per way.',
+  'help.step_maneuver': 'Maneuvers: select a recloser / LBS / cubicle → in the Feature panel pick the kind (GANGGUAN, PEMELIHARAAN, MLS) and Open or Close; downstream objects are de-energized/energized automatically and recorded in the Operations Center. A 3-way LBS can be opened per way.',
 
   // ---- layer coloring
   'layers.color_mode': 'Coloring',
@@ -433,7 +433,7 @@ export const en: Dict = {
   'layerspage.support': 'support',
 
   // ---- power monitoring
-  'power.title': 'Power Monitoring',
+  'power.title': 'Operations Center',
   'power.subtitle': 'Live energized/outage map and outage summaries',
   'power.tab_summary': 'Summary',
   'power.tab_outages': 'Outages',
@@ -582,6 +582,8 @@ export const en: Dict = {
   'sec.total': 'Total',
   'map.tab_data': 'Data',
   'power.tab_export': 'Export',
+  'power.group_monitoring': 'Monitoring',
+  'power.group_operations': 'Operations',
   'xchg.mode_area': 'Draw the selection area: click the corners, double-click/Enter to finish, Esc to cancel',
   'xchg.step_area': '1. Area',
   'xchg.area_view': 'Current map view',

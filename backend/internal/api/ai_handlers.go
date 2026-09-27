@@ -175,6 +175,12 @@ func (s *Server) aiChat(c *gin.Context) {
 		system += "\n\nData jaringan terkini:\n" + s.buildAIContext(c.Request.Context(), req)
 	}
 
+	s.streamLLM(c, p, key, base, model, system, msgs, "ai.chat", gin.H{"context": req.IncludeContext})
+}
+
+// streamLLM mengalirkan jawaban LLM sebagai server-sent events {start} {delta}... {done|error}
+// lalu mencatat audit (aksi, model, status, jumlah token).
+func (s *Server) streamLLM(c *gin.Context, p ai.Provider, key, base, model, system string, msgs []ai.Message, action string, meta gin.H) {
 	// SSE: tanpa buffering di nginx, tenggat tulis diperpanjang untuk jawaban panjang
 	rc := http.NewResponseController(c.Writer)
 	_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Minute))
@@ -212,8 +218,11 @@ func (s *Server) aiChat(c *gin.Context) {
 		_ = send(gin.H{"done": true, "usage": usage, "duration_ms": time.Since(start).Milliseconds()})
 	}
 	if cl != nil {
-		s.d.Audit.Log(&cl.UserID, cl.Username, "ai.chat", "ai", p.ID,
-			gin.H{"model": model, "status": status, "messages": len(msgs), "context": req.IncludeContext, "output_chars": chars,
-				"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}, clientIP(c))
+		detail := gin.H{"model": model, "status": status, "messages": len(msgs), "output_chars": chars,
+			"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}
+		for k, v := range meta {
+			detail[k] = v
+		}
+		s.d.Audit.Log(&cl.UserID, cl.Username, action, "ai", p.ID, detail, clientIP(c))
 	}
 }

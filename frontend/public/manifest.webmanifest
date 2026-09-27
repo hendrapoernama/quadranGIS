@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "QuadranGIS — GIS Jaringan Listrik",
+  "short_name": "QuadranGIS",
+  "description": "GIS jaringan distribusi listrik: pusat operasi, lapangan, SLD, dan dasbor eksekutif.",
+  "lang": "id",
+  "start_url": "/monitoring?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0f1319",
+  "theme_color": "#1d59f0",
+  "categories": ["business", "utilities", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Pusat Operasi", "short_name": "Operasi", "url": "/monitoring?source=pwa", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Lapangan", "short_name": "Lapangan", "url": "/field?source=pwa", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Dasbor Eksekutif", "short_name": "Dasbor", "url": "/executive?source=pwa", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

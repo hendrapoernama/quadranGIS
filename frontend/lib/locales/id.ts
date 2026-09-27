@@ -425,7 +425,7 @@ export const id = {
   'feature.status_switch_hint': 'Posisi alat switching diubah lewat manuver di bawah agar status padam/nyala dan kejadian tercatat.',
   'map.maneuver_event': 'Manuver: {msg}',
   'map.energized_event': 'Status nyala/padam diperbarui',
-  'help.step_maneuver': 'Manuver: pilih recloser / LBS / kubikel → di panel Fitur pilih jenis (GANGGUAN, PEMELIHARAAN, MLS) lalu Buka atau Tutup; objek hilir otomatis padam/nyala dan tercatat di menu Monitoring Kelistrikan. LBS 3 way dapat dibuka per arah.',
+  'help.step_maneuver': 'Manuver: pilih recloser / LBS / kubikel → di panel Fitur pilih jenis (GANGGUAN, PEMELIHARAAN, MLS) lalu Buka atau Tutup; objek hilir otomatis padam/nyala dan tercatat di menu Pusat Operasi. LBS 3 way dapat dibuka per arah.',
 
   // ---- pewarnaan layer
   'layers.color_mode': 'Pewarnaan',
@@ -447,7 +447,7 @@ export const id = {
   'layerspage.support': 'pendukung',
 
   // ---- monitoring kelistrikan
-  'power.title': 'Monitoring Kelistrikan',
+  'power.title': 'Pusat Operasi',
   'power.subtitle': 'Peta nyala/padam dan rekap kejadian padam secara realtime',
   'power.tab_summary': 'Rekap',
   'power.tab_outages': 'Kejadian padam',
@@ -596,6 +596,8 @@ export const id = {
   'sec.total': 'Total',
   'map.tab_data': 'Data',
   'power.tab_export': 'Export',
+  'power.group_monitoring': 'Monitoring',
+  'power.group_operations': 'Operasi',
   'xchg.mode_area': 'Gambar area seleksi: klik sudut-sudut, dobel-klik/Enter selesai, Esc batal',
   'xchg.step_area': '1. Area',
   'xchg.area_view': 'Tampilan peta saat ini',

@@ -205,7 +205,7 @@ Migrasi `007_power_monitoring.sql` menambahkan:
   *Per tipe* (objek padam abu dengan tepi merah) atau *Nyala / padam* (hijau /
   merah, garis padam putus-putus). Event realtime `maneuver` dan `energized`
   memperbarui tile semua klien.
-- **Menu Monitoring Kelistrikan** (`/monitoring`): peta nyala/padam, rekap
+- **Menu Pusat Operasi** (`/monitoring`): peta nyala/padam, rekap
   GI, trafo GI, penyulang (nyala / sebagian / padam), zona, gardu distribusi,
   trafo distribusi, pelanggan, beban; daftar kejadian padam aktif & riwayat dengan
   rekap per group dan tombol *Tampilkan di peta* (area terdampak); daftar
@@ -243,7 +243,7 @@ Migrasi `012_reliability.sql`:
   `reliability.load_factor` (0,6), `reliability.power_factor` (0,85),
   `reliability.sustained_minutes` (5). Hasil juga dipecah per level dan per jenis
   (GANGGUAN / PEMELIHARAAN / MLS).
-- **Monitoring Kelistrikan**: baris *Keandalan* di bawah pita rekap (pilihan periode,
+- **Pusat Operasi**: baris *Keandalan* di bawah pita rekap (pilihan periode,
   SAIDI, SAIFI, ENS kWh, ENS Rupiah, jumlah kejadian, jumlah per level). Tab
   *Kejadian padam* dikelompokkan per level (subtotal SAIDI/SAIFI/ENS tiap level),
   punya filter level, dan tiap kejadian menampilkan pelanggan·menit, ENS kWh, dan
@@ -269,20 +269,20 @@ Migrasi `014_equipment_operate.sql`:
   nyala/padam, dengan tepi merah bila padam / terbuka. Simbol per tipe dapat diganti di
   *Pengaturan Layer* (kolom *Simbol*, `component_types.icon`, mis. `sym_trafo`); legenda
   di tab *Layer* memakai simbol yang sama.
-- **Operasi dari Monitoring Kelistrikan**: popup objek terpilih punya kotak *Buka / tutup*
+- **Operasi dari Pusat Operasi**: popup objek terpilih punya kotak *Buka / tutup*
   (alat switching, termasuk per arah LBS 3 way) atau *Energize / deenergize* (objek
   non-switch & saluran). Saat membuka / deenergize **kategori pemadaman wajib**:
   GANGGUAN, PEMELIHARAAN, MLS, MANUVER, atau BENCANA ALAM. Saat menutup / energize kategori boleh
   kosong (mengikuti kejadian padam yang ditutup). Kotak yang sama dipakai di panel Fitur
   Editor Peta. Status objek topologi tidak lagi diubah lewat formulir edit, hanya lewat
   operasi (tercatat sebagai manuver, kejadian padam, dan SOE).
-- **Tab GI (gardu induk)** di Monitoring Kelistrikan (setelah tab *Trace*;
+- **Tab GI (gardu induk)** di Pusat Operasi (setelah tab *Trace*;
   `GET /api/power/gi?state=all|on|partial|off&q=`): tiap GI dengan status nyala /
   sebagian / padam (padam bila GI padam atau seluruh penyulangnya padam; sebagian bila ada
   penyulang padam/sebagian atau trafo GI padam), trafo GI, penyulang, gardu distribusi,
   pelanggan, dan beban (nyala/total). Filter status, pencarian, klik kode untuk menuju GI,
   dan *Lihat n penyulang* membuka tab *Penyulang* yang tersaring ke GI itu.
-- **Tab Pelanggan** di Monitoring Kelistrikan (setelah tab *Gardu*;
+- **Tab Pelanggan** di Pusat Operasi (setelah tab *Gardu*;
   `GET /api/power/customers?state=all|on|off&q=&limit=&offset=`): daftar pelanggan nyala /
   padam dengan paging di server (100 per halaman, *Muat berikutnya*), padam ditampilkan
   lebih dulu. Tiap baris: tipe, daya, penyulang, gardu distribusi, jurusan, kode SSOT; untuk
@@ -290,7 +290,7 @@ Migrasi `014_equipment_operate.sql`:
   nama / kode SSOT. Klik widget rekap *Pelanggan* membuka tab ini (filter padam bila ada).
   Indeks `gis_nodes (energized, code, id)` (migrasi 017) menjaga paging tetap < 0,4 detik
   pada 2 juta pelanggan.
-- **Downtrace / uptrace di Monitoring Kelistrikan** (izin `gis.trace`): tombol di popup
+- **Downtrace / uptrace di Pusat Operasi** (izin `gis.trace`): tombol di popup
   objek terpilih dan tab *Trace* (hilir / hulu, kedalaman maks, berhenti pada tipe,
   unduh hasil). Hasil disorot di peta dan dirangkum: jumlah node / garis, panjang,
   pelanggan, sumber, switch terbuka, rekap per tipe; klik baris untuk memilih objek.
@@ -319,7 +319,7 @@ adalah gabungan (dissolve) poligon ULP per `nama_area`.
   dan titik label; di-cache di server, ETag + gzip (±120 KB).
 - Warna isi memakai **pewarnaan peta 5 warna** (UP3 bersebelahan selalu berbeda); warna
   tidak mewakili nilai. Merah/hijau tidak dipakai agar tidak tertukar dengan status nyala/padam.
-- Di **Editor Peta** (tab *Layer*) dan **Monitoring Kelistrikan** (tombol *UP3* di toolbar
+- Di **Editor Peta** (tab *Layer*) dan **Pusat Operasi** (tombol *UP3* di toolbar
   peta): tampilkan/sembunyikan batas UP3, garis batas ULP (putus-putus), label nama wilayah,
   dan slider **transparansi isi** (0–100%). Pilihan tiap pengguna diingat di browser;
   bawaan dari konfigurasi `map.boundary_visible` dan `map.boundary_opacity`.
@@ -343,7 +343,7 @@ manuver & kejadian padam yang sudah ada.
   zona / gardu distribusi), kritis (padam GI / trafo GI / penyulang).
 - **Realtime**: setiap event disiarkan lewat WebSocket (`type: "soe"`) dan Kafka.
   Klien yang tersambung ulang menyinkronkan event yang terlewat (`after_id`).
-- **Tab SOE** di Monitoring Kelistrikan: daftar terbaru di atas dengan jam
+- **Tab SOE** di Pusat Operasi: daftar terbaru di atas dengan jam
   `hh:mm:ss.mmm`, sorot baris baru, *Jeda* / *Lanjut* (event baru ditahan selama
   dijeda), filter kategori / keparahan / jenis, pencarian, *Muat lebih lama*,
   unduh CSV, bunyi alarm opsional untuk event serius & kritis, badge jumlah event
@@ -354,7 +354,7 @@ manuver & kejadian padam yang sudah ada.
 ## Export / import data GIS
 
 - **Peta Jaringan → tab Data**: export **GeoJSON** dan import kembali hasil edit
-  **QGIS**. **Monitoring Kelistrikan → tab Export**: export **Esri File
+  **QGIS**. **Pusat Operasi → tab Export**: export **Esri File
   Geodatabase** (`.gdb` dalam zip, satu feature class per tipe komponen, dibuat
   dengan GDAL `ogr2ogr` driver OpenFileGDB di container backend), dengan filter
   status nyala / padam.
@@ -451,6 +451,183 @@ npm i -D playwright && npx playwright install chromium
 node scripts/docs-screenshots.js frontend/public/guide   # lalu build ulang frontend
 ```
 
+## Operasi jaringan: FLISR, rencana manuver & simulasi what-if, laporan gangguan
+
+Fitur operasi ada di menu **Pusat Operasi** (`/monitoring`, sebelumnya *Peta Jaringan Listrik*, migrasi `021_operations.sql`
+& `022_outage_continuation.sql`). Panel kanan punya dua grup tab: **Monitoring** (padam, SOE,
+trace, GI, penyulang, gardu, pelanggan, ekspor) dan **Operasi** (FLISR, Rencana Manuver, Laporan
+Gangguan, AI Operasi). Objek yang dipilih di peta dipakai kedua grup. Pita rekap juga
+menampilkan rencana manuver aktif dan laporan terbuka. Menu operasi terpisah yang lama
+dihapus (`024_merge_operations_menu.sql`); URL `/operations?tab=…` dialihkan ke
+`/monitoring?tab=…`.
+
+**Simulasi what-if** (`POST /api/ops/simulate`): urutan aksi buka/tutup disimulasikan tanpa
+mengubah jaringan. Hanya wilayah terkait yang dihitung, yaitu penyulang target, penyulang
+tetangga lewat tie (2 putaran), dan area sumber. Hasil per langkah: pelanggan padam
+sekarang/setelah, pulih, padam baru, beban per penyulang
+(`kapasitas = √3·kV·A`, konfigurasi `ops.feeder_capacity_a`, `ops.feeder_kv`,
+`powerflow.load_factor`), dan peringatan paralel/beban lebih. Hasilnya tampil sebagai overlay
+di peta (hijau pulih, merah padam baru, biru objek dimanuver).
+
+**FLISR** (lokalisasi, isolasi & pemulihan; bersifat penasihat): pilih kejadian padam aktif.
+Sistem menampilkan kandidat seksi gangguan yang dibatasi sakelar, lengkap dengan riwayat
+gangguan 365 hari dan jumlah laporan pelanggan terbuka. Untuk seksi yang dipilih, sistem
+menyusun:
+
+- buka sakelar batas seksi (isolasi hulu & hilir),
+- tutup alat yang trip (pemulihan hulu),
+- tutup tie untuk tiap pulau hilir, memilih kandidat dengan persentase beban akhir terendah
+  dan hanya jika ≤ 100%.
+
+Semua langkah lalu disimulasikan. Tidak ada yang dijalankan otomatis: hasilnya disimpan sebagai
+rencana manuver.
+
+**Rencana manuver** (izin `power.plan`, persetujuan `power.plan_approve`): draft berisi langkah
+BUKA/TUTUP yang bisa diurutkan dan disimulasikan, lalu disetujui dan dieksekusi langkah demi
+langkah secara berurutan (atau dilewati). Eksekusi memakai jalur manuver yang sama dengan Power
+Monitor, sehingga izin TM/TR, pencatatan padam, SOE, dan audit ikut berlaku.
+
+**Padam lanjutan**: bila sebuah padam ditutup tetapi sebagian pelanggan masih padam (pemulihan
+parsial), sistem membuka kejadian anak (`outages.parent_id`) per sakelar pengisolasi. Kejadian
+anak menambah SAIDI/ENS tetapi tidak menambah SAIFI maupun jumlah kejadian.
+
+**Laporan gangguan pelanggan** (izin `report.manage`):
+
+- Nomor tiket berformat `LG-YYYYMMDD-NNNNN`.
+- Kanal dan kategori laporan dicatat. Pelanggan dicari lewat kode/idpel/kode SSOT, atau
+  pelanggan terdekat dalam 50 m dari titik lokasi.
+- Prioritas otomatis: bahaya/kabel putus → darurat.
+- Laporan otomatis ditautkan ke padam aktif dan otomatis selesai saat padam itu ditutup.
+- SLA diatur lewat `ops.report_sla_minutes` (bawaan 120 menit); laporan yang melewatinya
+  ditandai terlambat.
+- **Dugaan lokasi gangguan**: laporan terbuka yang belum tertaut padam dikelompokkan, lalu
+  dicari titik bersama terdekat pada topologi normal.
+
+## Dasbor eksekutif, laporan berkala, keandalan wilayah & AI operasi
+
+Migrasi `023_executive.sql` menambahkan menu **Dasbor Eksekutif** (`/executive`) dan
+**Keandalan Wilayah** (`/reliability`). Izinnya `exec.view` untuk melihat dan `exec.report`
+untuk menyusun/menghapus laporan dan menulis ringkasan. Target keandalan diatur di konfigurasi
+`reliability.target_saidi_year` (bawaan 120 menit/pelanggan) dan `reliability.target_saifi_year`
+(bawaan 2 kali/pelanggan). Target periode dihitung pro-rata terhadap panjang periode.
+
+**Dasbor eksekutif** (`GET /api/exec/dashboard?period=today|month|30d|year`) berisi:
+
+- kondisi saat ini: pelanggan padam, padam aktif, laporan terbuka/melewati SLA, rencana aktif,
+  penyulang dengan beban ≥ 80%;
+- kinerja periode: SAIDI, SAIFI, ENS, jumlah kejadian, rata-rata lama padam, dan laporan yang
+  selesai sesuai SLA, dibandingkan dengan periode sebelumnya dan target;
+- realisasi tahun berjalan vs target beserta proyeksi akhir tahun;
+- tren SAIDI 12 bulan dan kejadian per hari;
+- rincian per kategori, penyulang terdampak terbesar, ULP dengan SAIDI tertinggi;
+- temuan otomatis.
+
+**Laporan berkala** (tab *Laporan Berkala*) berupa snapshot harian, mingguan (Senin–Minggu), dan
+bulanan di tabel `periodic_reports`:
+
+- Dibuat otomatis untuk periode lengkap terakhir (00:15 WIB, bila `report.auto_daily|weekly|monthly`
+  aktif), atau manual lewat `POST /api/exec/reports`.
+- Isinya: indikator vs periode sebelumnya & target, per kategori, per UP3/ULP, penyulang,
+  kejadian terbesar, operasi & layanan pelanggan, serta rincian harian.
+- Laporan bisa dicetak A4 (selalu bertema terang) dan diunduh sebagai CSV.
+- Ringkasan eksekutif dapat ditulis manual atau disusun AI.
+
+**Keandalan per wilayah UP3/ULP**:
+
+- Setiap kejadian padam menyimpan jumlah pelanggan terdampak per ULP (`outages.regions`), dihitung
+  dari titik pelanggan terdampak di dalam poligon ULP. Kejadian lama dihitung saat backend start.
+- Pelanggan·menit dan ENS dibagi ke wilayah sebanding jumlah pelanggan. UP3 adalah gabungan
+  ULP-nya.
+- Pelanggan di luar poligon masuk kelompok **di luar batas wilayah**.
+- Halaman menampilkan peta koroplet (SAIDI, SAIFI, ENS, kejadian, padam sekarang), tabel
+  UP3 → ULP, dan rincian wilayah: kategori, penyulang, dan kejadian beserta porsi wilayahnya.
+- Setelah batas wilayah diubah, hitung ulang lewat `POST /api/exec/regions/recompute`.
+
+**AI untuk operasi.** Konteks disusun deterministik oleh backend dari data aplikasi; LLM hanya
+menulis analisis. Kunci API dan penyedia sama dengan AI Assistant.
+
+- **Temuan otomatis** (`GET /api/ops/insights`, tanpa LLM):
+  - padam aktif lebih dari 2 jam;
+  - penyulang dengan gangguan ≥ 3 kali dalam 30 hari;
+  - alat yang trip berulang;
+  - padam sesaat berulang;
+  - proyeksi SAIDI melebihi target;
+  - ULP di atas target pro-rata;
+  - beban penyulang tinggi;
+  - laporan melewati SLA;
+  - kumpulan laporan tanpa kejadian padam tercatat;
+  - rencana yang tertunda.
+- **Tab AI Operasi** di grup Operasi menu Pusat Operasi (`POST /api/ai/ops`, izin `ai.use`):
+  - *analisis kejadian padam*: dampak, dugaan seksi, usulan FLISR tersimulasi, risiko K3, dan
+    draf pesan pelanggan;
+  - *review rencana manuver*: berdasarkan hasil simulasi;
+  - *laporan serah terima shift*;
+  - *temuan & rekomendasi*.
+
+  Tugas yang sama dapat dibuka dari tombol *Analisis AI kejadian* (FLISR) dan *Review AI*
+  (rencana). Jawaban dialirkan, dapat ditanya lanjut, dan dicatat di audit (`ai.ops`).
+- **Ringkasan eksekutif AI** untuk laporan berkala (`task: report`) dan analisis temuan di dasbor.
+
+## Versi mobile (PWA) & fitur lapangan
+
+QuadranGIS dapat dipasang di ponsel sebagai **Progressive Web App** (`public/manifest.webmanifest`,
+`public/sw.js`, migrasi `026_field_mobile.sql`). Di Android/Chrome, gunakan tombol *Pasang aplikasi*
+(bar atas atau menu Lapangan). Di iPhone/iPad, pilih Bagikan → *Tambahkan ke Layar Utama*.
+
+**Tampilan ponsel** (lebar ≤ 767 px):
+
+- Sidebar diganti bar atas (☰ laci menu, status offline, jumlah antrean) dan navigasi bawah:
+  Dasbor, Pusat Operasi, Lapangan, SLD, Menu.
+- **Pusat Operasi**: panel kanan menjadi *bottom sheet* (intip / setengah / penuh, bisa ditarik).
+  Objek yang dipilih tampil di dalam sheet, termasuk buka/tutup, trace, dan foto.
+  Tombol GPS menampilkan posisi dan akurasi di peta.
+- **SLD**: cubit dua jari untuk zoom. Panel cakupan menjadi laci; objek terpilih menjadi lembar bawah.
+- Dasbor Eksekutif, Laporan Berkala, dan Keandalan Wilayah menyesuaikan layar kecil.
+- **Editor Peta**: panel tertutup bawaan dan alat gambar disembunyikan. Pengeditan lengkap
+  tetap di desktop/tablet.
+
+**Menu Lapangan** (`/field`):
+
+- GPS dan **aset terdekat** (`GET /api/field/nearby`, pencarian KNN GiST, filter gardu /
+  proteksi / tiang / pelanggan). Tiap aset punya tombol lihat di peta, navigasi (Google Maps),
+  foto, dan SLD.
+- **Foto aset** (`POST /api/field/photos`, izin `field.photo`): dikompres di ponsel (≤ 1600 px,
+  ≤ `mobile.photo_max_kb`) beserta thumbnail, lalu disimpan di tabel `asset_photos` dengan
+  koordinat. Galeri foto juga tersedia di kartu objek Pusat Operasi.
+- **Laporan gangguan cepat** (kanal `LAPANGAN`) dengan lokasi GPS dan sampai 3 foto.
+- **Antrean offline**: laporan dan foto yang dibuat tanpa sinyal disimpan di IndexedDB, lalu
+  dikirim otomatis saat online, laporan lebih dulu, baru fotonya.
+  - Pengiriman idempoten lewat `client_id`, sehingga kiriman ulang tidak membuat data ganda.
+  - Waktu laporan memakai waktu saat dibuat di ponsel.
+  - Antrean hanya dikirim oleh pengguna yang membuatnya.
+- **Area kerja offline**: tile jaringan di sekitar lokasi (atau tampilan peta, lewat tombol unduh
+  di toolbar Pusat Operasi) disimpan di Cache Storage.
+  - Batas jumlah tile diatur `mobile.offline_max_tiles`.
+  - Peta dasar hanya ikut diunduh bila `mobile.offline_basemap=true`. Aktifkan hanya bila server
+    peta dasar mengizinkan unduhan massal; kebijakan tile OpenStreetMap melarangnya.
+- **Notifikasi Web Push** (`/api/push/*`): VAPID + enkripsi aes128gcm (RFC 8291/8292) memakai
+  pustaka standar Go (`internal/push`).
+  - Kunci VAPID dibuat otomatis (`push.vapid_public`, `push.vapid_private` bertipe secret).
+  - Topik: padam & pulih (urgensi tinggi untuk GANGGUAN/BENCANA ALAM), laporan pelanggan baru,
+    dan rencana manuver disetujui.
+  - Langganan yang kedaluwarsa (404/410) atau gagal 5 kali dihapus otomatis.
+
+**Service worker (offline):**
+
+- Halaman: network-first → cache → `/offline.html`.
+- API GET: network-first → data terakhir (header `X-QGIS-Offline`).
+- Tile jaringan: network-first → cache → area kerja.
+- Aset `_next/static`: cache-first.
+- Peta dasar: stale-while-revalidate (dibatasi).
+- Tidak di-cache: login/captcha, AI, dan WebSocket.
+- Saat logout, cache data per pengguna (API, halaman, foto) dihapus.
+
+**Syarat produksi:**
+
+- Service worker, GPS, kamera, dan push hanya berjalan di **HTTPS dengan sertifikat tepercaya**.
+  Sertifikat self-signed pengembangan tidak diterima ponsel.
+- Push di iOS butuh iOS 16.4+ dan aplikasi yang sudah dipasang ke Layar Utama.
+
 ## Aliran daya (power flow)
 
 Menu **Aliran Daya** (`/powerflow`) menghitung aliran daya tiap penyulang dengan
@@ -518,7 +695,7 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 5. **Manuver switch**: pilih kubikel / recloser / LBS → kotak *Manuver jaringan*
    di panel Fitur: pilih jenis (GANGGUAN, PEMELIHARAAN, MLS), lalu *Buka* atau
    *Tutup* (LBS 3 way juga per arah). Objek hilir padam/nyala, trace mengikuti,
-   dan kejadian tercatat di menu Monitoring Kelistrikan.
+   dan kejadian tercatat di menu Pusat Operasi.
 6. **Trace**: pilih node → *Trace hilir / hulu / terhubung*, atau buka tab
    *Trace* untuk mengatur kedalaman dan tipe pemberhentian. Hasil ditandai
    oranye di peta dan dapat diunduh sebagai GeoJSON.
@@ -553,6 +730,26 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | POST | `/api/sld/build` | `{scope: feeder\|gi\|gd\|node\|area, id, level: tm\|gd\|jurusan\|pelanggan, polygon?}` → diagram satu garis |
 | GET  | `/api/sld/resolve?kind&id` | cakupan SLD bawaan untuk sebuah objek |
 | GET/PUT/DELETE | `/api/sld/positions?scope` | posisi manual elemen SLD (ubah: `gis.edit`) |
+| POST | `/api/ops/simulate` | `{actions:[{target_kind,target_id,action,way_edge?}]}` → simulasi what-if + GeoJSON |
+| GET  | `/api/ops/flisr/sections?outage_id` | kandidat seksi gangguan (riwayat, laporan) |
+| POST | `/api/ops/flisr` | `{fault_kind, fault_id}` → isolasi & pemulihan usulan + simulasi |
+| GET/POST/PUT/DELETE | `/api/ops/plans[/:id]` | rencana manuver (ubah: `power.plan`) |
+| POST | `/api/ops/plans/:id/{simulate\|approve\|cancel\|reopen}` | simulasi / status rencana (setujui: `power.plan_approve`) |
+| POST | `/api/ops/plans/:id/steps/:seq/{execute\|skip}` | eksekusi / lewati langkah berurutan |
+| GET/POST/PUT | `/api/ops/reports[/:id]` | laporan gangguan pelanggan (ubah: `report.manage`) |
+| GET  | `/api/ops/reports/suspects` | dugaan lokasi gangguan dari laporan terbuka |
+| GET  | `/api/ops/insights` | temuan operasi otomatis (tanpa LLM) |
+| GET  | `/api/exec/dashboard?period=` | dasbor eksekutif: KPI, tren 12 bulan, tahun berjalan vs target (`exec.view`) |
+| GET  | `/api/exec/regions?period=` / `/{id}` | keandalan per UP3/ULP (id 0 = di luar batas wilayah) |
+| POST | `/api/exec/regions/recompute` | hitung ulang wilayah kejadian padam (`exec.report`) |
+| GET/POST/DELETE | `/api/exec/reports[/:id]` | laporan berkala `{kind: daily\|weekly\|monthly, date}` (ubah: `exec.report`) |
+| PUT  | `/api/exec/reports/:id/narrative` | simpan ringkasan eksekutif |
+| POST | `/api/ai/ops` | `{task: outage\|plan\|shift\|report\|insights, outage_id\|plan_id\|report_id\|hours, messages?}` → analisis AI (SSE) |
+| GET  | `/api/field/nearby?lng&lat&radius&types&limit` | aset terdekat dari posisi GPS (urut jarak) |
+| GET/POST/DELETE | `/api/field/photos[/:id]` | foto aset (`kind=node\|edge\|report&id`); unggah multipart `image`, `thumb`, `client_id` (izin `field.photo`) |
+| GET  | `/api/field/photos/:id/image?thumb=1` | isi foto / thumbnail (cache immutable) |
+| GET  | `/api/push/key` | kunci publik VAPID + langganan milik pengguna |
+| POST | `/api/push/subscribe` / `unsubscribe` / `test` | kelola langganan Web Push perangkat ini, kirim notifikasi uji |
 | GET  | `/api/power/reliability?period=today\|month\|year` | SAIDI, SAIFI, ENS kWh & Rupiah (total, per level, per jenis) |
 | GET  | `/api/ws` | WebSocket event realtime |
 | *    | `/api/admin/...` | users, roles, menus, configs, layers, monitoring |

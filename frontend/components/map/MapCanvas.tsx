@@ -436,6 +436,16 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       for (const layer of buildLayers(p.current.types, font, colorMode.current)) map.addLayer(layer);
       applyDarkLabels(p.current.initialBasemap === 'dark');
       applyBoundary();
+      // posisi GPS pengguna (lingkar akurasi + titik), selalu paling atas
+      map.addSource('user-loc', { type: 'geojson', data: EMPTY as any });
+      map.addLayer({ id: 'user-acc', type: 'fill', source: 'user-loc', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.12, 'fill-outline-color': '#2563eb' } });
+      map.addLayer({
+        id: 'user-dot',
+        type: 'circle',
+        source: 'user-loc',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-radius': 7, 'circle-color': '#2563eb', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
+      });
       for (const id of ['edit-vertices', 'edit-midpoints', 'edit-node']) {
         map.on('mousedown', id, onHandleDown);
         map.on('mouseenter', id, () => {
@@ -703,6 +713,28 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         return b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] : null;
       },
       setArea: (ring) => setSource('area', ring && ring.length >= 3 ? { type: 'FeatureCollection', features: [pg(ring)] } : EMPTY),
+      setUserLocation: (pos) => {
+        if (!pos) return setSource('user-loc', EMPTY);
+        const ring: [number, number][] = [];
+        const r = Math.max(3, Math.min(pos.accuracy || 0, 2000));
+        const dLat = r / 111320;
+        const dLng = r / (111320 * Math.cos((pos.lat * Math.PI) / 180));
+        for (let i = 0; i <= 48; i++) {
+          const a = (i / 48) * 2 * Math.PI;
+          ring.push([pos.lng + dLng * Math.cos(a), pos.lat + dLat * Math.sin(a)]);
+        }
+        setSource('user-loc', {
+          type: 'FeatureCollection',
+          features: [
+            { type: 'Feature', id: 1, properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } } as any,
+            { type: 'Feature', id: 2, properties: {}, geometry: { type: 'Point', coordinates: [pos.lng, pos.lat] } } as any,
+          ],
+        });
+      },
+      getCenter: () => {
+        const c = mapRef.current?.getCenter();
+        return c ? [c.lng, c.lat] : null;
+      },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],

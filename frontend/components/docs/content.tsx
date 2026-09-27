@@ -133,8 +133,8 @@ const overview = (
       rows={[
         ['Admin sistem', 'Pengguna, peran & izin, menu, konfigurasi, pemantauan server', 'Administrasi'],
         ['Editor GIS', 'Menggambar & memelihara aset, atribut SSOT, impor/ekspor QGIS', 'Editor Peta Jaringan'],
-        ['Operator / Dispatcher', 'Monitoring realtime, manuver TM & TR, penanganan gangguan', 'Monitoring Kelistrikan, SLD'],
-        ['Operator TR (ULP)', 'Operasi jaringan tegangan rendah saja', 'Monitoring Kelistrikan, SLD'],
+        ['Operator / Dispatcher', 'Monitoring realtime, manuver TM & TR, penanganan gangguan', 'Pusat Operasi, SLD'],
+        ['Operator TR (ULP)', 'Operasi jaringan tegangan rendah saja', 'Pusat Operasi, SLD'],
         ['Perencana / Viewer', 'Analisis aliran daya, keandalan, trace, laporan', 'Aliran Daya, SLD, AI Assistant'],
       ]}
     />
@@ -146,7 +146,7 @@ const features = (
   <div className="my-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
     <FeatureCard icon="🗺️" title="Editor Peta Jaringan" items={['Gambar titik, garis & bangunan (GI, GH, GD) dengan snapping', 'Topologi otomatis: sambung, pisah garis, junction', 'Atribut SSOT per tipe komponen', 'Edit vertex, pindah, gambar ulang, riwayat perubahan', 'Simbol standar kelistrikan IEC 60617']} />
     <FeatureCard icon="🔎" title="Topologi & Trace" items={['Graf jaringan di memori, jutaan node', 'Downtrace, uptrace, terhubung', 'Berhenti pada tipe tertentu, ringkasan per tipe', 'Validasi topologi (objek terisolasi, ujung bebas)']} />
-    <FeatureCard icon="⚡" title="Monitoring Kelistrikan" items={['Rekap GI, trafo GI, penyulang, zona, gardu, pelanggan, beban', 'Peta nyala/padam realtime + filter', 'Tab GI, penyulang, gardu distribusi, pelanggan', 'Pencarian objek, ukur panjang & luas']} />
+    <FeatureCard icon="⚡" title="Pusat Operasi" items={['Rekap GI, trafo GI, penyulang, zona, gardu, pelanggan, beban', 'Peta nyala/padam realtime + filter', 'Tab GI, penyulang, gardu distribusi, pelanggan', 'Pencarian objek, ukur panjang & luas', 'Grup Operasi: FLISR, rencana manuver & simulasi, laporan gangguan, AI operasi']} />
     <FeatureCard icon="🔌" title="Operasi Jaringan" items={['Buka/tutup switch TM & TR (termasuk per arah LBS 3 way)', 'Energize/deenergize gardu, trafo, saluran, pelanggan', 'Kategori: GANGGUAN, PEMELIHARAAN, MLS, MANUVER, BENCANA ALAM', 'Izin per peran & domain tegangan (TM/TR)']} />
     <FeatureCard icon="📊" title="Keandalan & Kejadian" items={['SAIDI, SAIFI, ENS (kWh & Rupiah) per periode', 'Kejadian padam per level: GI … pelanggan', 'Tarif, faktor beban & cos φ dapat diatur', 'Momentary vs sustained']} />
     <FeatureCard icon="🧾" title="SOE Realtime" items={['Sequence of Events presisi milidetik', 'Keparahan: normal, peringatan, serius, kritis', 'Jeda/lanjut, filter, alarm suara, ekspor CSV', 'Sinkron ulang otomatis bila koneksi putus']} />
@@ -429,7 +429,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
     ],
   },
   {
-    group: 'Monitoring Kelistrikan',
+    group: 'Pusat Operasi',
     items: [
       {
         id: 'g-mon',

@@ -200,3 +200,21 @@ html.dark body {
 .dark .text-brand-900 { color: #bcdaff; }
 .dark .border-brand-200 { border-color: rgba(89, 159, 255, 0.4); }
 .dark .border-amber-300 { border-color: rgba(251, 191, 36, 0.45); }
+
+/* dasbor eksekutif & temuan: varian gelap kelas status tambahan */
+.dark .bg-orange-50 { background-color: rgba(124, 45, 18, 0.35); }
+.dark .border-orange-300 { border-color: rgba(251, 146, 60, 0.45); }
+.dark .text-orange-700 { color: #fdba74; }
+.dark .border-red-300 { border-color: rgba(248, 113, 113, 0.45); }
+.dark .text-emerald-600 { color: #34d399; }
+
+@media print {
+  /* laporan berkala: hanya isi laporan yang dicetak (kelas body.exec-printing) */
+  body.exec-printing aside, body.exec-printing nav, body.exec-printing .no-print { display: none !important; }
+  body.exec-printing, body.exec-printing > div, body.exec-printing > div > div, body.exec-printing main, body.exec-printing .exec-scroll {
+    height: auto !important; min-height: 0 !important; overflow: visible !important; position: static !important; display: block !important; background: #fff !important;
+  }
+  body.exec-printing .exec-report { max-width: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; }
+  body.exec-printing .exec-report section, body.exec-printing .exec-report table, body.exec-printing .exec-report tr { break-inside: avoid; }
+  body.exec-printing * { -webkit-print-color-adjust: exact; color-adjust: exact; }
+}

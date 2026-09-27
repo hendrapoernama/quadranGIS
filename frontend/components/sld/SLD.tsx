@@ -17,6 +17,7 @@ import { isSymbol, symbolDataURL } from '@/components/map/symbols';
 import type { BasemapKind, DrawMode, MapHandle } from '@/components/map/types';
 import { OperateBox, type ManeuverBody } from '@/components/power/OperateBox';
 import { SectionRecap } from '@/components/power/SectionRecap';
+import { useIsMobile } from '@/lib/mobile';
 import { COL_W, ROW_H, layoutDiagram, type Layout, type Offsets, type Orientation, type PlacedNode, type SLDDiagramData, type SLDNodeData, type SLDSectionData, type SLDTieData } from './layout';
 
 type ScopeMode = 'feeder' | 'gi' | 'gd' | 'node' | 'area';
@@ -106,6 +107,14 @@ export default function SLD() {
   const [hits, setHits] = useState<{ id: number; code: string; name: string; sub?: string }[]>([]);
   const [searching, setSearching] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  // ponsel: panel cakupan jadi laci (tertutup bawaan), objek terpilih jadi lembar bawah
+  const mobile = useIsMobile();
+  useEffect(() => {
+    if (mobile) setPanelOpen(false);
+  }, [mobile]);
+  // sentuhan: dua jari = cubit untuk zoom
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d: number; k: number; tx: number; ty: number; cx: number; cy: number } | null>(null);
   const [mapMode, setMapMode] = useState<DrawMode>({ kind: 'select' });
   const [tileVersion, setTileVersion] = useState(0);
   const mapRef = useRef<MapHandle>(null);
@@ -377,6 +386,7 @@ export default function SLD() {
   }, [mode, q, t, typeName]);
 
   const pickScope = (id: number) => {
+    if (mobile) setPanelOpen(false);
     const lv = scope?.level || ((configs['sld.default_level'] as Level) || 'tm');
     setSelected(null);
     setScope({ scope: mode, id, level: lv });
@@ -397,12 +407,50 @@ export default function SLD() {
       return { k, tx: px - (px - v.tx) * (k / v.k), ty: py - (py - v.ty) * (k / v.k) };
     });
   };
+  const pinchStart = () => {
+    const pts = Array.from(pointers.current.values());
+    const svg = svgRef.current;
+    if (pts.length !== 2 || !svg) return;
+    const r = svg.getBoundingClientRect();
+    pinch.current = {
+      d: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+      k: view.k,
+      tx: view.tx,
+      ty: view.ty,
+      cx: (pts[0].x + pts[1].x) / 2 - r.left,
+      cy: (pts[0].y + pts[1].y) / 2 - r.top,
+    };
+    drag.current = null;
+  };
   const onDown = (e: React.PointerEvent, nodeId?: number) => {
     if (e.button !== 0) return;
+    if (e.pointerType === 'touch') {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size === 2) {
+        pinchStart();
+        return;
+      }
+    }
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, node: adjust && nodeId ? nodeId : undefined, moved: false };
   };
   const onMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pz = pinch.current;
+      if (pz && pointers.current.size === 2) {
+        const pts = Array.from(pointers.current.values());
+        const svg = svgRef.current;
+        const r = svg ? svg.getBoundingClientRect() : { left: 0, top: 0 };
+        const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        const cx = (pts[0].x + pts[1].x) / 2 - r.left;
+        const cy = (pts[0].y + pts[1].y) / 2 - r.top;
+        const k = Math.max(0.05, Math.min(6, (pz.k * d) / pz.d));
+        // titik di bawah pusat cubitan awal tetap di bawah jari, ditambah geser dua jari
+        setView({ k, tx: cx - (pz.cx - pz.tx) * (k / pz.k), ty: cy - (pz.cy - pz.ty) * (k / pz.k) });
+        return;
+      }
+    }
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.x;
@@ -419,7 +467,17 @@ export default function SLD() {
     }
     setView((v) => ({ ...v, tx: d.tx + dx, ty: d.ty + dy }));
   };
-  const onUp = () => {
+  const onUp = (e?: React.PointerEvent) => {
+    if (e && e.pointerType === 'touch') {
+      pointers.current.delete(e.pointerId);
+      if (pointers.current.size < 2) pinch.current = null;
+      if (pinch.current === null && pointers.current.size > 0) {
+        // satu jari tersisa: lanjut geser tanpa lompatan
+        const [pt] = Array.from(pointers.current.values());
+        drag.current = { x: pt.x, y: pt.y, tx: view.tx, ty: view.ty, moved: true };
+        return;
+      }
+    }
     drag.current = null;
   };
   const clickNode = (n: SLDNodeData) => {
@@ -752,7 +810,7 @@ export default function SLD() {
   return (
     <div className="flex h-full w-full flex-col">
       {/* judul */}
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-gray-200 bg-white px-3 py-1.5 text-[11px] text-gray-600">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-gray-200 bg-white px-3 py-1.5 text-[11px] text-gray-600 max-md:[&>span:nth-child(n+3)]:hidden">
         <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <Icon name="diagram" size={16} /> {t('sld.title')}
         </span>
@@ -802,9 +860,13 @@ export default function SLD() {
         </span>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* panel cakupan */}
-        <aside className={`flex shrink-0 flex-col border-r border-gray-200 bg-white transition-all ${panelOpen ? 'w-[21rem]' : 'w-10'}`}>
+        <aside
+          className={`flex shrink-0 flex-col border-r border-gray-200 bg-white transition-all ${
+            panelOpen ? (mobile ? 'absolute inset-y-0 left-0 z-30 w-[88vw] max-w-sm shadow-2xl' : 'w-[21rem]') : 'w-10'
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-gray-200 px-2 py-1">
             {panelOpen && <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">{t('sld.scope')}</span>}
             <button className="p-1 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')}>
@@ -1047,6 +1109,7 @@ export default function SLD() {
             onPointerMove={onMove}
             onPointerUp={onUp}
             onPointerLeave={onUp}
+            onPointerCancel={onUp}
             role="img"
             aria-label={diagram?.title || t('sld.title')}
           >
@@ -1065,7 +1128,11 @@ export default function SLD() {
 
         {/* panel objek terpilih */}
         {selected && (
-          <aside className="flex w-[22rem] shrink-0 flex-col overflow-y-auto border-l border-gray-200 bg-white p-3 text-xs text-gray-800">
+          <aside
+            className={`flex shrink-0 flex-col overflow-y-auto bg-white p-3 text-xs text-gray-800 ${
+              mobile ? 'absolute inset-x-0 bottom-0 z-30 max-h-[60%] w-full rounded-t-2xl border-t border-gray-200 shadow-[0_-8px_24px_rgba(0,0,0,0.2)]' : 'w-[22rem] border-l border-gray-200'
+            }`}
+          >
             <div className="mb-1 flex items-center justify-between">
               <span className="text-sm font-semibold text-gray-900">{p ? typeName(p.type_code) : t('common.loading')}</span>
               <button className="text-gray-500 hover:text-gray-800" onClick={() => setSelected(null)} aria-label={t('common.close')}>

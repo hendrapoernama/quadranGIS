@@ -177,7 +177,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastCtx.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2">
+      <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex w-80 flex-col gap-2 max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:left-3 max-md:right-3 max-md:w-auto">
         {items.map((t) => (
           <div key={t.id} className={`pointer-events-auto rounded-md border px-3 py-2 text-sm shadow-lg ${tones[t.tone]}`}>
             {t.message}

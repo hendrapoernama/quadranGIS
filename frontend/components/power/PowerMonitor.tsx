@@ -23,8 +23,23 @@ import { TracePanel, type TraceSeed } from '@/components/map/TracePanel';
 import { useAuth } from '@/lib/auth';
 import { ExchangePanel } from '@/components/map/ExchangePanel';
 import type { BasemapKind, DrawMode, MapHandle, MeasureResult } from '@/components/map/types';
+import { useOpsT } from '@/components/ops/i18n';
+import { FlisrTab } from '@/components/ops/FlisrTab';
+import { PlansTab } from '@/components/ops/PlansTab';
+import { ReportsTab } from '@/components/ops/ReportsTab';
+import { AiOpsTab, type AiPreset } from '@/components/ops/AiOpsTab';
+import { useGeolocation, useIsMobile } from '@/lib/mobile';
+import { BottomSheet, type Snap } from '@/components/pwa/BottomSheet';
+import { useFieldT } from '@/components/field/i18n';
+import { AssetPhotos } from '@/components/field/AssetPhotos';
+import { OfflineAreaButton } from '@/components/field/OfflineAreaButton';
 
-type Tab = 'outages' | 'soe' | 'trace' | 'gi' | 'feeders' | 'gardu' | 'customers' | 'export';
+type MonTab = 'outages' | 'soe' | 'trace' | 'gi' | 'feeders' | 'gardu' | 'customers' | 'export';
+type OpsTab = 'flisr' | 'plans' | 'reports' | 'ai';
+type Tab = MonTab | OpsTab;
+const MON_TABS: MonTab[] = ['outages', 'soe', 'trace', 'gi', 'feeders', 'gardu', 'customers', 'export'];
+const OPS_TABS: OpsTab[] = ['flisr', 'plans', 'reports', 'ai'];
+const isOps = (t: Tab): t is OpsTab => (OPS_TABS as Tab[]).includes(t);
 
 interface GIStatus {
   id: number;
@@ -176,6 +191,84 @@ export default function PowerMonitor() {
   const [area, setArea] = useState<[number, number][] | null>(null);
   const [wsOk, setWsOk] = useState(false);
 
+  // ---------------- ponsel: lembar bawah, GPS
+  const mobile = useIsMobile();
+  const fm = useFieldT();
+  const [snap, setSnap] = useState<Snap>('peek');
+  const [showObject, setShowObject] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const geo = useGeolocation(locating);
+  const firstFix = useRef(true);
+  useEffect(() => {
+    if (!geo.fix) return;
+    mapRef.current?.setUserLocation(geo.fix);
+    if (firstFix.current) {
+      firstFix.current = false;
+      mapRef.current?.flyTo(geo.fix.lng, geo.fix.lat, 17);
+    }
+  }, [geo.fix]);
+  useEffect(() => {
+    if (!geo.error) return;
+    toast.push(fm(geo.error === 'denied' ? 'gps_denied' : geo.error === 'unsupported' ? 'gps_unsupported' : 'gps_unavailable'), 'warning');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo.error]);
+  useEffect(() => {
+    if (selected) {
+      setShowObject(true);
+      setSnap((x) => (x === 'peek' ? 'half' : x));
+    } else setShowObject(false);
+  }, [selected]);
+
+  // ---------------- operasi: FLISR, rencana manuver, laporan gangguan, AI
+  const o = useOpsT();
+  const canPlan = has('power.plan');
+  const canApprove = has('power.plan_approve');
+  const canReport = has('report.manage');
+  const canAI = has('ai.use');
+  const [opsKeys, setOpsKeys] = useState({ outage: 0, plan: 0, report: 0 });
+  const [openPlanId, setOpenPlanId] = useState<number | null>(null);
+  const [plansActive, setPlansActive] = useState(0);
+  const [reportStats, setReportStats] = useState<Record<string, number>>({});
+  const [aiPreset, setAiPreset] = useState<AiPreset | null>(null);
+  const [lastTab, setLastTab] = useState<{ mon: MonTab; ops: OpsTab }>({ mon: 'outages', ops: 'flisr' });
+  const opsOverlays = useRef<Record<OpsTab, FeatureCollection | null>>({ flisr: null, plans: null, reports: null, ai: null });
+  const tabRef = useRef<Tab>(tab);
+  useEffect(() => {
+    tabRef.current = tab;
+    // overlay analisis hanya tampil untuk tab operasi yang aktif
+    mapRef.current?.setOverlay(isOps(tab) ? opsOverlays.current[tab] : null);
+    setLastTab((l) => (isOps(tab) ? { ...l, ops: tab } : { ...l, mon: tab }));
+    setShowObject(false);
+  }, [tab]);
+  const overlayFor = useCallback(
+    (tb: OpsTab) => (fc: FeatureCollection | null) => {
+      opsOverlays.current[tb] = fc;
+      if (tabRef.current === tb) mapRef.current?.setOverlay(fc);
+    },
+    [],
+  );
+  const overlayFlisr = useMemo(() => overlayFor('flisr'), [overlayFor]);
+  const overlayPlans = useMemo(() => overlayFor('plans'), [overlayFor]);
+  const overlayReports = useMemo(() => overlayFor('reports'), [overlayFor]);
+  const askAI = useCallback((task: AiPreset['task'], id?: number) => {
+    setAiPreset({ task, id, nonce: Date.now() });
+    setTab('ai');
+    setPanelOpen(true);
+  }, []);
+  const loadPlansActive = useCallback(async () => {
+    try {
+      const r = await api<{ items: unknown[] }>('/api/ops/plans?status=active&limit=200');
+      setPlansActive(r.items.length);
+    } catch {
+      /* ringkasan opsional */
+    }
+  }, []);
+  // ?tab=flisr|plans|reports|ai|outages|... dari menu lain (mis. temuan di dasbor eksekutif)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('tab') as Tab | null;
+    if (q && ((OPS_TABS as Tab[]).includes(q) || (MON_TABS as Tab[]).includes(q))) setTab(q);
+  }, []);
+
   const basemap: BasemapKind = resolved === 'dark' ? 'dark' : 'light';
   const typeName = useCallback(
     (c: string) => {
@@ -292,6 +385,9 @@ export default function PowerMonitor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
   useEffect(() => {
+    if (loaded) loadPlansActive();
+  }, [loaded, loadPlansActive, opsKeys.plan]);
+  useEffect(() => {
     if (loaded && tab === 'feeders') loadFeeders();
   }, [loaded, tab, loadFeeders]);
   useEffect(() => {
@@ -304,6 +400,7 @@ export default function PowerMonitor() {
   useEffect(() => {
     realtime.connect();
     const offStatus = realtime.onStatus(setWsOk);
+    let opsTimer: ReturnType<typeof setTimeout> | undefined;
     const off = realtime.subscribe((ev: RealtimeEvent) => {
       if (ev.type === 'maneuver' || ev.type === 'energized' || ev.type === 'topology.rebuilt') {
         mapRef.current?.refreshTiles(ev.tile_version);
@@ -318,6 +415,13 @@ export default function PowerMonitor() {
           if (tab === 'gardu') loadGardu();
         }, 600);
         if (ev.type === 'maneuver' && ev.data?.message) toast.push(ev.data.message, ev.data.action === 'open' ? 'warning' : 'success');
+        clearTimeout(opsTimer);
+        opsTimer = setTimeout(() => setOpsKeys((k) => ({ ...k, outage: k.outage + 1 })), 700);
+      } else if (ev.type === 'ops.plan') {
+        setOpsKeys((k) => ({ ...k, plan: k.plan + 1 }));
+      } else if (ev.type === 'ops.report') {
+        setOpsKeys((k) => ({ ...k, report: k.report + 1 }));
+        if (ev.data?.action === 'created') toast.push(`${o('tab_reports')}: +1`, 'warning');
       } else if (ev.type.startsWith('feature.')) {
         mapRef.current?.refreshTiles(ev.tile_version);
       }
@@ -325,6 +429,7 @@ export default function PowerMonitor() {
     return () => {
       off();
       offStatus();
+      clearTimeout(opsTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSummary, loadOutages, loadReliability, loadFeeders, loadGI, loadGardu, tab]);
@@ -361,6 +466,8 @@ export default function PowerMonitor() {
     },
     [toast],
   );
+
+  const opsSelect = useCallback((kind: 'node' | 'edge', id: number, fly?: boolean) => (fly ? selectAndFly(kind, id) : select(kind, id)), [select, selectAndFly]);
 
   const showOutage = useCallback(
     async (o: Outage) => {
@@ -495,9 +602,25 @@ export default function PowerMonitor() {
     );
 
   const stateLabels: [string, string, string] = [t('power.on'), t('power.partial'), t('power.off')];
+  const reportsOpen = (reportStats.BARU || 0) + (reportStats.DIVERIFIKASI || 0) + (reportStats.DIKERJAKAN || 0);
+  const opsGroup = isOps(tab);
+  const groupBtn = (ops: boolean, label: string, icon: string, count: number) => (
+    <button
+      className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1 text-xs font-semibold ${opsGroup === ops ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+      onClick={() => setTab(ops ? lastTab.ops : lastTab.mon)}
+    >
+      <Icon name={icon} size={14} />
+      {label}
+      {count > 0 && <span className={`rounded-full px-1.5 text-[10px] ${opsGroup === ops ? 'bg-white/25' : 'bg-red-600 text-white'}`}>{count}</span>}
+    </button>
+  );
   const openTab = (tb: Tab, st?: { off: number; partial: number }) => {
     setTab(tb);
     setPanelOpen(true);
+    if (mobile) {
+      setShowObject(false);
+      setSnap((x) => (x === 'peek' ? 'half' : x));
+    }
     if (!st) return;
     const f = st.off > 0 ? 'off' : st.partial > 0 ? 'partial' : 'all';
     if (tb === 'feeders') setFeederState(f);
@@ -506,265 +629,33 @@ export default function PowerMonitor() {
     if (tb === 'customers') setCustState(f === 'off' ? 'off' : 'all');
   };
 
-  return (
-    <div className="flex h-full w-full flex-col">
-      {/* pita rekap */}
-      <header className="shrink-0 border-b border-gray-200 bg-white px-3 pb-2 pt-1.5">
-        <div className="mb-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600">
-          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-            <Icon name="activity" size={16} /> {t('power.title')}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600 bg-white" /> {t('layers.legend_open')}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-1 w-4 rounded bg-amber-500" /> {t('power.outage_area')}
-          </span>
-          <span className="ml-auto flex items-center gap-3 text-gray-500">
-            {graphLoading && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-900">{t('power.graph_loading')}</span>}
-            {updatedAt && s && (
-              <span>
-                {t('power.updated', { time: fmtTime(updatedAt.toISOString()) })} · {t('layers.nodes')} {fmtNum(s.nodes.total)} ({fmtNum(s.nodes.off)} {t('power.off')})
-              </span>
-            )}
-            <span className="flex items-center gap-1" title={wsOk ? t('map.realtime_on') : t('map.realtime_off')}>
-              <span className={`inline-block h-2 w-2 rounded-full ${wsOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              {t('map.realtime')} · {configs['monitoring.power_refresh_seconds'] || 15}s
-            </span>
-          </span>
-        </div>
-        {s ? (
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            <SumTile label={t('power.gi')} total={s.gi.total} off={s.gi.off} onClick={() => openTab('gi', { off: s.gi.off, partial: 0 })} title={t('power.tab_gi')} />
-            <SumTile label={t('power.trafo_gi')} total={s.trafo_gi.total} off={s.trafo_gi.off} />
-            <StateTile label={t('power.feeders')} c={s.penyulang} labels={stateLabels} onClick={() => openTab('feeders', s.penyulang)} />
-            <StateTile label={t('power.zones')} c={s.zona} labels={stateLabels} />
-            <StateTile label={t('power.gd')} c={s.gd_state} labels={stateLabels} onClick={() => openTab('gardu', s.gd_state)} />
-            <SumTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} />
-            <SumTile label={t('power.customers')} total={s.pelanggan.total} off={s.pelanggan.off} onClick={() => openTab('customers', { off: s.pelanggan.off, partial: 0 })} title={t('power.tab_customers')} />
-            <SumTile label={t('power.load')} total={s.beban_va} off={s.beban_off_va} format={fmtVA} />
-            <button
-              className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${activeOutages > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
-              onClick={() => openTab('outages')}
-              title={t('power.active_outages')}
-            >
-              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.active_outages')}</div>
-              <div className={`text-base font-semibold tabular-nums ${activeOutages > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{activeOutages}</div>
-            </button>
-            <div className="min-w-[5rem] flex-[0.8] basis-0 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('power.open_switches')}>
-              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.open_switches')}</div>
-              <div className="text-base font-semibold tabular-nums text-gray-800">{s.open_switches}</div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex h-12 items-center gap-2 text-xs text-gray-500">
-            <Spinner size={14} /> {t('common.loading')}
-          </div>
-        )}
-        <div className="mt-1.5 flex items-stretch gap-1.5 overflow-x-auto pb-0.5">
-          <div className="flex min-w-[7rem] flex-col justify-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-600">{t('rel.title')}</div>
-            <select className="input !h-6 !py-0 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
-              <option value="today">{t('rel.period_today')}</option>
-              <option value="month">{t('rel.period_month')}</option>
-              <option value="year">{t('rel.period_year')}</option>
-            </select>
-          </div>
-          {rel ? (
-            <>
-              <RelTile label="SAIDI" value={`${fmtIdx(rel.total.saidi)} ${t('rel.min_cust')}`} sub={t('rel.saidi_desc')} title={t('rel.saidi_hint')} />
-              <RelTile label="SAIFI" value={`${fmtIdx(rel.total.saifi)} ${t('rel.times_cust')}`} sub={t('rel.saifi_desc')} title={t('rel.saifi_hint')} />
-              <RelTile label="ENS (kWh)" value={fmtKWh(rel.total.ens_kwh)} sub={t('rel.ens_desc')} title={t('rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })} />
-              <RelTile
-                label="ENS (Rupiah)"
-                value={fmtRp(rel.total.ens_rp)}
-                sub={t('rel.tariff', { rp: fmtDec(rel.params.tariff_rp_per_kwh, 2) })}
-                title={t('rel.tariff_hint')}
-              />
-              <RelTile
-                label={t('rel.events')}
-                value={fmtNum(rel.total.outages)}
-                sub={t('rel.events_sub', { m: rel.total.momentary, c: fmtNum(rel.total.customers_out) })}
-                title={t('rel.momentary_hint', { min: rel.params.sustained_minutes })}
-              />
-              <div className="flex min-w-[14rem] flex-[2] basis-0 flex-wrap content-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('rel.by_level')}>
-                {LEVELS.filter((lv) => rel.by_level[lv]).map((lv) => (
-                  <button
-                    key={lv}
-                    className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 hover:bg-gray-200"
-                    onClick={() => {
-                      setHistory(true);
-                      setLevelFilter(lv);
-                      openTab('outages');
-                    }}
-                    title={`SAIDI ${fmtIdx(rel.by_level[lv].saidi)} · SAIFI ${fmtIdx(rel.by_level[lv].saifi)} · ENS ${fmtKWh(rel.by_level[lv].ens_kwh)} / ${fmtRp(rel.by_level[lv].ens_rp)}`}
-                  >
-                    {levelLabel(lv)} <b className="tabular-nums">{rel.by_level[lv].outages}</b>
-                  </button>
-                ))}
-                {rel.total.outages === 0 && <span className="text-[11px] text-gray-500">{t('rel.no_events')}</span>}
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center gap-2 px-2 text-xs text-gray-500">
-              <Spinner size={12} /> {t('common.loading')}
-            </div>
-          )}
-        </div>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-      {/* peta kerja */}
-      <div className="relative min-w-0 flex-1">
-      <MapCanvas
-        ref={mapRef}
-        types={types}
-        configs={configs}
-        initialVersion={tileVersion}
-        initialBasemap={basemap}
-        initialColorMode="status"
-        mode={mode}
-        onSelect={select}
-        onCreatePoint={noop}
-        onCreatePolygon={noop}
-        onCreateLine={noop}
-        onMove={noop}
-        onReshape={noop}
-        onReshapePolygon={noop}
-        onSplit={noop}
-        onVertexCommit={noop}
-        onMeasure={setMeasure}
-        onCursor={() => {}}
-        onCancelMode={() => setMode({ kind: 'select' })}
-        onArea={(ring) => {
-          setArea(ring);
-          setMode({ kind: 'select' });
-        }}
-        onReady={() => {
-          setMapReady(true);
-          mapRef.current?.setVisibleTypes(types.map((x) => x.code));
-          mapRef.current?.setBasemap(basemap);
-          mapRef.current?.setDarkLabels(basemap === 'dark');
-          mapRef.current?.setColorMode('status');
-          mapRef.current?.setEnergyFilter(energy);
-        }}
-        onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
-      />
-
-      {/* judul & legenda */}
-      <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
-        <div className="flex items-start gap-2">
-          <SearchBox
-            typeName={typeName}
-            onPick={(h) => {
-              mapRef.current?.flyTo(h.lng, h.lat, 17);
-              select(h.kind, h.id);
-            }}
-          />
-        </div>
-        <div className="flex w-fit items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-1 shadow-lg">
-          <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('power.filter_label')}>
-            {(['all', 'on', 'off'] as const).map((f) => (
-              <button
-                key={f}
-                className={`px-2.5 py-1 ${energy === f ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-                onClick={() => {
-                  setEnergy(f);
-                  mapRef.current?.setEnergyFilter(f);
-                }}
-                title={t('power.filter_label')}
-              >
-                {f === 'all' ? t('power.filter_all') : f === 'on' ? t('power.filter_on') : t('power.filter_off')}
-              </button>
-            ))}
-          </div>
-          <span className="h-5 w-px bg-gray-300" />
-          {([
-            ['length', 'ruler', t('map.tool_measure_length')],
-            ['area', 'area', t('map.tool_measure_area')],
-          ] as const).map(([what, icon, title]) => {
-            const active = mode.kind === 'measure' && mode.what === what;
-            return (
-              <button
-                key={what}
-                className={`flex h-7 w-7 items-center justify-center rounded-md ${active ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-                title={title}
-                aria-label={title}
-                onClick={() => setMode(active ? { kind: 'select' } : { kind: 'measure', what })}
-              >
-                <Icon name={icon} size={16} />
-              </button>
-            );
-          })}
-          <span className="h-5 w-px bg-gray-300" />
-          <button
-            className={`flex h-7 items-center gap-1 rounded-md px-1.5 text-xs ${bndOpen ? 'bg-brand-600 text-white' : boundary.style.show ? 'text-brand-700 hover:bg-gray-100' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={t('bnd.title')}
-            aria-expanded={bndOpen}
-            onClick={() => setBndOpen(!bndOpen)}
-          >
-            <Icon name="layers" size={16} /> UP3
-          </button>
-        </div>
-        {bndOpen && (
-          <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
-            <BoundaryControl state={boundary} compact />
-          </div>
-        )}
-        {mode.kind === 'measure' && (
-          <div className="w-fit max-w-sm rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow">
-            {mode.what === 'length' ? t('map.mode_measure_length') : t('map.mode_measure_area')}
-            <button className="ml-2 underline" onClick={() => setMode({ kind: 'select' })}>
-              {t('common.cancel')}
-            </button>
-          </div>
-        )}
-        {shownOutage && (
-          <button
-            className="w-fit rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow hover:bg-amber-200"
-            onClick={() => {
-              mapRef.current?.setTrace(null);
-              setShownOutage(null);
-            }}
-          >
-            {t('power.clear_outage_area')}
-          </button>
-        )}
-      </div>
-
-      <div className="absolute bottom-10 left-3 z-10 flex flex-col gap-2">
-      {measure && (
-        <div className="w-72 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-900">{measure.what === 'area' ? t('measure.area_title') : t('measure.length_title')}</span>
-            <button className="text-gray-500 hover:text-gray-800" onClick={() => mapRef.current?.clearMeasure()} aria-label={t('common.clear')}>
-              <Icon name="x" size={14} />
-            </button>
-          </div>
-          <dl className="grid grid-cols-2 gap-y-0.5">
-            <dt className="text-gray-500">{measure.what === 'area' ? t('measure.perimeter') : t('measure.length')}</dt>
-            <dd className="text-right font-semibold tabular-nums">{fmtDistance(measure.lengthM)}</dd>
-            {measure.what === 'area' && (
-              <>
-                <dt className="text-gray-500">{t('measure.area')}</dt>
-                <dd className="text-right font-semibold tabular-nums">{fmtArea(measure.areaM2)}</dd>
-              </>
-            )}
-            <dt className="text-gray-500">{t('measure.vertices')}</dt>
-            <dd className="text-right tabular-nums">{measure.vertices}</dd>
-          </dl>
-          <div className="mt-1 text-[11px] text-gray-500">{measure.done ? t('measure.done_hint') : t('measure.hint')}</div>
-        </div>
-      )}
-      {/* objek terpilih */}
-      {selected && (
-        <div className="w-80 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
+  const groupButtons = (
+    <>
+      {groupBtn(false, t('power.group_monitoring'), 'activity', activeOutages)}
+      {groupBtn(true, t('power.group_operations'), 'target', plansActive + reportsOpen)}
+    </>
+  );
+  const tabButtons = opsGroup ? (
+    <>
+      {tabBtn('flisr', o('tab_flisr'), activeOutages)}
+      {tabBtn('plans', o('tab_plans'), plansActive)}
+      {tabBtn('reports', o('tab_reports'), reportsOpen)}
+      {canAI && tabBtn('ai', o('tab_ai'))}
+    </>
+  ) : (
+    <>
+      {tabBtn('outages', t('power.tab_outages'), activeOutages)}
+      {tabBtn('soe', 'SOE', soeUnread)}
+      {canTrace && tabBtn('trace', t('map.tab_trace'))}
+      {tabBtn('gi', t('power.tab_gi'), s ? s.gi.off : 0)}
+      {tabBtn('feeders', t('power.tab_feeders'), s ? s.penyulang.off + s.penyulang.partial : 0)}
+      {tabBtn('gardu', t('power.tab_gardu'), s?.gd_state ? s.gd_state.off + s.gd_state.partial : 0)}
+      {tabBtn('customers', t('power.tab_customers'), s ? s.pelanggan.off : 0)}
+      {tabBtn('export', t('power.tab_export'))}
+    </>
+  );
+  const objectCard = selected ? (
+    <>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-900">{typeName(selected.properties.type_code)}</span>
             <button
@@ -833,6 +724,14 @@ export default function PowerMonitor() {
             )}
           </dl>
           <SectionRecap sec={selected.properties.section} />
+          {opsGroup && (
+            <div className="mt-2 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
+              {tab === 'flisr' && `${o('use_as_fault')} →`}
+              {tab === 'plans' && (canPlan ? `${o('add_open')} / ${o('add_close')} →` : o('tab_plans'))}
+              {tab === 'reports' && (canReport && /^pelanggan/.test(selected.properties.type_code || '') ? `${o('report_for_customer')} →` : o('tab_reports'))}
+              {tab === 'ai' && `${o('tab_ai')} →`}
+            </div>
+          )}
           {canTrace && selected.properties.kind === 'node' && selected.properties.graph?.in_graph && (
             <div className="mt-2 flex flex-wrap gap-1">
               <Button size="sm" variant="secondary" icon="arrow-down" onClick={() => startTrace(selected.id as number, 'down')}>
@@ -847,6 +746,9 @@ export default function PowerMonitor() {
             <OperateBox feature={selected} types={types} submit={operate} />
           </div>
           <div className="mt-2">
+            {selected.properties.kind === 'node' || selected.properties.kind === 'edge' ? (
+              <AssetPhotos kind={selected.properties.kind} id={selected.id as number} pos={geo.fix} />
+            ) : null}
             <Button size="sm" variant="secondary" icon="map" onClick={() => router.push(`/map?select=${selected.properties.kind}:${selected.id}`)}>
               {t('power.open_in_map')}
             </Button>
@@ -854,34 +756,10 @@ export default function PowerMonitor() {
               {t('sld.open_sld')}
             </Button>
           </div>
-        </div>
-      )}
-
-      </div>
-
-      </div>
-
-      {/* panel tab info: kejadian padam, penyulang, gardu */}
-      <aside className={`flex shrink-0 flex-col border-l border-gray-200 bg-white transition-all ${panelOpen ? 'w-[26rem]' : 'w-10'}`}>
-        <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">
-          {panelOpen && (
-            <>
-              {tabBtn('outages', t('power.tab_outages'), activeOutages)}
-              {tabBtn('soe', 'SOE', soeUnread)}
-              {canTrace && tabBtn('trace', t('map.tab_trace'))}
-              {tabBtn('gi', t('power.tab_gi'), s ? s.gi.off : 0)}
-              {tabBtn('feeders', t('power.tab_feeders'), s ? s.penyulang.off + s.penyulang.partial : 0)}
-              {tabBtn('gardu', t('power.tab_gardu'), s?.gd_state ? s.gd_state.off + s.gd_state.partial : 0)}
-              {tabBtn('customers', t('power.tab_customers'), s ? s.pelanggan.off : 0)}
-              {tabBtn('export', t('power.tab_export'))}
-            </>
-          )}
-          <button className="sticky right-0 shrink-0 bg-white p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')} title={t('map.collapse_panel')}>
-            <Icon name={panelOpen ? 'chevron-right' : 'chevron-left'} size={16} />
-          </button>
-        </div>
-        {panelOpen && (
-          <div className="flex-1 overflow-y-auto p-3 text-sm">
+    </>
+  ) : null;
+  const panelBody = (
+    <>
 
             {tab === 'outages' && (
               <div className="space-y-2">
@@ -1152,6 +1030,50 @@ export default function PowerMonitor() {
             {tab === 'customers' && (
               <CustomersPanel active={tab === 'customers'} state={custState} onState={setCustState} refreshKey={custRefresh} onSelect={selectAndFly} typeName={typeName} />
             )}
+            <div className={tab === 'flisr' ? '' : 'hidden'}>
+              <FlisrTab
+                picked={selected}
+                canPlan={canPlan}
+                refreshKey={opsKeys.outage}
+                onOverlay={overlayFlisr}
+                onSelect={opsSelect}
+                onPlanCreated={(id) => {
+                  setOpenPlanId(id);
+                  setTab('plans');
+                  setOpsKeys((k) => ({ ...k, plan: k.plan + 1 }));
+                }}
+                onAskAI={canAI ? (id) => askAI('outage', id) : undefined}
+              />
+            </div>
+            <div className={tab === 'plans' ? '' : 'hidden'}>
+              <PlansTab
+                picked={selected}
+                canPlan={canPlan}
+                canApprove={canApprove}
+                refreshKey={opsKeys.plan + opsKeys.outage}
+                openId={openPlanId}
+                onOpened={() => setOpenPlanId(null)}
+                onOverlay={overlayPlans}
+                onSelect={opsSelect}
+                onAskAI={canAI ? (id) => askAI('plan', id) : undefined}
+              />
+            </div>
+            <div className={tab === 'reports' ? '' : 'hidden'}>
+              <ReportsTab
+                picked={selected}
+                canManage={canReport}
+                refreshKey={opsKeys.report + opsKeys.outage}
+                onOverlay={overlayReports}
+                onSelect={opsSelect}
+                onFly={(lng, lat) => mapRef.current?.flyTo(lng, lat, 18)}
+                onStats={setReportStats}
+              />
+            </div>
+            {canAI && (
+              <div className={tab === 'ai' ? '' : 'hidden'}>
+                <AiOpsTab preset={aiPreset} refreshKey={opsKeys.plan + opsKeys.outage} visible={tab === 'ai'} />
+              </div>
+            )}
             {tab === 'export' && (
               <ExchangePanel
                 mapRef={mapRef}
@@ -1167,9 +1089,367 @@ export default function PowerMonitor() {
                 }}
               />
             )}
+    </>
+  );
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      {/* pita rekap */}
+      <header className="shrink-0 border-b border-gray-200 bg-white px-3 pb-2 pt-1.5">
+        <div className="mb-1.5 hidden flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600 md:flex">
+          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Icon name="activity" size={16} /> {t('power.title')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600 bg-white" /> {t('layers.legend_open')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-1 w-4 rounded bg-amber-500" /> {t('power.outage_area')}
+          </span>
+          <span className="ml-auto flex items-center gap-3 text-gray-500">
+            {graphLoading && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-900">{t('power.graph_loading')}</span>}
+            {updatedAt && s && (
+              <span>
+                {t('power.updated', { time: fmtTime(updatedAt.toISOString()) })} · {t('layers.nodes')} {fmtNum(s.nodes.total)} ({fmtNum(s.nodes.off)} {t('power.off')})
+              </span>
+            )}
+            <span className="flex items-center gap-1" title={wsOk ? t('map.realtime_on') : t('map.realtime_off')}>
+              <span className={`inline-block h-2 w-2 rounded-full ${wsOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              {t('map.realtime')} · {configs['monitoring.power_refresh_seconds'] || 15}s
+            </span>
+          </span>
+        </div>
+        {s ? (
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            <SumTile label={t('power.gi')} total={s.gi.total} off={s.gi.off} onClick={() => openTab('gi', { off: s.gi.off, partial: 0 })} title={t('power.tab_gi')} />
+            <SumTile label={t('power.trafo_gi')} total={s.trafo_gi.total} off={s.trafo_gi.off} />
+            <StateTile label={t('power.feeders')} c={s.penyulang} labels={stateLabels} onClick={() => openTab('feeders', s.penyulang)} />
+            <StateTile label={t('power.zones')} c={s.zona} labels={stateLabels} />
+            <StateTile label={t('power.gd')} c={s.gd_state} labels={stateLabels} onClick={() => openTab('gardu', s.gd_state)} />
+            <SumTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} />
+            <SumTile label={t('power.customers')} total={s.pelanggan.total} off={s.pelanggan.off} onClick={() => openTab('customers', { off: s.pelanggan.off, partial: 0 })} title={t('power.tab_customers')} />
+            <SumTile label={t('power.load')} total={s.beban_va} off={s.beban_off_va} format={fmtVA} />
+            <button
+              className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${activeOutages > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
+              onClick={() => openTab('outages')}
+              title={t('power.active_outages')}
+            >
+              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.active_outages')}</div>
+              <div className={`text-base font-semibold tabular-nums ${activeOutages > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{activeOutages}</div>
+            </button>
+            <button
+              className="min-w-[5rem] flex-[0.8] basis-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-left hover:border-brand-600"
+              onClick={() => openTab('plans')}
+              title={o('tab_plans')}
+            >
+              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{o('active_plans')}</div>
+              <div className="text-base font-semibold tabular-nums text-gray-800">{plansActive}</div>
+            </button>
+            <button
+              className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${reportsOpen > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
+              onClick={() => openTab('reports')}
+              title={o('tab_reports')}
+            >
+              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{o('open_reports')}</div>
+              <div className={`text-base font-semibold tabular-nums ${reportsOpen > 0 ? 'text-red-700' : 'text-gray-800'}`}>
+                {reportsOpen}
+                {(reportStats.overdue || 0) > 0 && (
+                  <span className="ml-1 text-[10px] font-normal text-red-700">
+                    {reportStats.overdue} {o('overdue')}
+                  </span>
+                )}
+              </div>
+            </button>
+            <div className="min-w-[5rem] flex-[0.8] basis-0 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('power.open_switches')}>
+              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.open_switches')}</div>
+              <div className="text-base font-semibold tabular-nums text-gray-800">{s.open_switches}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-12 items-center gap-2 text-xs text-gray-500">
+            <Spinner size={14} /> {t('common.loading')}
           </div>
         )}
+        <div className="mt-1.5 hidden items-stretch gap-1.5 overflow-x-auto pb-0.5 md:flex">
+          <div className="flex min-w-[7rem] flex-col justify-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-600">{t('rel.title')}</div>
+            <select className="input !h-6 !py-0 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
+              <option value="today">{t('rel.period_today')}</option>
+              <option value="month">{t('rel.period_month')}</option>
+              <option value="year">{t('rel.period_year')}</option>
+            </select>
+          </div>
+          {rel ? (
+            <>
+              <RelTile label="SAIDI" value={`${fmtIdx(rel.total.saidi)} ${t('rel.min_cust')}`} sub={t('rel.saidi_desc')} title={t('rel.saidi_hint')} />
+              <RelTile label="SAIFI" value={`${fmtIdx(rel.total.saifi)} ${t('rel.times_cust')}`} sub={t('rel.saifi_desc')} title={t('rel.saifi_hint')} />
+              <RelTile label="ENS (kWh)" value={fmtKWh(rel.total.ens_kwh)} sub={t('rel.ens_desc')} title={t('rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })} />
+              <RelTile
+                label="ENS (Rupiah)"
+                value={fmtRp(rel.total.ens_rp)}
+                sub={t('rel.tariff', { rp: fmtDec(rel.params.tariff_rp_per_kwh, 2) })}
+                title={t('rel.tariff_hint')}
+              />
+              <RelTile
+                label={t('rel.events')}
+                value={fmtNum(rel.total.outages)}
+                sub={t('rel.events_sub', { m: rel.total.momentary, c: fmtNum(rel.total.customers_out) })}
+                title={t('rel.momentary_hint', { min: rel.params.sustained_minutes })}
+              />
+              <div className="flex min-w-[14rem] flex-[2] basis-0 flex-wrap content-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('rel.by_level')}>
+                {LEVELS.filter((lv) => rel.by_level[lv]).map((lv) => (
+                  <button
+                    key={lv}
+                    className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 hover:bg-gray-200"
+                    onClick={() => {
+                      setHistory(true);
+                      setLevelFilter(lv);
+                      openTab('outages');
+                    }}
+                    title={`SAIDI ${fmtIdx(rel.by_level[lv].saidi)} · SAIFI ${fmtIdx(rel.by_level[lv].saifi)} · ENS ${fmtKWh(rel.by_level[lv].ens_kwh)} / ${fmtRp(rel.by_level[lv].ens_rp)}`}
+                  >
+                    {levelLabel(lv)} <b className="tabular-nums">{rel.by_level[lv].outages}</b>
+                  </button>
+                ))}
+                {rel.total.outages === 0 && <span className="text-[11px] text-gray-500">{t('rel.no_events')}</span>}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 px-2 text-xs text-gray-500">
+              <Spinner size={12} /> {t('common.loading')}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+      {/* peta kerja */}
+      <div className="relative min-w-0 flex-1">
+      <MapCanvas
+        ref={mapRef}
+        types={types}
+        configs={configs}
+        initialVersion={tileVersion}
+        initialBasemap={basemap}
+        initialColorMode="status"
+        mode={mode}
+        onSelect={select}
+        onCreatePoint={noop}
+        onCreatePolygon={noop}
+        onCreateLine={noop}
+        onMove={noop}
+        onReshape={noop}
+        onReshapePolygon={noop}
+        onSplit={noop}
+        onVertexCommit={noop}
+        onMeasure={setMeasure}
+        onCursor={() => {}}
+        onCancelMode={() => setMode({ kind: 'select' })}
+        onArea={(ring) => {
+          setArea(ring);
+          setMode({ kind: 'select' });
+        }}
+        onReady={() => {
+          setMapReady(true);
+          mapRef.current?.setVisibleTypes(types.map((x) => x.code));
+          mapRef.current?.setBasemap(basemap);
+          mapRef.current?.setDarkLabels(basemap === 'dark');
+          mapRef.current?.setColorMode('status');
+          mapRef.current?.setEnergyFilter(energy);
+          if (isOps(tabRef.current)) mapRef.current?.setOverlay(opsOverlays.current[tabRef.current]);
+        }}
+        onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
+      />
+
+      {/* judul & legenda */}
+      <div className="absolute left-3 right-12 top-3 z-10 flex flex-col gap-2 md:right-auto">
+        <div className="flex items-start gap-2 max-md:[&>div]:w-full">
+          <SearchBox
+            typeName={typeName}
+            onPick={(h) => {
+              mapRef.current?.flyTo(h.lng, h.lat, 17);
+              select(h.kind, h.id);
+            }}
+          />
+        </div>
+        <div className="flex w-fit items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-1 shadow-lg">
+          <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('power.filter_label')}>
+            {(['all', 'on', 'off'] as const).map((f) => (
+              <button
+                key={f}
+                className={`px-2.5 py-1 ${energy === f ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                onClick={() => {
+                  setEnergy(f);
+                  mapRef.current?.setEnergyFilter(f);
+                }}
+                title={t('power.filter_label')}
+              >
+                {f === 'all' ? t('power.filter_all') : f === 'on' ? t('power.filter_on') : t('power.filter_off')}
+              </button>
+            ))}
+          </div>
+          {!mobile && <span className="h-5 w-px bg-gray-300" />}
+          {!mobile && ([
+            ['length', 'ruler', t('map.tool_measure_length')],
+            ['area', 'area', t('map.tool_measure_area')],
+          ] as const).map(([what, icon, title]) => {
+            const active = mode.kind === 'measure' && mode.what === what;
+            return (
+              <button
+                key={what}
+                className={`flex h-7 w-7 items-center justify-center rounded-md ${active ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                title={title}
+                aria-label={title}
+                onClick={() => setMode(active ? { kind: 'select' } : { kind: 'measure', what })}
+              >
+                <Icon name={icon} size={16} />
+              </button>
+            );
+          })}
+          <span className="h-5 w-px bg-gray-300" />
+          <button
+            className={`flex h-7 items-center gap-1 rounded-md px-1.5 text-xs ${bndOpen ? 'bg-brand-600 text-white' : boundary.style.show ? 'text-brand-700 hover:bg-gray-100' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={t('bnd.title')}
+            aria-expanded={bndOpen}
+            onClick={() => setBndOpen(!bndOpen)}
+          >
+            <Icon name="layers" size={16} /> UP3
+          </button>
+          <span className="h-5 w-px bg-gray-300" />
+          <button
+            className={`flex h-7 w-7 items-center justify-center rounded-md ${locating ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+            title={fm('locate')}
+            aria-label={fm('locate')}
+            aria-pressed={locating}
+            onClick={() => {
+              if (locating) {
+                setLocating(false);
+                mapRef.current?.setUserLocation(null);
+              } else {
+                firstFix.current = true;
+                setLocating(true);
+                if (geo.fix) mapRef.current?.flyTo(geo.fix.lng, geo.fix.lat, 17);
+              }
+            }}
+          >
+            <Icon name="target" size={16} />
+          </button>
+          <OfflineAreaButton mapRef={mapRef} configs={configs} />
+        </div>
+        {bndOpen && (
+          <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
+            <BoundaryControl state={boundary} compact />
+          </div>
+        )}
+        {mode.kind === 'measure' && (
+          <div className="w-fit max-w-sm rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow">
+            {mode.what === 'length' ? t('map.mode_measure_length') : t('map.mode_measure_area')}
+            <button className="ml-2 underline" onClick={() => setMode({ kind: 'select' })}>
+              {t('common.cancel')}
+            </button>
+          </div>
+        )}
+        {shownOutage && (
+          <button
+            className="w-fit rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow hover:bg-amber-200"
+            onClick={() => {
+              mapRef.current?.setTrace(null);
+              setShownOutage(null);
+            }}
+          >
+            {t('power.clear_outage_area')}
+          </button>
+        )}
+      </div>
+
+      <div className="absolute bottom-10 left-3 z-10 flex flex-col gap-2">
+      {measure && (
+        <div className="w-72 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-900">{measure.what === 'area' ? t('measure.area_title') : t('measure.length_title')}</span>
+            <button className="text-gray-500 hover:text-gray-800" onClick={() => mapRef.current?.clearMeasure()} aria-label={t('common.clear')}>
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+          <dl className="grid grid-cols-2 gap-y-0.5">
+            <dt className="text-gray-500">{measure.what === 'area' ? t('measure.perimeter') : t('measure.length')}</dt>
+            <dd className="text-right font-semibold tabular-nums">{fmtDistance(measure.lengthM)}</dd>
+            {measure.what === 'area' && (
+              <>
+                <dt className="text-gray-500">{t('measure.area')}</dt>
+                <dd className="text-right font-semibold tabular-nums">{fmtArea(measure.areaM2)}</dd>
+              </>
+            )}
+            <dt className="text-gray-500">{t('measure.vertices')}</dt>
+            <dd className="text-right tabular-nums">{measure.vertices}</dd>
+          </dl>
+          <div className="mt-1 text-[11px] text-gray-500">{measure.done ? t('measure.done_hint') : t('measure.hint')}</div>
+        </div>
+      )}
+      {/* objek terpilih */}
+      {selected && !mobile && <div className="w-80 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">{objectCard}</div>}
+
+      </div>
+      {mobile && (
+        <BottomSheet
+          snap={snap}
+          onSnap={setSnap}
+          header={
+            selected && showObject ? (
+              <div className="flex items-center gap-2 border-b border-gray-200 px-3 pb-2">
+                <button className="flex items-center gap-1 text-xs font-medium text-brand-700" onClick={() => setShowObject(false)}>
+                  <Icon name="chevron-left" size={14} /> {opsGroup ? t('power.group_operations') : t('power.group_monitoring')}
+                </button>
+                <span className="ml-auto truncate text-[11px] uppercase tracking-wide text-gray-500">{fm('object')}</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-1 border-b border-gray-200 px-2 pb-1">{groupButtons}</div>
+                <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">{tabButtons}</div>
+                {selected && (
+                  <button
+                    className="flex w-full items-center gap-2 border-b border-gray-200 bg-brand-50 px-3 py-1.5 text-left text-xs text-brand-800"
+                    onClick={() => {
+                      setShowObject(true);
+                      setSnap((x) => (x === 'peek' ? 'half' : x));
+                    }}
+                  >
+                    <Icon name="point" size={13} />
+                    <span className="truncate font-medium">{selected.properties.code || `#${selected.id}`}</span>
+                    <span className="truncate text-brand-700/80">{typeName(selected.properties.type_code)}</span>
+                    <Icon name="chevron-right" size={13} className="ml-auto" />
+                  </button>
+                )}
+              </>
+            )
+          }
+        >
+          {selected && <div className={selected && showObject ? 'p-3 text-xs text-gray-800' : 'hidden'}>{objectCard}</div>}
+          <div className={selected && showObject ? 'hidden' : 'p-3 text-sm'}>{panelBody}</div>
+        </BottomSheet>
+      )}
+
+      </div>
+
+      {/* panel tab info: kejadian padam, penyulang, gardu (desktop) */}
+      {!mobile && (
+      <aside className={`flex shrink-0 flex-col border-l border-gray-200 bg-white transition-all ${panelOpen ? (opsGroup ? 'w-[30rem]' : 'w-[26rem]') : 'w-10'}`}>
+        {panelOpen && <div className="flex gap-1 border-b border-gray-200 p-1">{groupButtons}</div>}
+        <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">
+          {panelOpen && tabButtons}
+          <button className="sticky right-0 shrink-0 bg-white p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')} title={t('map.collapse_panel')}>
+            <Icon name={panelOpen ? 'chevron-right' : 'chevron-left'} size={16} />
+          </button>
+        </div>
+        {panelOpen && <div className="flex-1 overflow-y-auto p-3 text-sm">{panelBody}</div>}
       </aside>
+      )}
       </div>
     </div>
   );

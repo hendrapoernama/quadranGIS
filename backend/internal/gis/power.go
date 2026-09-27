@@ -3,6 +3,7 @@ package gis
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,6 +46,7 @@ type OutageRecord struct {
 	Kind            string          `json:"kind"`
 	Level           string          `json:"level"`
 	CauseKind       string          `json:"cause_kind"` // node | edge
+	ParentID        *int64          `json:"parent_id"`  // kejadian lanjutan: sisa padam dari kejadian ini
 	GroupCode       string          `json:"group_code"`
 	CauseNodeID     int64           `json:"cause_node_id"`
 	CauseNodeCode   string          `json:"cause_node_code"`
@@ -58,6 +60,8 @@ type OutageRecord struct {
 	Restored        json.RawMessage `json:"restored"`
 	AffectedCount   int             `json:"affected_count"`
 	DurationSec     float64         `json:"duration_sec"`
+	// pelanggan terdampak per ULP (id gis_boundaries); nil = belum dihitung
+	Regions map[string]int `json:"regions,omitempty"`
 	// indeks keandalan per kejadian (diisi handler)
 	Customers       int     `json:"customers"`
 	CustomerMinutes float64 `json:"customer_minutes"`
@@ -147,10 +151,40 @@ func (p *Power) OpenOutage(ctx context.Context, o OutageRecord, affected []int64
 	if o.CauseKind == "" {
 		o.CauseKind = "node"
 	}
-	err := p.pool.QueryRow(ctx, `INSERT INTO outages (kind, level, group_code, cause_node_id, cause_node_code, cause_node_type, way_edge_id, open_maneuver_id, summary, affected_nodes, cause_kind)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-		o.Kind, o.Level, o.GroupCode, o.CauseNodeID, o.CauseNodeCode, o.CauseNodeType, o.WayEdgeID, o.OpenManeuverID, []byte(o.Summary), affected, o.CauseKind).Scan(&id)
+	err := p.pool.QueryRow(ctx, `INSERT INTO outages (kind, level, group_code, cause_node_id, cause_node_code, cause_node_type, way_edge_id, open_maneuver_id, summary, affected_nodes, cause_kind, parent_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+		o.Kind, o.Level, o.GroupCode, o.CauseNodeID, o.CauseNodeCode, o.CauseNodeType, o.WayEdgeID, o.OpenManeuverID, []byte(o.Summary), affected, o.CauseKind, o.ParentID).Scan(&id)
+	if err == nil {
+		if rerr := p.AssignOutageRegions(ctx, id); rerr != nil {
+			log.Printf("[power] wilayah kejadian #%d: %v", id, rerr)
+		}
+	}
 	return id, err
+}
+
+// regionsSQL menghitung pelanggan terdampak per ULP dari affected_nodes (titik pelanggan di dalam poligon ULP).
+const regionsSQL = `UPDATE outages o SET regions = COALESCE((
+	SELECT jsonb_object_agg(x.id::text, x.cnt) FROM (
+		SELECT b.id, count(*) AS cnt FROM gis_nodes n
+		JOIN gis_boundaries b ON b.level = 'ulp' AND ST_Intersects(b.geom, n.geom)
+		WHERE n.id = ANY(o.affected_nodes) AND n.type_code LIKE 'pelanggan%' GROUP BY b.id) x), '{}'::jsonb)`
+
+// AssignOutageRegions mengisi pelanggan terdampak per ULP untuk satu kejadian.
+func (p *Power) AssignOutageRegions(ctx context.Context, id int64) error {
+	_, err := p.pool.Exec(ctx, regionsSQL+` WHERE o.id = $1`, id)
+	return err
+}
+
+// BackfillOutageRegions mengisi wilayah kejadian lama yang belum dihitung (mis. sesudah migrasi).
+func (p *Power) BackfillOutageRegions(ctx context.Context) (int64, error) {
+	tag, err := p.pool.Exec(ctx, regionsSQL+` WHERE o.regions IS NULL`)
+	return tag.RowsAffected(), err
+}
+
+// RecomputeOutageRegions menghitung ulang wilayah seluruh kejadian (mis. sesudah batas wilayah berubah).
+func (p *Power) RecomputeOutageRegions(ctx context.Context) (int64, error) {
+	tag, err := p.pool.Exec(ctx, regionsSQL)
+	return tag.RowsAffected(), err
 }
 
 // CloseOutages menutup kejadian padam aktif yang disebabkan alat (dan arah) yang sama.
@@ -168,13 +202,16 @@ func (p *Power) CloseOutages(ctx context.Context, causeKind string, causeNodeID 
 }
 
 const outageCols = `id, kind, level, group_code, cause_node_id, cause_node_code, cause_node_type, way_edge_id, open_maneuver_id, close_maneuver_id,
-	started_at, ended_at, summary, restored, cardinality(affected_nodes), EXTRACT(EPOCH FROM COALESCE(ended_at, now()) - started_at), cause_kind`
+	started_at, ended_at, summary, restored, cardinality(affected_nodes), EXTRACT(EPOCH FROM COALESCE(ended_at, now()) - started_at), cause_kind, parent_id, regions`
 
 func scanOutage(rows pgx.Rows) (OutageRecord, error) {
 	var o OutageRecord
-	var summary, restored []byte
+	var summary, restored, regions []byte
 	err := rows.Scan(&o.ID, &o.Kind, &o.Level, &o.GroupCode, &o.CauseNodeID, &o.CauseNodeCode, &o.CauseNodeType, &o.WayEdgeID, &o.OpenManeuverID, &o.CloseManeuverID,
-		&o.StartedAt, &o.EndedAt, &summary, &restored, &o.AffectedCount, &o.DurationSec, &o.CauseKind)
+		&o.StartedAt, &o.EndedAt, &summary, &restored, &o.AffectedCount, &o.DurationSec, &o.CauseKind, &o.ParentID, &regions)
+	if len(regions) > 0 {
+		_ = json.Unmarshal(regions, &o.Regions)
+	}
 	if len(summary) > 0 {
 		o.Summary = json.RawMessage(summary)
 	} else {
@@ -364,7 +401,7 @@ func (p *Power) SetEdgeState(ctx context.Context, edgeID int64, open bool, userI
 
 // ListOutagesBetween mengembalikan kejadian padam yang beririsan dengan periode [from, to).
 func (p *Power) ListOutagesBetween(ctx context.Context, from, to time.Time, limit int) ([]OutageRecord, error) {
-	if limit <= 0 || limit > 5000 {
+	if limit <= 0 || limit > 50000 {
 		limit = 1000
 	}
 	rows, err := p.pool.Query(ctx, `SELECT `+outageCols+` FROM outages
@@ -427,7 +464,7 @@ func ApplyReliability(o *OutageRecord, from, to time.Time, rp ReliabilityParams)
 		minutes = 0
 	}
 	o.Customers = sum.Customers
-	o.Momentary = o.EndedAt != nil && o.DurationSec/60 < rp.SustainedMinutes
+	o.Momentary = o.ParentID == nil && o.EndedAt != nil && o.DurationSec/60 < rp.SustainedMinutes
 	o.CustomerMinutes = float64(sum.Customers) * minutes
 	o.ENSkWh = sum.LoadVA / 1000 * rp.LoadFactor * rp.PowerFactor * minutes / 60
 	o.ENSRp = o.ENSkWh * rp.TariffRpPerKWh
@@ -435,9 +472,14 @@ func ApplyReliability(o *OutageRecord, from, to time.Time, rp ReliabilityParams)
 
 // Add menambahkan satu kejadian ke kelompok.
 func (g *ReliabilityGroup) Add(o OutageRecord) {
-	g.Outages++
 	g.ENSkWh += o.ENSkWh
 	g.ENSRp += o.ENSRp
+	if o.ParentID != nil {
+		// kejadian lanjutan: menambah pelanggan·menit (SAIDI) & ENS, bukan frekuensi (SAIFI)
+		g.CustomerMinutes += o.CustomerMinutes
+		return
+	}
+	g.Outages++
 	if o.Momentary {
 		g.Momentary++
 		return

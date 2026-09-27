@@ -13,6 +13,8 @@ import { Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import MapCanvas from './MapCanvas';
 import { DrawToolbar } from './DrawToolbar';
+import { useIsMobile } from '@/lib/mobile';
+import { useFieldT } from '@/components/field/i18n';
 import { SearchBox } from './SearchBox';
 import { BoundaryControl, useBoundaryOverlay } from './BoundaryOverlay';
 import { LayerPanel } from './LayerPanel';
@@ -58,6 +60,13 @@ export default function MapWorkspace() {
   const [labels, setLabels] = useState(true);
   const [tab, setTab] = useState<Tab>('layers');
   const [panelOpen, setPanelOpen] = useState(true);
+  // ponsel: panel tertutup bawaan, alat gambar disembunyikan (editing lengkap di layar besar)
+  const mobile = useIsMobile();
+  const fm = useFieldT();
+  const [hintClosed, setHintClosed] = useState(false);
+  useEffect(() => {
+    if (mobile) setPanelOpen(false);
+  }, [mobile]);
   const [trace, setTrace] = useState<TraceResponse | null>(null);
   const [traceSeed, setTraceSeed] = useState<TraceSeed | null>(null);
   const [cursor, setCursor] = useState({ lng: 0, lat: 0, zoom: 0 });
@@ -557,8 +566,16 @@ export default function MapWorkspace() {
         }}
       />
 
+      {mobile && !hintClosed && (
+        <div className="absolute inset-x-3 bottom-12 z-20 flex items-start gap-2 rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-900 shadow-lg">
+          <span className="flex-1">{fm('edit_desktop')}</span>
+          <button onClick={() => setHintClosed(true)} aria-label={fm('close')}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className="absolute left-3 top-3 z-10 flex items-start gap-2">
-        <DrawToolbar types={types} mode={mode} onMode={setMode} canEdit={canEdit} />
+        {!mobile && <DrawToolbar types={types} mode={mode} onMode={setMode} canEdit={canEdit} />}
         <div className="flex flex-col gap-2">
           <div className="flex items-start gap-2">
             <SearchBox
@@ -644,7 +661,7 @@ export default function MapWorkspace() {
         </div>
       )}
 
-      <div className={`absolute right-3 top-3 z-10 mr-11 flex max-h-[calc(100%-4.5rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-xl transition-all ${panelOpen ? 'w-[22rem]' : 'w-10'}`}>
+      <div className={`absolute right-3 top-3 z-10 mr-11 flex max-h-[calc(100%-4.5rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-xl transition-all ${panelOpen ? 'w-[22rem] max-md:w-[calc(100vw-4.25rem)]' : 'w-10'}`}>
         <div className="flex items-center border-b border-gray-200">
           {panelOpen && (
             <>

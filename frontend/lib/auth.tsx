@@ -58,6 +58,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       /* abaikan */
     }
     setToken(null);
+    // data per pengguna yang di-cache untuk mode offline (API, halaman, foto) dihapus
+    try {
+      navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_USER_DATA' });
+      if ('caches' in window) await Promise.all(['qgis-api', 'qgis-pages', 'qgis-photos'].map((c) => caches.delete(c)));
+    } catch {
+      /* cache tidak tersedia */
+    }
     window.location.href = '/login';
   }, []);
 
