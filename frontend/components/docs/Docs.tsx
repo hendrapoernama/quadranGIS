@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { useAuth } from '@/lib/auth';
 import { Icon } from '@/components/Icon';
 import { SECTIONS, type GuideItem } from './content';
 import { DIAGRAM_CSS } from './diagrams';
@@ -9,6 +10,7 @@ import { DIAGRAM_CSS } from './diagrams';
 /** Menu Dokumentasi: daftar isi di kiri, isi di kanan, scrollspy, perbesar gambar, cetak. */
 export default function Docs() {
   const { locale } = useT();
+  const { appName } = useAuth();
   const [active, setActive] = useState('overview');
   const [zoom, setZoom] = useState<GuideItem | null>(null);
   const [q, setQ] = useState('');
@@ -82,7 +84,7 @@ export default function Docs() {
   }, []);
 
   const match = (s: string) => !q.trim() || s.toLowerCase().includes(q.trim().toLowerCase());
-  let figNo = 6; // gambar 1–6 ada di bagian arsitektur & proses bisnis
+  let figNo = 7; // gambar 1–7 ada di bagian arsitektur & proses bisnis
 
   return (
     <div className="docs-page flex h-full w-full">
@@ -91,7 +93,7 @@ export default function Docs() {
       <nav className="docs-toc flex w-72 shrink-0 flex-col border-r border-gray-200 bg-white" aria-label="Daftar isi">
         <div className="border-b border-gray-200 p-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-            <Icon name="book" size={16} /> Dokumentasi QuadranGIS
+            <Icon name="book" size={16} /> Dokumentasi {appName}
           </div>
           <input className="input mt-2 text-xs" placeholder="Cari topik..." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Cari topik" />
         </div>
@@ -151,7 +153,7 @@ export default function Docs() {
           )}
           <header className="docs-cover mb-8 rounded-2xl border border-gray-200 bg-white p-6">
             <div className="text-xs font-semibold uppercase tracking-widest text-brand-600">Dokumentasi</div>
-            <h1 className="mt-1 text-2xl font-bold text-gray-900">QuadranGIS · GIS Jaringan Distribusi Listrik</h1>
+            <h1 className="mt-1 text-2xl font-bold text-gray-900">{appName} · GIS Jaringan Distribusi Listrik</h1>
             <p className="mt-2 max-w-3xl text-sm text-gray-600">
               Overview, fitur, arsitektur, proses bisnis, instalasi & konfigurasi, serta buku panduan penggunaan dengan tangkapan layar setiap fitur.
             </p>
@@ -224,7 +226,7 @@ export default function Docs() {
               ))}
             </section>
           ))}
-          <footer className="border-t border-gray-200 py-4 text-center text-xs text-gray-500">QuadranGIS · dokumentasi dibuat dari aplikasi versi terpasang</footer>
+          <footer className="border-t border-gray-200 py-4 text-center text-xs text-gray-500">{appName} · dokumentasi dibuat dari aplikasi versi terpasang</footer>
         </article>
       </div>
 

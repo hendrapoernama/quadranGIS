@@ -52,8 +52,19 @@ interface Options {
   raw?: boolean;
 }
 
+let channelOverride = '';
+/** Kanal asal tindakan (dicatat di SOE / manuver): web, mobile (layar kecil), atau sld. */
+export function setClientChannel(v: string) {
+  channelOverride = v;
+}
+function clientChannel(): string {
+  if (channelOverride) return channelOverride;
+  if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches) return 'mobile';
+  return 'web';
+}
+
 export async function api<T = any>(path: string, opts: Options = {}): Promise<T> {
-  const headers: Record<string, string> = { 'X-Lang': currentLang() };
+  const headers: Record<string, string> = { 'X-Lang': currentLang(), 'X-Client-Channel': clientChannel() };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;

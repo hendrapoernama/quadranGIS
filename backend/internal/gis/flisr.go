@@ -176,6 +176,17 @@ func (g *Graph) FLISR(faultKind string, faultID int64, p SimParams, limit int) (
 		return nil, err
 	}
 	res := &FlisrResult{FaultKind: faultKind, FaultID: faultID, Warnings: []string{}, Islands: []FlisrIsland{}, Downstream: []int64{}}
+	// penyulang asal seksi gangguan (untuk faktor beban terkalibrasi)
+	faultHead := int64(0)
+	for id := range section {
+		for _, h := range g.upstreamPathLocked(ndist, id) {
+			if _, ok := g.feeders[h]; ok {
+				faultHead = h
+				break
+			}
+		}
+		break
+	}
 	for id := range section {
 		n := g.nodes[id]
 		if n.sink() {
@@ -320,7 +331,7 @@ func (g *Graph) FLISR(faultKind string, faultID int64, p SimParams, limit int) (
 				}
 			}
 		}
-		islandLoad := isl.LoadVA * p.LoadFactor
+		islandLoad := isl.LoadVA * p.lf(faultHead)
 		for _, c := range cands {
 			base := 0.0
 			if l := loads[c.Supporting]; l != nil {
@@ -329,9 +340,9 @@ func (g *Graph) FLISR(faultKind string, faultID int64, p SimParams, limit int) (
 			base += extra[c.Supporting]
 			c.LoadBefore = base
 			c.LoadAfter = base + islandLoad
-			c.CapacityVA = p.CapacityVA
-			if p.CapacityVA > 0 {
-				c.PctAfter = float64(int(c.LoadAfter/p.CapacityVA*1000)) / 10
+			c.CapacityVA = p.capOf(c.Supporting)
+			if c.CapacityVA > 0 {
+				c.PctAfter = float64(int(c.LoadAfter/c.CapacityVA*1000)) / 10
 			}
 			isl.Alternatives = append(isl.Alternatives, c)
 		}

@@ -154,6 +154,7 @@ html.dark body {
 .dark .bg-amber-100 { background-color: rgba(146, 64, 14, 0.5); }
 .dark .bg-purple-100 { background-color: rgba(107, 33, 168, 0.5); }
 .dark .text-purple-800 { color: #d8b4fe; }
+.dark .text-purple-700 { color: #c4b5fd; }
 .dark .border-red-200, .dark .border-blue-200, .dark .border-emerald-200, .dark .border-amber-200 { border-color: #4b5563; }
 .dark .bg-black\/40 { background-color: rgba(0, 0, 0, 0.65); }
 .dark .shadow, .dark .shadow-lg, .dark .shadow-xl, .dark .shadow-sm { --tw-shadow-color: rgba(0, 0, 0, 0.6); --tw-shadow: var(--tw-shadow-colored); }
@@ -218,3 +219,38 @@ html.dark body {
   body.exec-printing .exec-report section, body.exec-printing .exec-report table, body.exec-printing .exec-report tr { break-inside: avoid; }
   body.exec-printing * { -webkit-print-color-adjust: exact; color-adjust: exact; }
 }
+
+/* ------------------------------------------------------------------
+   Menu samping mengikuti tema (terang / gelap)
+   ------------------------------------------------------------------ */
+:root {
+  --sb-bg: #ffffff;
+  --sb-border: #e5e7eb;
+  --sb-title: #111827;
+  --sb-muted: #6b7280;
+  --sb-item: #374151;
+  --sb-hover-bg: #f3f4f6;
+  --sb-hover-text: #111827;
+  --sb-guide: #e5e7eb;
+  --sb-avatar: #e5e7eb;
+}
+:root.dark {
+  --sb-bg: #111827;
+  --sb-border: rgba(255, 255, 255, 0.1);
+  --sb-title: #f3f4f6;
+  --sb-muted: #9ca3af;
+  --sb-item: #d1d5db;
+  --sb-hover-bg: rgba(255, 255, 255, 0.08);
+  --sb-hover-text: #ffffff;
+  --sb-guide: rgba(255, 255, 255, 0.1);
+  --sb-avatar: #374151;
+}
+.sb { background-color: var(--sb-bg); color: var(--sb-title); border-right: 1px solid var(--sb-border); }
+.sb-border { border-color: var(--sb-border) !important; }
+.sb-guide { border-color: var(--sb-guide) !important; }
+.sb-title { color: var(--sb-title); }
+.sb-muted { color: var(--sb-muted); }
+.sb-item { color: var(--sb-item); }
+.sb-item:hover { background-color: var(--sb-hover-bg); color: var(--sb-hover-text); }
+.sb-active, .sb-active:hover { background-color: #1d59f0; color: #ffffff; }
+.sb-avatar { background-color: var(--sb-avatar); color: var(--sb-title); }

@@ -171,7 +171,7 @@ function ReportView({
 }) {
   const e = useExecT();
   const { locale } = useT();
-  const { has } = useAuth();
+  const { has, appName } = useAuth();
   const toast = useToast();
   const d = rep.data as PeriodReport;
   const [editing, setEditing] = useState(false);
@@ -294,7 +294,7 @@ function ReportView({
       <article className="exec-report card space-y-4 p-5 text-sm">
         <header className="flex flex-wrap items-start justify-between gap-2 border-b border-gray-200 pb-3">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">QuadranGIS · {e(`rep_kind_${rep.kind}` as any)}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{appName} · {e(`rep_kind_${rep.kind}` as any)}</div>
             <h2 className="text-lg font-semibold text-gray-900">{rep.title}</h2>
             <div className="text-xs text-gray-500">
               {e('rep_period')}: {fmtD(rep.period_start)} – {fmtD(rep.period_end)}

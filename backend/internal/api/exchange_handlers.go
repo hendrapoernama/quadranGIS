@@ -1,11 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -86,9 +88,45 @@ func (s *Server) exchangeImport(c *gin.Context) {
 	}
 	apply := c.Query("apply") == "1" || c.Query("apply") == "true"
 	actor := actorFrom(c)
-	rep, err := s.d.Features.ImportGeoJSON(c.Request.Context(), raw, apply, actor)
+	ctx := c.Request.Context()
+	// mode persetujuan: perubahan impor masuk ke paket perubahan baru (draf) milik pengimpor
+	var propose func(op, kind string, id int64, in gis.FeatureInput) (int64, error)
+	var cs gis.Changeset
+	if apply && s.approvalOn() {
+		p := s.person(c)
+		title := strings.TrimSpace(c.Query("name"))
+		if title == "" {
+			title = "berkas GeoJSON"
+		}
+		var err error
+		cs, err = s.d.Changes.Create(ctx, "Impor "+title, c.Query("note"), "import", p)
+		if err != nil {
+			handleErr(c, err)
+			return
+		}
+		propose = func(op, kind string, id int64, in gis.FeatureInput) (int64, error) {
+			in.Kind = kind
+			body, _ := json.Marshal(in)
+			r, err := s.d.Changes.Propose(ctx, cs.ID, op, kind, id, body, p)
+			if err != nil {
+				return 0, err
+			}
+			if r.Item != nil && op == "create" {
+				return -r.Item.ID, nil
+			}
+			return id, nil
+		}
+	}
+	rep, err := s.d.Features.ImportGeoJSON(ctx, raw, apply, actor, propose)
 	if err != nil {
 		handleErr(c, err)
+		return
+	}
+	if propose != nil {
+		rep.ChangesetID = cs.ID
+		cs, _ = s.d.Changes.Get(ctx, cs.ID)
+		s.changesetEvent(c, "create", cs, tr(c, "cs.import_proposed", rep.Proposed, cs.ID))
+		ok(c, rep)
 		return
 	}
 	if apply && len(rep.Results) > 0 {

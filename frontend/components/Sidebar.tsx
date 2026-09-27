@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { useTheme } from '@/lib/theme';
 import { useT } from '@/lib/i18n';
 import type { Menu } from '@/lib/types';
 import { Icon } from './Icon';
 import { PrefsBar } from './ui';
+import { AppLogo } from './AppLogo';
 
 function MenuItem({ item, depth, collapsed }: { item: Menu; depth: number; collapsed: boolean }) {
   const pathname = usePathname();
@@ -18,9 +20,7 @@ function MenuItem({ item, depth, collapsed }: { item: Menu; depth: number; colla
   const [open, setOpen] = useState(childActive || depth === 0);
   const title = pick(item.title, item.title_en);
 
-  const cls = `flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition ${
-    isActive ? 'bg-brand-600 text-white' : 'text-gray-300 hover:bg-white/10 hover:text-white'
-  }`;
+  const cls = `flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition ${isActive ? 'sb-active' : 'sb-item'}`;
 
   if (hasChildren) {
     return (
@@ -31,7 +31,7 @@ function MenuItem({ item, depth, collapsed }: { item: Menu; depth: number; colla
           {!collapsed && <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} />}
         </button>
         {open && (
-          <div className={collapsed ? 'mt-1 space-y-1' : 'ml-4 mt-1 space-y-1 border-l border-white/10 pl-2'}>
+          <div className={collapsed ? 'mt-1 space-y-1' : 'sb-guide ml-4 mt-1 space-y-1 border-l pl-2'}>
             {item.children!.map((c) => (
               <MenuItem key={c.id} item={c} depth={depth + 1} collapsed={collapsed} />
             ))}
@@ -49,27 +49,26 @@ function MenuItem({ item, depth, collapsed }: { item: Menu; depth: number; colla
 }
 
 export function Sidebar({ onHide }: { onHide: () => void }) {
-  const { user, menus, appName, logout } = useAuth();
+  const { user, menus, appName, appDescription, hasLogo, logoVersion, logout } = useAuth();
   const { t } = useT();
+  const { resolved } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside className={`flex h-full flex-col bg-gray-900 text-gray-100 transition-all ${collapsed ? 'w-16' : 'w-60'}`}>
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-yellow-300">
-          <Icon name="bolt" size={20} />
-        </div>
+    <aside className={`sb flex h-full flex-col transition-all ${collapsed ? 'w-16' : 'w-60'}`}>
+      <div className="sb-border flex items-center gap-2 border-b px-3 py-3">
+        <AppLogo hasLogo={hasLogo} version={logoVersion} size={36} />
         {!collapsed && (
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{appName}</div>
-            <div className="truncate text-[11px] text-gray-400">{t('nav.app_subtitle')}</div>
+            <div className="sb-title truncate text-sm font-semibold">{appName}</div>
+            <div className="sb-muted truncate text-[11px]">{appDescription || t('nav.app_subtitle')}</div>
           </div>
         )}
         <div className="ml-auto flex flex-col gap-0.5">
-          <button className="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white" onClick={() => setCollapsed(!collapsed)} title={collapsed ? t('nav.expand') : t('nav.collapse')} aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}>
+          <button className="sb-muted sb-item rounded p-1" onClick={() => setCollapsed(!collapsed)} title={collapsed ? t('nav.expand') : t('nav.collapse')} aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}>
             <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} size={16} />
           </button>
-          <button className="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white" onClick={onHide} title={t('nav.hide_sidebar')} aria-label={t('nav.hide_sidebar')}>
+          <button className="sb-muted sb-item rounded p-1" onClick={onHide} title={t('nav.hide_sidebar')} aria-label={t('nav.hide_sidebar')}>
             <Icon name="panel-left" size={16} />
           </button>
         </div>
@@ -78,24 +77,24 @@ export function Sidebar({ onHide }: { onHide: () => void }) {
         {menus.map((m) => (
           <MenuItem key={m.id} item={m} depth={0} collapsed={collapsed} />
         ))}
-        {menus.length === 0 && !collapsed && <div className="px-3 text-xs text-gray-500">{t('nav.no_menu')}</div>}
+        {menus.length === 0 && !collapsed && <div className="sb-muted px-3 text-xs">{t('nav.no_menu')}</div>}
       </nav>
-      <div className="border-t border-white/10 p-2">
+      <div className="sb-border border-t p-2">
         <div className={`mb-1 flex ${collapsed ? 'justify-center' : 'justify-start px-1'}`}>
-          <PrefsBar compact={collapsed} light />
+          <PrefsBar compact={collapsed} light={resolved === 'dark'} />
         </div>
-        <Link href="/profile" className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-white/10" title={t('nav.profile')}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-700 text-xs font-semibold uppercase">
+        <Link href="/profile" className="sb-item flex items-center gap-2 rounded-md px-2 py-2" title={t('nav.profile')}>
+          <div className="sb-avatar flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold uppercase">
             {user?.username?.slice(0, 2) || '?'}
           </div>
           {!collapsed && (
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm">{user?.full_name || user?.username}</div>
-              <div className="truncate text-[11px] text-gray-400">{user?.role_name || '-'}</div>
+              <div className="sb-title truncate text-sm">{user?.full_name || user?.username}</div>
+              <div className="sb-muted truncate text-[11px]">{user?.role_name || '-'}</div>
             </div>
           )}
         </Link>
-        <button className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-gray-300 hover:bg-white/10 hover:text-white" onClick={logout} title={t('nav.logout')}>
+        <button className="sb-item mt-1 flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm" onClick={logout} title={t('nav.logout')}>
           <Icon name="logout" size={18} />
           {!collapsed && <span>{t('nav.logout')}</span>}
         </button>

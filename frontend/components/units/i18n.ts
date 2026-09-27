@@ -1,0 +1,136 @@
+'use client';
+
+import { useCallback } from 'react';
+import { useT } from '@/lib/i18n';
+
+// Kamus halaman Master Data → Unit (ID / EN).
+const ID = {
+  title: 'Master Data Unit',
+  subtitle: 'Unit organisasi pemilik & pengelola aset (GI, trafo GI, penyulang, gardu, pemutus, …) — dipakai juga untuk analisa pembebanan & susut',
+  add: 'Tambah unit',
+  edit: 'Ubah unit',
+  delete: 'Hapus unit',
+  delete_msg: 'Hapus unit {name}? Unit yang masih memiliki unit bawahan atau aset tidak dapat dihapus.',
+  deleted: 'Unit dihapus',
+  saved: 'Unit disimpan',
+  hierarchy: 'Jenjang:',
+  hierarchy_note: 'UP2B setara UID, UP2D setara UP3.',
+  search: 'Cari nama, kode, alamat…',
+  kind: 'Jenis unit',
+  all_kinds: 'Semua jenis',
+  name: 'Nama unit',
+  code: 'Kode',
+  address: 'Alamat',
+  coord: 'Koordinat (lintang, bujur)',
+  lat: 'Lintang (latitude)',
+  lng: 'Bujur (longitude)',
+  phone: 'Telepon',
+  email: 'Email',
+  contact: 'Kontak',
+  boundary: 'Wilayah kerja (poligon batas)',
+  boundary_hint: 'Aset di dalam wilayah ini menjadi milik unit saat kepemilikan ditetapkan otomatis (ULP ↔ poligon ULP, UP3 ↔ poligon UP3).',
+  assets: 'Aset',
+  parent: 'Induk',
+  no_parent: 'tanpa induk (puncak)',
+  active: 'Aktif',
+  inactive: 'nonaktif',
+  updated: 'Diperbarui',
+  owned_assets: 'Aset yang dimiliki / dikelola',
+  no_assets: 'Belum ada aset yang ditetapkan ke unit ini.',
+  pick: 'Klik unit untuk melihat rincian & asetnya.',
+  expand: 'Buka',
+  collapse: 'Tutup',
+  cancel: 'Batal',
+  save: 'Simpan',
+  bad_coord: 'Koordinat tidak valid: isi lintang (−90…90) dan bujur (−180…180), atau kosongkan keduanya.',
+  kind_PUSAT: 'Kantor pusat',
+  kind_REGION: 'Regional',
+  kind_UID: 'Unit Induk Distribusi',
+  kind_UP2B: 'Unit Pengatur Beban (setara UID)',
+  kind_UP3: 'Unit Pelaksana Pelayanan Pelanggan',
+  kind_UP2D: 'Unit Pelaksana Pengatur Distribusi (setara UP3)',
+  kind_ULP: 'Unit Layanan Pelanggan',
+  auto: 'Tetapkan kepemilikan otomatis',
+  auto_title: 'Tetapkan kepemilikan aset otomatis',
+  auto_hint:
+    'Aset (GI, trafo GI, kubikel/penyulang, recloser → UP3; gardu, trafo distribusi, LBS, switch TR, tiang → ULP) diberi unit pemilik dari wilayah ULP terdekat. Aset di luar semua wilayah diberi unit bawaan (konfigurasi unit.default_code). Aset yang sudah ditetapkan manual tidak diubah kecuali opsi timpa dipilih.',
+  auto_overwrite: 'Timpa juga aset yang sudah memiliki unit',
+  preview: 'Pratinjau',
+  apply: 'Terapkan',
+  applied: 'diterapkan',
+  auto_summary: '{n} aset diproses · {d} di luar wilayah (unit bawaan) · {u} tanpa unit tujuan',
+  auto_done: 'Kepemilikan {n} aset ditetapkan',
+};
+
+type Dict = typeof ID;
+
+const EN: Dict = {
+  title: 'Unit Master Data',
+  subtitle: 'Organisational units that own & manage assets (GI, GI transformers, feeders, substations, breakers, …) — also used for loading & loss analysis',
+  add: 'Add unit',
+  edit: 'Edit unit',
+  delete: 'Delete unit',
+  delete_msg: 'Delete unit {name}? Units that still have child units or assets cannot be deleted.',
+  deleted: 'Unit deleted',
+  saved: 'Unit saved',
+  hierarchy: 'Hierarchy:',
+  hierarchy_note: 'UP2B is at UID level, UP2D at UP3 level.',
+  search: 'Search name, code, address…',
+  kind: 'Unit type',
+  all_kinds: 'All types',
+  name: 'Unit name',
+  code: 'Code',
+  address: 'Address',
+  coord: 'Coordinates (lat, lng)',
+  lat: 'Latitude',
+  lng: 'Longitude',
+  phone: 'Phone',
+  email: 'Email',
+  contact: 'Contact',
+  boundary: 'Service area (boundary polygon)',
+  boundary_hint: 'Assets inside this area are assigned to the unit by automatic ownership (ULP ↔ ULP polygon, UP3 ↔ UP3 polygon).',
+  assets: 'Assets',
+  parent: 'Parent',
+  no_parent: 'no parent (top)',
+  active: 'Active',
+  inactive: 'inactive',
+  updated: 'Updated',
+  owned_assets: 'Owned / managed assets',
+  no_assets: 'No assets assigned to this unit yet.',
+  pick: 'Click a unit to see its details & assets.',
+  expand: 'Expand',
+  collapse: 'Collapse',
+  cancel: 'Cancel',
+  save: 'Save',
+  bad_coord: 'Invalid coordinates: enter latitude (−90…90) and longitude (−180…180), or leave both empty.',
+  kind_PUSAT: 'Head office',
+  kind_REGION: 'Region',
+  kind_UID: 'Main distribution unit',
+  kind_UP2B: 'Load dispatch unit (UID level)',
+  kind_UP3: 'Customer service implementation unit',
+  kind_UP2D: 'Distribution control unit (UP3 level)',
+  kind_ULP: 'Customer service unit',
+  auto: 'Assign ownership automatically',
+  auto_title: 'Assign asset ownership automatically',
+  auto_hint:
+    'Assets (GI, GI transformers, cubicles/feeders, reclosers → UP3; substations, distribution transformers, LBS, LV switches, poles → ULP) get an owning unit from the nearest ULP area. Assets outside all areas get the default unit (config unit.default_code). Manually assigned assets are kept unless overwrite is selected.',
+  auto_overwrite: 'Also overwrite assets that already have a unit',
+  preview: 'Preview',
+  apply: 'Apply',
+  applied: 'applied',
+  auto_summary: '{n} assets processed · {d} outside all areas (default unit) · {u} without a target unit',
+  auto_done: 'Ownership assigned to {n} assets',
+};
+
+export function useUnitT() {
+  const { locale } = useT();
+  return useCallback(
+    (key: keyof Dict | string, params?: Record<string, string | number>) => {
+      const d = locale === 'en' ? EN : ID;
+      let s: string = (d as Record<string, string>)[key] ?? (ID as Record<string, string>)[key] ?? key;
+      if (params) for (const [k, v] of Object.entries(params)) s = s.replace(`{${k}}`, String(v));
+      return s;
+    },
+    [locale],
+  );
+}

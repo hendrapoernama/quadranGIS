@@ -27,6 +27,25 @@ type SimAction struct {
 type SimParams struct {
 	CapacityVA float64 `json:"capacity_va"` // kapasitas penyulang (VA)
 	LoadFactor float64 `json:"load_factor"` // beban = daya kontrak x faktor ini
+	// kalibrasi dari data beban SCADA (opsional): faktor beban & kapasitas per kepala penyulang
+	Scale map[int64]float64 `json:"-"`
+	Caps  map[int64]float64 `json:"-"`
+}
+
+// lf: faktor beban penyulang (kalibrasi SCADA bila ada).
+func (p SimParams) lf(head int64) float64 {
+	if v, ok := p.Scale[head]; ok && v > 0 {
+		return v
+	}
+	return p.LoadFactor
+}
+
+// capOf: kapasitas penyulang (rating kubikel bila ada).
+func (p SimParams) capOf(head int64) float64 {
+	if v, ok := p.Caps[head]; ok && v > 0 {
+		return v
+	}
+	return p.CapacityVA
 }
 
 // SimFeederLoad adalah beban satu penyulang pemasok setelah suatu langkah.
@@ -307,10 +326,10 @@ func (g *Graph) simLoads(region map[int64]struct{}, on map[int64]int64, p SimPar
 		}
 		l := loads[lab]
 		if l == nil {
-			l = &SimFeederLoad{Head: lab, CapacityVA: p.CapacityVA}
+			l = &SimFeederLoad{Head: lab, CapacityVA: p.capOf(lab)}
 			loads[lab] = l
 		}
-		l.LoadVA += float64(n.loadVA) * p.LoadFactor
+		l.LoadVA += float64(n.loadVA) * p.lf(lab)
 		l.Customers++
 	}
 	for _, l := range loads {

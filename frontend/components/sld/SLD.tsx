@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, setClientChannel } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
@@ -109,6 +109,11 @@ export default function SLD() {
   const [panelOpen, setPanelOpen] = useState(true);
   // ponsel: panel cakupan jadi laci (tertutup bawaan), objek terpilih jadi lembar bawah
   const mobile = useIsMobile();
+  // operasi switch dari SLD dicatat berkanal "sld" di SOE
+  useEffect(() => {
+    setClientChannel('sld');
+    return () => setClientChannel('');
+  }, []);
   useEffect(() => {
     if (mobile) setPanelOpen(false);
   }, [mobile]);

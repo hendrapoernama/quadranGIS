@@ -89,7 +89,7 @@ export function SOEPanel({ active, onUnread, onSelect, typeName, levelLabel }: P
       if (kind && e.kind !== kind) return false;
       if (qd) {
         const s = qd.toLowerCase();
-        if (![e.target_code, e.feeder_code, e.username, e.note].some((x) => (x || '').toLowerCase().includes(s))) return false;
+        if (![e.target_code, e.feeder_code, e.username, e.full_name, e.note].some((x) => (x || '').toLowerCase().includes(s))) return false;
       }
       return true;
     },
@@ -230,14 +230,14 @@ export function SOEPanel({ active, onUnread, onSelect, typeName, levelLabel }: P
   const sevLabel = (s: string) => t(`soe.sev_${s}` as any);
 
   const exportCsv = () => {
-    const head = ['id', 'waktu', 'kategori', 'event', 'keparahan', 'objek', 'tipe', 'id_objek', 'jenis', 'level', 'penyulang', 'pelanggan', 'beban_va', 'node', 'durasi_detik', 'pengguna', 'catatan'];
+    const head = ['id', 'waktu', 'kategori', 'event', 'keparahan', 'objek', 'tipe', 'id_objek', 'jenis', 'level', 'penyulang', 'pelanggan', 'beban_va', 'node', 'durasi_detik', 'pengguna', 'nama_operator', 'role', 'kanal', 'ip', 'catatan'];
     const esc = (v: any) => {
       const s = v === null || v === undefined ? '' : String(v);
       return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const rows = items.map((e) => {
       const ts = fmtTs(e.ts);
-      return [e.id, `${ts.date} ${ts.time}`, e.category, e.event, e.severity, e.target_code, e.target_type, e.target_id ?? '', e.kind, e.level, e.feeder_code, e.customers, Math.round(e.load_va), e.nodes, e.duration_sec ?? '', e.username, e.note]
+      return [e.id, `${ts.date} ${ts.time}`, e.category, e.event, e.severity, e.target_code, e.target_type, e.target_id ?? '', e.kind, e.level, e.feeder_code, e.customers, Math.round(e.load_va), e.nodes, e.duration_sec ?? '', e.username, e.full_name || '', e.role || '', e.channel || '', e.client_ip || '', e.note]
         .map(esc)
         .join(',');
     });
@@ -366,8 +366,24 @@ export function SOEPanel({ active, onUnread, onSelect, typeName, levelLabel }: P
                   </span>
                 )}
                 {e.outage_id && <span>{t('soe.outage_no', { id: e.outage_id })}</span>}
-                {e.username && <span>· {e.username}</span>}
               </div>
+              {(e.username || e.channel === 'sistem') && (
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px]" title={e.client_ip ? `IP ${e.client_ip}` : undefined}>
+                  <span className="text-gray-500">{t('soe.operator')}:</span>
+                  {e.username ? (
+                    <>
+                      <button className="font-medium text-gray-900 hover:underline" onClick={() => setQ(e.username)}>
+                        {e.full_name || e.username}
+                      </button>
+                      <span className="text-gray-500">
+                        ({e.username}
+                        {e.role ? ` · ${e.role}` : ''})
+                      </span>
+                    </>
+                  ) : null}
+                  {e.channel && <span className="rounded bg-gray-100 px-1 text-[10px] text-gray-700">{t(`soe.channel_${e.channel}` as any)}</span>}
+                </div>
+              )}
               {e.note && <div className="truncate text-[11px] italic text-gray-500" title={e.note}>“{e.note}”</div>}
             </li>
           );

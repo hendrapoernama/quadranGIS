@@ -103,9 +103,10 @@ const overview = (
   <>
     <P>
       <B>QuadranGIS</B> adalah aplikasi Sistem Informasi Geografis (GIS) jaringan distribusi listrik berbasis web. Satu aplikasi dipakai untuk membangun
-      dan memelihara data aset jaringan (dari gardu induk sampai pelanggan), memantau kondisi nyala/padam secara realtime, mengoperasikan jaringan
-      (buka/tutup, energize/deenergize) dengan hak akses per peran, menghitung indeks keandalan, menganalisis aliran daya, dan menyusun Single Line
-      Diagram otomatis dari data GIS.
+      dan memelihara data aset jaringan (dari gardu induk sampai pelanggan) dengan alur persetujuan berjenjang, memantau kondisi nyala/padam secara
+      realtime, mengoperasikan jaringan (buka/tutup, energize/deenergize) dengan hak akses per peran, menangani gangguan (FLISR, rencana manuver,
+      laporan pelanggan), menghitung indeks keandalan per wilayah, menganalisis beban, energi & susut dari SCADA/AMR, menganalisis aliran daya, dan
+      menyusun Single Line Diagram otomatis dari data GIS. Tersedia juga versi ponsel (PWA) untuk petugas lapangan.
     </P>
     <div className="my-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {[
@@ -131,11 +132,14 @@ const overview = (
     <Table
       head={['Peran', 'Kebutuhan utama', 'Menu yang dipakai']}
       rows={[
-        ['Admin sistem', 'Pengguna, peran & izin, menu, konfigurasi, pemantauan server', 'Administrasi'],
-        ['Editor GIS', 'Menggambar & memelihara aset, atribut SSOT, impor/ekspor QGIS', 'Editor Peta Jaringan'],
-        ['Operator / Dispatcher', 'Monitoring realtime, manuver TM & TR, penanganan gangguan', 'Pusat Operasi, SLD'],
-        ['Operator TR (ULP)', 'Operasi jaringan tegangan rendah saja', 'Pusat Operasi, SLD'],
-        ['Perencana / Viewer', 'Analisis aliran daya, keandalan, trace, laporan', 'Aliran Daya, SLD, AI Assistant'],
+        ['Admin sistem', 'Pengguna, peran & izin, menu, konfigurasi & identitas aplikasi, pemantauan server', 'Administrasi, Master Data'],
+        ['Editor GIS', 'Menyusun perubahan aset (draf), atribut SSOT & unit pemilik, impor/ekspor QGIS', 'Map Editor › Editor Peta Jaringan'],
+        ['Supervisor', 'Memeriksa & menyetujui / menolak paket perubahan jaringan', 'Map Editor › Persetujuan Perubahan'],
+        ['Manajer', 'Menyetujui dan merilis paket perubahan ke jaringan aktif, laporan', 'Persetujuan Perubahan, Dasbor Eksekutif'],
+        ['Operator / Dispatcher', 'Monitoring realtime, manuver TM & TR, FLISR, rencana manuver, laporan gangguan', 'Pusat Operasi, SLD'],
+        ['Operator TR (ULP)', 'Operasi jaringan tegangan rendah saja, laporan & foto lapangan', 'Pusat Operasi, Lapangan (ponsel)'],
+        ['Manajemen', 'Kinerja keandalan, beban & energi, susut, laporan berkala', 'Dasbor Eksekutif, Keandalan Wilayah, Analisa Beban & Energi'],
+        ['Perencana / Viewer', 'Aliran daya, pembebanan, prakiraan, N-1, trace', 'Aliran Daya, Analisa Beban & Energi, SLD, AI'],
       ]}
     />
   </>
@@ -144,18 +148,20 @@ const overview = (
 // ---------------------------------------------------------------- 2. fitur
 const features = (
   <div className="my-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-    <FeatureCard icon="🗺️" title="Editor Peta Jaringan" items={['Gambar titik, garis & bangunan (GI, GH, GD) dengan snapping', 'Topologi otomatis: sambung, pisah garis, junction', 'Atribut SSOT per tipe komponen', 'Edit vertex, pindah, gambar ulang, riwayat perubahan', 'Simbol standar kelistrikan IEC 60617']} />
+    <FeatureCard icon="🗺️" title="Map Editor" items={['Gambar titik, garis & bangunan (GI, GH, GD) dengan snapping', 'Topologi otomatis: sambung, pisah garis, junction', 'Atribut SSOT & unit pemilik per aset', 'Edit vertex, pindah, gambar ulang, riwayat perubahan', 'Simbol standar kelistrikan IEC 60617']} />
+    <FeatureCard icon="✅" title="Persetujuan Perubahan" items={['Setiap tambah/ubah/hapus menjadi paket perubahan', 'Draf → diajukan → disetujui (supervisor) → dirilis (manajer)', 'Pratinjau usulan di peta, perbandingan sebelum → sesudah', 'Kunci objek, deteksi konflik, jejak audit lengkap']} />
     <FeatureCard icon="🔎" title="Topologi & Trace" items={['Graf jaringan di memori, jutaan node', 'Downtrace, uptrace, terhubung', 'Berhenti pada tipe tertentu, ringkasan per tipe', 'Validasi topologi (objek terisolasi, ujung bebas)']} />
-    <FeatureCard icon="⚡" title="Pusat Operasi" items={['Rekap GI, trafo GI, penyulang, zona, gardu, pelanggan, beban', 'Peta nyala/padam realtime + filter', 'Tab GI, penyulang, gardu distribusi, pelanggan', 'Pencarian objek, ukur panjang & luas', 'Grup Operasi: FLISR, rencana manuver & simulasi, laporan gangguan, AI operasi']} />
-    <FeatureCard icon="🔌" title="Operasi Jaringan" items={['Buka/tutup switch TM & TR (termasuk per arah LBS 3 way)', 'Energize/deenergize gardu, trafo, saluran, pelanggan', 'Kategori: GANGGUAN, PEMELIHARAAN, MLS, MANUVER, BENCANA ALAM', 'Izin per peran & domain tegangan (TM/TR)']} />
-    <FeatureCard icon="📊" title="Keandalan & Kejadian" items={['SAIDI, SAIFI, ENS (kWh & Rupiah) per periode', 'Kejadian padam per level: GI … pelanggan', 'Tarif, faktor beban & cos φ dapat diatur', 'Momentary vs sustained']} />
-    <FeatureCard icon="🧾" title="SOE Realtime" items={['Sequence of Events presisi milidetik', 'Keparahan: normal, peringatan, serius, kritis', 'Jeda/lanjut, filter, alarm suara, ekspor CSV', 'Sinkron ulang otomatis bila koneksi putus']} />
+    <FeatureCard icon="⚡" title="Pusat Operasi" items={['Rekap GI, trafo GI, penyulang, zona, gardu, pelanggan, beban', 'Peta nyala/padam realtime + filter', 'Buka/tutup & energize/deenergize (hanya dari sini & SLD)', 'Grup Operasi: FLISR, rencana manuver & simulasi, laporan gangguan, AI operasi']} />
+    <FeatureCard icon="🧾" title="SOE Realtime" items={['Sequence of Events presisi milidetik', 'Identitas operator: nama, role, kanal (web/ponsel/SLD), IP', 'Jeda/lanjut, filter, alarm suara, ekspor CSV', 'Sinkron ulang otomatis bila koneksi putus']} />
+    <FeatureCard icon="📊" title="Dasbor Eksekutif & Keandalan" items={['KPI kondisi & kinerja periode vs target SAIDI/SAIFI', 'Laporan berkala harian–tahunan, ringkasan AI, cetak PDF', 'Keandalan per UP3/ULP di peta wilayah', 'Wawasan otomatis & AI operasi']} />
+    <FeatureCard icon="📈" title="Analisa Beban & Energi" items={['Load profile trafo GI, penyulang & gardu (SCADA/AMR 30 menit)', 'Besaran lengkap: arus & tegangan per fasa, P/Q/S, pf, frekuensi, kWh/kvarh', 'Pembebanan MW, energi harian/bulanan/tahunan, anomali data', 'Susut energi GI→penyulang→gardu, prakiraan, N-1, laporan']} />
+    <FeatureCard icon="📱" title="Lapangan (PWA)" items={['Dipasang di ponsel seperti aplikasi', 'Aset terdekat dengan GPS, foto aset', 'Laporan gangguan cepat, tetap tersimpan saat offline', 'Notifikasi push & peta area offline']} />
     <FeatureCard icon="📐" title="Single Line Diagram" items={['Otomatis dari GIS: penyulang, GI, gardu, objek, area', '4 tingkat detail, penyederhanaan & lipatan baris', 'Manuver langsung dari diagram, status realtime', 'Overlay aliran daya, ekspor SVG/PNG/PDF']} />
-    <FeatureCard icon="🔋" title="Aliran Daya" items={['Backward/forward sweep per penyulang', 'Tegangan (pu), arus, pembebanan penghantar & trafo, susut', 'Skenario faktor beban, cos φ, tegangan kirim', 'Peringkat penyulang kritis']} />
-    <FeatureCard icon="🔁" title="Pertukaran Data" items={['Ekspor/impor GeoJSON untuk diedit di QGIS', 'Pratinjau perubahan sebelum diterapkan', 'Ekspor File Geodatabase (GDB) per area', 'Batas 10 MB, cek duplikasi & topologi']} />
-    <FeatureCard icon="🧭" title="Overlay Wilayah" items={['Batas UP3 & ULP dari shapefile', 'Pewarnaan peta 5 warna, label wilayah', 'Transparansi dapat diatur per pengguna']} />
-    <FeatureCard icon="✨" title="AI Assistant" items={['Claude, ChatGPT, Kimi, OpenRouter', 'Menjawab dari data jaringan terkini (tool calling)', 'Kunci API tersimpan aman di Konfigurasi']} />
-    <FeatureCard icon="🛡️" title="Administrasi & Keamanan" items={['Pengguna, peran & izin granular, menu dinamis', 'Login dengan captcha, JWT HttpOnly, HTTPS', 'Audit log, monitoring sistem (CPU, memori, DB)', 'Tema terang/gelap, Bahasa Indonesia/Inggris']} />
+    <FeatureCard icon="🔋" title="Aliran Daya" items={['Backward/forward sweep per penyulang', 'Tegangan (pu), arus, pembebanan penghantar & trafo, susut', 'Skenario faktor beban, cos φ, tegangan kirim', 'Kalibrasi beban dari data SCADA']} />
+    <FeatureCard icon="🔁" title="Pertukaran Data" items={['Ekspor/impor GeoJSON untuk diedit di QGIS', 'Pratinjau & rekap impor: baru/ubah/sama/galat per layer', 'Impor masuk paket perubahan (perlu persetujuan)', 'Ekspor File Geodatabase (GDB) per area']} />
+    <FeatureCard icon="🏢" title="Master Data Unit" items={['PUSAT → REGION → UID/UP2B → UP3/UP2D → ULP', 'Alamat, koordinat, kontak, wilayah kerja', 'Kepemilikan aset (manual / otomatis dari lokasi)', 'Dipakai analisa pembebanan & susut per wilayah']} />
+    <FeatureCard icon="✨" title="AI Assistant" items={['Claude, ChatGPT, Kimi, OpenRouter', 'Menjawab dari data jaringan terkini (tool calling)', 'AI operasi: ringkasan gangguan, shift, laporan, beban']} />
+    <FeatureCard icon="🛡️" title="Administrasi & Keamanan" items={['Pengguna, peran & izin granular, menu dinamis bertingkat', 'Identitas aplikasi: nama, deskripsi, logo', 'Login captcha, JWT HttpOnly, HTTPS, audit log', 'Tema terang/gelap (termasuk menu samping), Bahasa ID/EN']} />
   </div>
 );
 
@@ -207,14 +213,15 @@ const business = (
     <Flow
       steps={[
         { title: 'Survei / data lapangan', who: 'Editor GIS', desc: 'Data aset baru atau perubahan dari lapangan, gambar kerja, atau QGIS.', tone: 'client' },
-        { title: 'Digitasi / impor', who: 'Editor GIS', desc: 'Gambar di Editor Peta, atau impor GeoJSON hasil edit QGIS dengan pratinjau perubahan.', tone: 'client' },
-        { title: 'Topologi otomatis', who: 'Sistem', desc: 'Ujung garis tersambung, garis dipisah, junction dibuat; graf diperbarui.', tone: 'app' },
-        { title: 'Atribut SSOT', who: 'Editor GIS', desc: 'Kode SSOT, kapasitas trafo, daya pelanggan, penghantar, posisi normal switch.', tone: 'client' },
-        { title: 'Validasi', who: 'Editor GIS', desc: 'Periksa topologi: objek terisolasi, ujung bebas; trace untuk memastikan alur sumber → pelanggan.', tone: 'app' },
-        { title: 'Energisasi & grup', who: 'Sistem', desc: 'Status nyala/padam, penyulang, zona, gardu & jurusan dihitung ulang otomatis.', tone: 'app' },
-        { title: 'Siap dipakai', who: 'Semua', desc: 'Data tampil di Monitoring, SLD, Aliran Daya, dan dapat diekspor ke GDB.', tone: 'data' },
+        { title: 'Draf perubahan', who: 'Editor GIS', desc: 'Gambar / ubah / hapus di Map Editor, atau impor GeoJSON (pratinjau & rekap). Semua masuk paket perubahan draf.', tone: 'client' },
+        { title: 'Atribut & unit', who: 'Editor GIS', desc: 'Kode SSOT, kapasitas, daya, penghantar, dan unit pemilik aset.', tone: 'client' },
+        { title: 'Ajukan', who: 'Editor GIS', desc: 'Paket diajukan dengan catatan; jaringan aktif belum berubah.', tone: 'client' },
+        { title: 'Periksa & setujui', who: 'Supervisor', desc: 'Pratinjau di peta, sebelum → sesudah; setujui, atau tolak dengan alasan (kembali ke editor).', tone: 'app' },
+        { title: 'Rilis', who: 'Manajer', desc: 'Operasi diputar ulang lewat editor bertopologi; konflik dicek lebih dulu.', tone: 'app' },
+        { title: 'Topologi & energisasi', who: 'Sistem', desc: 'Sambungan, junction, status nyala/padam, penyulang, zona, gardu dihitung ulang.', tone: 'app' },
+        { title: 'Siap dipakai', who: 'Semua', desc: 'Data tampil di Pusat Operasi, SLD, Aliran Daya, Analisa Beban, dan dapat diekspor.', tone: 'data' },
       ]}
-      caption="Gambar 3. Alur pemeliharaan data aset jaringan."
+      caption="Gambar 3. Alur pemeliharaan data aset jaringan dengan persetujuan berjenjang."
     />
     <H3 id="bp-ops">4.2 Operasi jaringan & penanganan gangguan</H3>
     <Flow
@@ -223,7 +230,8 @@ const business = (
         { title: 'Temukan objek', who: 'Dispatcher', desc: 'Cari di peta Monitoring, SLD, atau tab GI/penyulang/gardu/pelanggan.', tone: 'client' },
         { title: 'Buka / deenergize', who: 'Operator (sesuai izin)', desc: 'Pilih kategori pemadaman, isi catatan, konfirmasi. Izin TM/TR dicek server.', tone: 'app' },
         { title: 'Dampak dihitung', who: 'Sistem', desc: 'Wilayah padam dihitung inkremental; rekap pelanggan & beban padam.', tone: 'app' },
-        { title: 'Kejadian & SOE', who: 'Sistem', desc: 'Kejadian padam per level, SOE bertingkat keparahan, notifikasi ke semua pengguna.', tone: 'data' },
+        { title: 'Kejadian & SOE', who: 'Sistem', desc: 'Kejadian padam per level, SOE bertingkat keparahan beserta identitas operator, notifikasi push.', tone: 'data' },
+        { title: 'FLISR / rencana', who: 'Dispatcher', desc: 'Isolasi seksi gangguan & pemulihan lewat tie (cek kapasitas), atau rencana manuver bersimulasi.', tone: 'app' },
         { title: 'Perbaikan', who: 'Tim lapangan', desc: 'Lokasi dan area terdampak terlihat di peta / SLD; trace membantu isolasi.', tone: 'client' },
         { title: 'Tutup / energize', who: 'Operator', desc: 'Pemulihan; kategori mengikuti kejadian; durasi tercatat otomatis.', tone: 'app' },
         { title: 'Keandalan', who: 'Manajemen', desc: 'SAIDI, SAIFI, ENS kWh & Rupiah terbarui per periode dan per level.', tone: 'data' },
@@ -241,29 +249,45 @@ const business = (
       ]}
       caption="Gambar 5. Alur perencanaan jaringan berbasis aliran daya dan SLD."
     />
-    <H3 id="bp-admin">4.4 Tata kelola akses</H3>
+    <H3 id="bp-load">4.4 Analisa beban, energi & susut</H3>
+    <Flow
+      steps={[
+        { title: 'Data SCADA / AMR', who: 'Sistem', desc: 'Pesan 30 menit trafo GI, penyulang, gardu lewat Kafka: arus & tegangan per fasa, P/Q/S, pf, frekuensi, kWh/kvarh.', tone: 'data' },
+        { title: 'Rekap & anomali', who: 'Sistem', desc: 'Rekap harian MW & energi, profil dasar, deteksi data hilang/macet/lonjakan, beban lebih, frekuensi.', tone: 'app' },
+        { title: 'Neraca energi', who: 'Sistem', desc: 'Trafo GI → Σ penyulang → Σ gardu per hari; susut distribusi & GI, cakupan meter.', tone: 'app' },
+        { title: 'Analisa', who: 'Perencana', desc: 'Per UID/UP3/GI/trafo/penyulang/gardu: harian, bulanan, tahunan, prakiraan, N-1.', tone: 'client' },
+        { title: 'Laporan', who: 'Manajemen', desc: 'Laporan beban & susut otomatis (harian/bulanan/tahunan) + ringkasan AI.', tone: 'data' },
+      ]}
+      caption="Gambar 6. Alur analisa beban, energi, dan susut."
+    />
+    <H3 id="bp-admin">4.5 Tata kelola akses</H3>
     <Flow
       steps={[
         { title: 'Buat pengguna', who: 'Admin', desc: 'Akun, email, status aktif.', tone: 'client' },
-        { title: 'Tetapkan peran', who: 'Admin', desc: 'Admin, editor, operator, operator_tr, viewer, atau peran baru.', tone: 'client' },
+        { title: 'Tetapkan peran', who: 'Admin', desc: 'Admin, editor, supervisor, manajer, operator, operator_tr, viewer, atau peran baru.', tone: 'client' },
         { title: 'Atur izin & menu', who: 'Admin', desc: 'Izin granular (mis. power.switch_tm) dan menu yang tampil per peran.', tone: 'app' },
         { title: 'Pantau & audit', who: 'Admin', desc: 'Audit log aksi, monitoring sistem, konfigurasi aplikasi.', tone: 'data' },
       ]}
-      caption="Gambar 6. Tata kelola pengguna dan hak akses."
+      caption="Gambar 7. Tata kelola pengguna dan hak akses."
     />
-    <H3>Matriks peran & izin operasi</H3>
+    <H3>Matriks peran & izin</H3>
     <Table
-      head={['Izin', 'Admin', 'Editor', 'Operator', 'Operator TR', 'Viewer']}
+      head={['Izin', 'Admin', 'Manajer', 'Supervisor', 'Editor', 'Operator', 'Operator TR', 'Viewer']}
       rows={[
-        ['Lihat peta & monitoring (gis.view)', '✓', '✓', '✓', '✓', '✓'],
-        ['Edit data GIS (gis.edit)', '✓', '✓', '–', '–', '–'],
-        ['Buka/tutup switch TM (power.switch_tm)', '✓', '✓', '✓', '–', '–'],
-        ['Buka/tutup switch jurusan TR (power.switch_tr)', '✓', '✓', '✓', '✓', '–'],
-        ['Energize/deenergize TM (power.energize_tm)', '✓', '✓', '✓', '–', '–'],
-        ['Energize/deenergize TR (power.energize_tr)', '✓', '✓', '✓', '✓', '–'],
-        ['Administrasi (admin.*)', '✓', '–', '–', '–', '–'],
+        ['Lihat peta & monitoring (gis.view)', '✓', '✓', '✓', '✓', '✓', '✓', '✓'],
+        ['Susun perubahan data GIS (gis.edit)', '✓', '–', '–', '✓', '–', '–', '–'],
+        ['Setujui / tolak paket perubahan (gis.approve)', '✓', '✓', '✓', '–', '–', '–', '–'],
+        ['Rilis paket ke jaringan aktif (gis.release)', '✓', '✓', '–', '–', '–', '–', '–'],
+        ['Buka/tutup switch TM (power.switch_tm)', '✓', '–', '–', '✓', '✓', '–', '–'],
+        ['Buka/tutup switch jurusan TR (power.switch_tr)', '✓', '–', '–', '✓', '✓', '✓', '–'],
+        ['Energize/deenergize TM / TR (power.energize_*)', '✓', '–', '–', '✓', '✓', 'TR', '–'],
+        ['Setujui rencana manuver (power.plan_approve)', '✓', '–', '–', '–', '✓', '–', '–'],
+        ['Analisa beban (load.view) / kelola (load.manage)', '✓ / ✓', '✓ / –', '✓ / –', '✓ / –', '✓ / ✓', '–', '✓ / –'],
+        ['Master data unit (master.view / master.manage)', '✓ / ✓', '✓ / ✓', '✓ / –', '✓ / –', '✓ / –', '✓ / –', '✓ / –'],
+        ['Administrasi (admin.*)', '✓', '–', '–', '–', '–', '–', '–'],
       ]}
     />
+    <P>Izin dapat diubah per peran di menu Administrasi › Roles; tabel di atas adalah pengaturan bawaan.</P>
   </>
 );
 
@@ -311,13 +335,16 @@ docker compose up -d --build`}</Pre>
     <Table
       head={['Grup', 'Contoh kunci', 'Fungsi']}
       rows={[
-        ['Umum', <C key="1">app.name, app.map_center, map.boundary_opacity</C>, 'Nama aplikasi, pusat peta, basemap, overlay UP3'],
+        ['Identitas aplikasi', <C key="0">app.name, app.description, app.logo</C>, 'Nama, deskripsi & logo — diubah lewat bagian Identitas aplikasi'],
+        ['Umum', <C key="1">app.map_center, map.boundary_opacity, unit.default_code</C>, 'Pusat peta, basemap, overlay UP3, unit bawaan kepemilikan aset'],
         ['Loading', <C key="2">loading.max_features_per_tile, loading.density_max_zoom</C>, 'Kinerja tile & kepadatan titik'],
-        ['Topologi', <C key="3">topology.snap_tolerance_m, topology.auto_split_edges</C>, 'Toleransi snapping, pemisahan garis, junction otomatis'],
+        ['Topologi', <C key="3">topology.snap_tolerance_m, gis.approval_enabled, gis.approval_allow_self</C>, 'Toleransi snapping, pemisahan garis, alur persetujuan editing'],
         ['Monitoring', <C key="4">monitoring.default_daya_va, monitoring.soe_retention_days</C>, 'Daya bawaan pelanggan, interval refresh, retensi SOE'],
         ['Keandalan', <C key="5">reliability.tariff_rp_per_kwh, reliability.load_factor</C>, 'Tarif ENS Rupiah, faktor beban, cos φ, batas momentary'],
         ['Aliran daya', <C key="6">powerflow.source_pu, powerflow.default_trafo_kva</C>, 'Parameter perhitungan & batas tegangan'],
         ['SLD', <C key="7">sld.max_elements, sld.default_level</C>, 'Batas elemen & tingkat detail bawaan diagram'],
+        ['Beban & energi', <C key="9">load.kafka_topic, load.simulator, load.cap_pf, load.energy_mode, load.losses_high_pct</C>, 'Topik SCADA, simulator, daya mampu MW, mode energi, batas susut'],
+        ['Mobile', <C key="10">mobile.*, push.*</C>, 'PWA lapangan & notifikasi push'],
         ['AI', <C key="8">ai.default_provider, ai.anthropic_api_key</C>, 'Penyedia & kunci API AI (rahasia)'],
       ]}
     />
@@ -348,7 +375,10 @@ docker compose up -d --build`}</Pre>
         ['Peta kosong / tile tidak muncul', 'Periksa WebGL browser; tekan "Muat ulang tile" di tab Layer'],
         ['Pesan "graf sedang dimuat"', 'Normal setelah restart backend; tunggu ±30 detik'],
         ['AI tidak menjawab', 'Isi kunci API penyedia di halaman AI › Pengaturan (izin admin.config)'],
-        ['Tombol operasi tidak tampil', 'Peran belum punya izin power.switch_* / power.energize_* yang sesuai'],
+        ['Tombol operasi tidak tampil', 'Operasi buka/tutup hanya di Pusat Operasi & SLD; peran perlu izin power.switch_* / power.energize_*'],
+        ['Perubahan di editor tidak muncul di Pusat Operasi', 'Perubahan masih usulan (paket draf); ajukan, setujui, lalu rilis di Persetujuan Perubahan'],
+        ['Tidak bisa menyetujui paket', 'Penyusun tidak boleh menyetujui paketnya sendiri; perlu izin gis.approve (rilis: gis.release)'],
+        ['Data beban sintetis', 'Simulator SCADA aktif (load.simulator); matikan saat SCADA/AMR asli tersambung'],
       ]}
     />
   </>
@@ -365,18 +395,30 @@ const guide: { group: string; items: GuideItem[] }[] = [
         img: 'login',
         intro: 'Buka alamat aplikasi di browser, lalu masuk dengan akun yang diberikan admin.',
         steps: ['Isi nama pengguna dan kata sandi.', 'Jawab captcha penjumlahan/perkalian sederhana.', <>Tekan <B>Masuk</B>. Setelah beberapa kali gagal, login dikunci sementara.</>],
-        tips: ['Tema (terang/gelap/ikuti sistem) dan bahasa (ID/EN) dapat diubah di bawah menu samping.', 'Keluar lewat tombol Keluar di pojok kiri bawah.'],
+        tips: ['Nama, deskripsi, dan logo pada halaman masuk mengikuti Identitas aplikasi.', 'Keluar lewat tombol Keluar di pojok kiri bawah.'],
+      },
+      {
+        id: 'g-theme',
+        title: 'Menu samping, tema & bahasa',
+        img: 'theme-light',
+        intro: 'Menu samping menampilkan menu sesuai peran, dengan submenu bertingkat (mis. Map Editor › Editor Peta Jaringan & Persetujuan Perubahan). Warna menu mengikuti tema terang atau gelap.',
+        steps: [
+          'Tekan tombol tema di bawah menu: Terang → Gelap → Ikuti sistem.',
+          'Pilih bahasa ID / EN.',
+          'Ciutkan menu dengan tombol panah, atau sembunyikan seluruhnya dengan tombol panel.',
+        ],
+        tips: ['Pilihan tema & bahasa tersimpan di browser masing-masing pengguna.'],
       },
     ],
   },
   {
-    group: 'Editor Peta Jaringan',
+    group: 'Map Editor',
     items: [
       {
         id: 'g-map',
         title: 'Tampilan editor peta',
         img: 'map-overview',
-        intro: 'Halaman kerja utama untuk melihat dan menyunting jaringan. Kiri: toolbar gambar; atas: pencarian; kanan: panel Layer, Fitur, Trace, Data.',
+        intro: 'Menu Map Editor › Editor Peta Jaringan: halaman kerja untuk melihat dan menyunting jaringan. Kiri: toolbar gambar; atas: pencarian; kanan: panel Layer, Fitur, Trace, Data, dan Perubahan.',
         steps: ['Geser & zoom peta dengan mouse; objek kecil (pelanggan, SR) muncul pada zoom tinggi.', 'Cari objek berdasarkan kode, nama, id, atau kode SSOT di kotak pencarian.', 'Klik objek untuk membuka panel Fitur.'],
         perm: 'gis.view (menyunting: gis.edit)',
       },
@@ -392,9 +434,15 @@ const guide: { group: string; items: GuideItem[] }[] = [
         id: 'g-feature',
         title: 'Informasi & atribut objek',
         img: 'map-feature',
-        intro: 'Panel Fitur menampilkan tipe, kode, status, penyulang/zona/gardu/jurusan, rekap pelanggan hilir, atribut SSOT, konektivitas, dan riwayat.',
-        steps: ['Ubah kode, nama, atau atribut SSOT lalu tekan Simpan.', 'Gunakan Pindahkan / Gambar ulang / Edit vertex untuk mengubah geometri.', 'Kotak operasi (buka/tutup, energize/deenergize) tampil sesuai izin peran.', 'Tombol Buka SLD membuka diagram satu garis objek tersebut.'],
-        perm: 'gis.edit untuk menyimpan perubahan',
+        intro: 'Panel Fitur menampilkan tipe, kode, status, penyulang/zona/gardu/jurusan, rekap pelanggan hilir, unit pemilik, atribut SSOT, konektivitas, dan riwayat.',
+        steps: [
+          'Ubah kode, nama, unit pemilik, atau atribut SSOT lalu tekan Simpan usulan.',
+          'Unit pemilik kosong berarti ditetapkan otomatis dari lokasi (ULP/UP3 terdekat).',
+          'Gunakan Pindahkan / Gambar ulang / Edit vertex untuk mengubah geometri.',
+          'Tombol Buka SLD membuka diagram satu garis objek tersebut.',
+        ],
+        tips: ['Buka/tutup switch dan energize/deenergize tidak ada di editor — lakukan di Pusat Operasi atau SLD.'],
+        perm: 'gis.edit untuk menyusun perubahan',
       },
       {
         id: 'g-draw',
@@ -422,9 +470,51 @@ const guide: { group: string; items: GuideItem[] }[] = [
         title: 'Ekspor & impor GeoJSON (QGIS)',
         img: 'map-data',
         intro: 'Tab Data untuk bertukar data dengan QGIS: ekspor area tampilan/poligon ke GeoJSON, edit di QGIS, lalu impor kembali.',
-        steps: ['Pilih cakupan (tampilan peta atau poligon) dan tipe, tekan Periksa ukuran (maks. 10 MB).', 'Unduh .geojson, sunting di QGIS (atribut & geometri).', 'Impor berkas: sistem menampilkan pratinjau jumlah dibuat/diubah/dilewati sebelum diterapkan.'],
+        steps: ['Pilih cakupan (tampilan peta atau poligon) dan tipe, tekan Periksa ukuran (maks. 10 MB).', 'Unduh .geojson, sunting di QGIS (atribut & geometri).', 'Impor berkas: pratinjau lengkap tampil sebelum diterapkan (lihat panduan berikut).'],
         tips: ['Objek yang sama tidak diduplikasi; penghapusan tidak diterapkan dari impor.'],
         perm: 'ekspor: gis.view · impor: gis.edit',
+      },
+      {
+        id: 'g-import',
+        title: 'Pratinjau & rekap impor GeoJSON',
+        img: 'map-import',
+        intro: 'Setelah berkas dipilih, sistem memvalidasi setiap fitur tanpa mengubah data, lalu menampilkan ringkasan dan daftar berhasil / gagal.',
+        steps: [
+          'Baca kartu ringkasan: jumlah fitur, baru, ubah, sama, dan galat.',
+          'Periksa Rekap per layer, lalu saring daftar (baru / ubah / galat) dan baca alasan galat per fitur.',
+          'Tampilkan di peta untuk melihat lokasi fitur (hijau baru, biru ubah, merah galat); unduh CSV daftar galat untuk diperbaiki di QGIS.',
+          'Tekan Terapkan: dalam mode persetujuan, perubahan masuk paket perubahan baru untuk diajukan.',
+        ],
+        tips: ['Galat yang diperiksa: geometri & jenis, type_code wajib, kode ganda di berkas, atribut SSOT bentrok, titik menumpuk objek lain.'],
+        perm: 'gis.edit',
+      },
+      {
+        id: 'g-approval-edit',
+        title: 'Menyusun perubahan (paket draf)',
+        img: 'map-approval',
+        intro: 'Setiap tambah, ubah, hapus, pisah, atau gabung di editor disimpan sebagai usulan pada paket perubahan. Jaringan aktif baru berubah setelah paket disetujui dan dirilis.',
+        steps: [
+          'Mulai menyunting seperti biasa; paket draf dibuat otomatis pada perubahan pertama (atau tekan + di tab Perubahan).',
+          'Usulan tampil di peta: oranye = baru, biru = diubah, merah = dihapus, ungu = pisah/gabung. Klik untuk mengubah atau membatalkannya.',
+          'Di tab Perubahan: isi judul & alasan, periksa daftar, batalkan item yang tidak perlu (×).',
+          'Tekan Ajukan untuk disetujui.',
+        ],
+        tips: ['Satu objek aktif hanya boleh diusulkan di satu paket terbuka.', 'Paket yang ditolak kembali berstatus dapat diubah; perbaiki lalu ajukan ulang.'],
+        perm: 'gis.edit',
+      },
+      {
+        id: 'g-approval',
+        title: 'Persetujuan Perubahan',
+        img: 'changes',
+        intro: 'Menu Map Editor › Persetujuan Perubahan: daftar paket per status dengan tahapan, perbandingan sebelum → sesudah, konflik, dan jejak audit.',
+        steps: [
+          'Pilih filter Perlu tindakan (sesuai izin), Diajukan, Disetujui, Dirilis, Ditolak, Draf, atau Semua.',
+          'Buka paket: periksa daftar perubahan dan Lihat di peta.',
+          'Supervisor: Setujui, atau Tolak dengan alasan wajib.',
+          'Manajer: Rilis ke jaringan aktif; hasil diterapkan/gagal per item tercatat.',
+        ],
+        tips: ['Penyusun tidak dapat menyetujui paketnya sendiri.', 'Bila objek berubah setelah diusulkan, rilis ditolak; tolak paket agar penyusun menyinkronkan item tersebut.'],
+        perm: 'gis.approve (setujui/tolak) · gis.release (rilis)',
       },
     ],
   },
@@ -450,8 +540,8 @@ const guide: { group: string; items: GuideItem[] }[] = [
         id: 'g-soe',
         title: 'SOE (Sequence of Events)',
         img: 'monitoring-soe',
-        intro: 'Log kronologis realtime dengan cap waktu milidetik: switch buka/tutup, pemutusan, padam mulai/selesai, perubahan energisasi.',
-        steps: ['Filter kategori, keparahan, jenis, atau cari kode/penyulang/pengguna.', 'Jeda untuk menahan event baru; Lanjut untuk menampilkannya.', 'Aktifkan lonceng untuk alarm suara event serius & kritis; unduh CSV.'],
+        intro: 'Log kronologis realtime dengan cap waktu milidetik: switch buka/tutup, pemutusan, padam mulai/selesai, perubahan energisasi — lengkap dengan identitas operator (nama, username, role, kanal web/ponsel/SLD, alamat IP).',
+        steps: ['Filter kategori, keparahan, jenis, atau cari kode/penyulang/pengguna.', 'Klik nama operator untuk menampilkan semua event oleh operator tersebut.', 'Jeda untuk menahan event baru; Lanjut untuk menampilkannya.', 'Aktifkan lonceng untuk alarm suara event serius & kritis; unduh CSV (termasuk kolom operator).'],
       },
       {
         id: 'g-gi',
@@ -478,7 +568,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
         id: 'g-operate',
         title: 'Operasi buka/tutup & energize/deenergize',
         img: 'monitoring-operate',
-        intro: 'Klik objek di peta; popup menampilkan rekap hilir dan kotak operasi sesuai jenis objek dan izin peran.',
+        intro: 'Buka/tutup dan energize/deenergize hanya dilakukan di Pusat Operasi (dan SLD). Klik objek di peta; popup menampilkan rekap hilir dan kotak operasi sesuai jenis objek dan izin peran.',
         steps: [
           'Alat switching: Buka (open) / Tutup (close); LBS 3 way dapat per arah.',
           'Objek lain dan saluran: Deenergize (padamkan) / Energize (nyalakan).',
@@ -486,7 +576,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
           'Saat menutup, kategori otomatis mengikuti kejadian padam yang dipulihkan.',
         ],
         perm: 'power.switch_tm / power.switch_tr / power.energize_tm / power.energize_tr',
-        tips: ['Setiap operasi tercatat di kejadian padam, SOE, riwayat manuver, dan audit.'],
+        tips: ['Setiap operasi tercatat di kejadian padam, SOE, riwayat manuver, dan audit — beserta identitas operator (nama, role, kanal web/ponsel/SLD, alamat IP).'],
       },
       {
         id: 'g-mon-trace',
@@ -504,11 +594,162 @@ const guide: { group: string; items: GuideItem[] }[] = [
         steps: ['Tekan tombol UP3 di toolbar peta.', 'Atur tampil/sembunyi, garis ULP, label, dan transparansi isi.'],
       },
       {
+        id: 'g-flisr',
+        title: 'FLISR (isolasi gangguan & pemulihan)',
+        img: 'ops-flisr',
+        intro: 'Grup Operasi › FLISR: dari kejadian padam aktif, sistem menyusun langkah isolasi seksi gangguan, pemulihan hulu, dan pemulihan hilir lewat tie dengan cek kapasitas penyulang.',
+        steps: ['Pilih kejadian padam aktif, atau pilih objek di peta sebagai lokasi gangguan untuk analisis proaktif.', 'Tentukan seksi gangguan; tinjau langkah dan beban yang dipulihkan.', 'Jalankan langkah (sesuai izin) atau simpan sebagai rencana manuver.'],
+        perm: 'power.plan',
+      },
+      {
+        id: 'g-plans',
+        title: 'Rencana manuver & simulasi what-if',
+        img: 'ops-plans',
+        intro: 'Menyusun urutan buka/tutup, menyimulasikan dampaknya (pelanggan & beban padam, pembebanan penyulang) sebelum dijalankan, lalu disetujui dan dieksekusi.',
+        steps: ['Tekan Rencana baru, tambah langkah dari objek di peta.', 'Simulasikan; periksa dampak & peringatan kapasitas.', 'Ajukan persetujuan, lalu jalankan langkah satu per satu.'],
+        perm: 'power.plan · persetujuan: power.plan_approve',
+      },
+      {
+        id: 'g-reports',
+        title: 'Laporan gangguan pelanggan',
+        img: 'ops-reports',
+        intro: 'Laporan dari pelanggan, petugas lapangan (PWA), atau operator; dikaitkan otomatis dengan kejadian padam dan dipantau terhadap SLA.',
+        steps: ['Buat / terima laporan, lihat lokasinya di peta.', 'Tindak lanjuti: tugaskan, ubah status, tutup.'],
+        perm: 'report.manage',
+      },
+      {
+        id: 'g-aiops',
+        title: 'AI operasi',
+        img: 'ops-ai',
+        intro: 'Ringkasan dan saran berbasis AI dari data operasi terkini: analisis gangguan, rencana manuver, laporan shift, ringkasan laporan, wawasan, dan pembebanan.',
+        steps: ['Pilih jenis tugas AI, tekan jalankan; jawaban tampil bertahap.', 'Gunakan hasilnya sebagai narasi laporan (dapat disunting).'],
+        tips: ['Jawaban AI dapat keliru; verifikasi sebelum mengambil keputusan operasional.'],
+        perm: 'ai.use',
+      },
+      {
         id: 'g-export',
         title: 'Ekspor data ke File Geodatabase (GDB)',
         img: 'monitoring-export',
         intro: 'Tab Export menyimpan data jaringan area tertentu sebagai File Geodatabase untuk ArcGIS/QGIS.',
         steps: ['Pilih cakupan: tampilan peta atau gambar poligon.', 'Pilih tipe dan filter status (semua/nyala/padam), periksa ukuran (maks. 10 MB).', 'Unduh berkas .gdb.zip.'],
+      },
+    ],
+  },
+  {
+    group: 'Dasbor Eksekutif & Keandalan Wilayah',
+    items: [
+      {
+        id: 'g-exec',
+        title: 'Dasbor eksekutif',
+        img: 'executive',
+        intro: 'Ringkasan kondisi saat ini dan kinerja periode (hari ini, bulan ini, 30 hari, tahun ini): SAIDI, SAIFI, ENS, kejadian padam, laporan & SLA, tahun berjalan vs target.',
+        steps: ['Pilih periode; bandingkan dengan periode sebelumnya.', 'Lihat tren SAIDI 12 bulan, kejadian per hari, kategori, penyulang terdampak, dan wilayah dengan SAIDI tertinggi.'],
+        perm: 'exec.view',
+      },
+      {
+        id: 'g-exec-reports',
+        title: 'Laporan berkala',
+        img: 'executive-reports',
+        intro: 'Laporan keandalan harian, mingguan, bulanan, dan tahunan dibuat otomatis setiap periode selesai atau manual.',
+        steps: ['Buka tab Laporan Berkala, pilih laporan.', 'Susun ringkasan dengan AI, cetak / simpan PDF, atau unduh CSV.'],
+        perm: 'exec.view · membuat/menghapus: exec.report',
+      },
+      {
+        id: 'g-reliability',
+        title: 'Keandalan wilayah UP3 / ULP',
+        img: 'reliability',
+        intro: 'SAIDI, SAIFI, ENS, dan kejadian per UP3 dan ULP ditampilkan di peta wilayah dan tabel peringkat.',
+        steps: ['Pilih periode dan tingkat wilayah (UP3 / ULP).', 'Klik wilayah untuk rinciannya; urutkan tabel menurut indikator.'],
+        perm: 'exec.view',
+      },
+    ],
+  },
+  {
+    group: 'Analisa Beban & Energi',
+    items: [
+      {
+        id: 'g-load',
+        title: 'Ringkasan beban & energi',
+        img: 'load-overview',
+        intro: 'Menu Analisa Beban & Energi: load profile trafo GI, penyulang, dan gardu distribusi dari SCADA/AMR per 30 menit. Beban dalam MW; pembebanan % = MW ÷ daya mampu (rating MVA × faktor daya kapasitas).',
+        steps: ['Baca kartu: titik ukur, kelengkapan data, puncak hari ini & kemarin, energi, susut kemarin, beban lebih, anomali.', 'Klik titik pada daftar pembebanan tertinggi (penyulang/trafo & gardu) untuk membuka analisanya.'],
+        perm: 'load.view',
+      },
+      {
+        id: 'g-load-analysis',
+        title: 'Analisa harian, bulanan, tahunan',
+        img: 'load-analysis',
+        intro: 'Pilih objek (Sistem, UID, UP3, GI, Trafo GI, Penyulang, Gardu) dan periode.',
+        steps: [
+          'Harian: kurva MW vs minggu lalu & prakiraan; untuk satu titik tersedia panel Besaran SCADA (arus & tegangan per fasa, P/Q/S, pf & frekuensi, energi kWh/kvarh, tabel data + CSV).',
+          'Bulanan: puncak & energi harian, peta panas hari × jam.',
+          'Tahunan: puncak bulanan vs tahun lalu, kurva lama beban, tabel bulanan.',
+        ],
+        perm: 'load.view',
+      },
+      {
+        id: 'g-losses',
+        title: 'Susut energi (losses)',
+        img: 'load-losses',
+        intro: 'Neraca energi harian antar-tingkat meter: trafo GI → Σ penyulang (selisih GI) dan penyulang → Σ gardu (susut distribusi JTM + trafo gardu).',
+        steps: [
+          'Pilih cakupan (sistem, UID, UP3, GI, trafo GI, penyulang) dan periode (harian, 30 hari, bulanan, tahunan).',
+          'Baca susut distribusi, selisih GI, susut gabungan, cakupan meter, dan rantai energi.',
+          'Klik penyulang pada tabel untuk profil 30 menit dan dekomposisi susut (tetap, sebanding beban, kuadrat beban) serta energi tiap gardu.',
+        ],
+        tips: ['Bila tidak semua gardu bermeter, energi gardu diperkirakan dari cakupan kapasitas; hari dengan cakupan rendah tidak dihitung.', 'Susut negatif menandakan kesalahan meter atau gardu tercatat di penyulang lain.'],
+        perm: 'load.view',
+      },
+      {
+        id: 'g-load-anomalies',
+        title: 'Anomali data & beban',
+        img: 'load-anomalies',
+        intro: 'Anomali kualitas data (hilang, macet, di luar batas, beban nol, lonjakan, energi ≠ daya, incoming ≠ Σ penyulang) dan kondisi jaringan (beban lebih, tidak seimbang, pf rendah, tegangan, frekuensi, susut, pergeseran level).',
+        steps: ['Saring jenis, tingkat, status, dan rentang hari.', 'Buka anomali untuk melihat data di sekitarnya; tandai ditangani atau selesaikan dengan catatan.'],
+        perm: 'load.view · tindak lanjut: load.manage',
+      },
+      {
+        id: 'g-load-reports',
+        title: 'Laporan beban',
+        img: 'load-reports',
+        intro: 'Laporan beban harian, bulanan, tahunan otomatis: beban sistem (MW) vs periode sebelumnya & tahun lalu, energi, beban per UID/UP3/GI, titik & gardu terberat, susut, dan anomali.',
+        steps: ['Pilih laporan atau buat laporan baru.', 'Cetak / PDF, CSV, atau susun ringkasan AI.'],
+        perm: 'load.view · membuat: load.manage',
+      },
+      {
+        id: 'g-load-adv',
+        title: 'Analisa lanjutan',
+        img: 'load-advanced',
+        intro: 'Prakiraan beban & proyeksi puncak 12 bulan, kontingensi N-1, beban gardu (terukur / alokasi), karakter beban, kesehatan aset, kalibrasi simulasi, dan AI pembebanan.',
+        steps: ['Pilih subtab analisa, lalu objeknya.'],
+        perm: 'load.view',
+      },
+      {
+        id: 'g-load-points',
+        title: 'Titik SCADA & kontrak pesan',
+        img: 'load-points',
+        intro: 'Daftar titik ukur (trafo GI, penyulang, gardu) beserta pemetaan ke objek GIS, rating, dan data terakhir; kontrak pesan Kafka dan kirim data uji.',
+        steps: ['Tambah / ubah titik, atau Petakan otomatis dari GIS (termasuk gardu).', 'Kode baru dari SCADA/AMR yang cocok dengan kode GIS didaftarkan otomatis.'],
+        tips: ['Matikan simulator (load.simulator) saat SCADA/AMR asli sudah tersambung.'],
+        perm: 'load.manage',
+      },
+    ],
+  },
+  {
+    group: 'Lapangan (ponsel / PWA)',
+    items: [
+      {
+        id: 'g-field',
+        title: 'Aplikasi lapangan',
+        img: 'field',
+        intro: 'Versi ponsel yang dapat dipasang seperti aplikasi (Tambahkan ke layar utama). Menu bawah berisi Dasbor, Pusat Operasi, Lapangan, SLD, dan Menu.',
+        steps: [
+          'Aktifkan GPS untuk melihat aset terdekat (gardu, proteksi/switch, tiang, pelanggan).',
+          'Laporan gangguan cepat: pilih jenis, isi keterangan, tambah foto, kirim. Tanpa sinyal, laporan disimpan lalu dikirim otomatis.',
+          'Unggah foto aset dari popup objek; simpan area peta untuk dipakai offline.',
+          'Aktifkan notifikasi push sesuai topik (gangguan, laporan, beban).',
+        ],
+        perm: 'gis.view · foto: field.photo · laporan: report.manage',
       },
     ],
   },
@@ -567,12 +808,38 @@ const guide: { group: string; items: GuideItem[] }[] = [
     ],
   },
   {
+    group: 'Master Data',
+    items: [
+      {
+        id: 'g-units',
+        title: 'Unit & kepemilikan aset',
+        img: 'master-units',
+        intro: 'Master Data › Unit: unit organisasi berjenjang PUSAT → REGION → UID / UP2B → UP3 / UP2D → ULP (UP2B setara UID, UP2D setara UP3) sebagai pemilik & pengelola aset.',
+        steps: [
+          'Tambah unit: jenis, induk (divalidasi sesuai jenjang), kode, nama, alamat, koordinat, kontak, dan wilayah kerja (poligon batas).',
+          'Klik unit untuk melihat aset yang dimilikinya.',
+          'Tetapkan kepemilikan otomatis: pratinjau lalu terapkan — GI, trafo GI, penyulang → UP3; gardu, trafo distribusi, LBS, tiang → ULP terdekat.',
+          'Kepemilikan per aset juga dapat diubah di panel Fitur editor (lewat persetujuan).',
+        ],
+        tips: ['Unit pemilik dipakai analisa beban & susut per UID / UP3 / ULP.', 'Unit yang masih memiliki unit bawahan atau aset tidak dapat dihapus.'],
+        perm: 'master.view · mengelola: master.manage',
+      },
+    ],
+  },
+  {
     group: 'Administrasi',
     items: [
       { id: 'g-users', title: 'Pengguna', img: 'admin-users', intro: 'Menambah, mengubah, menonaktifkan pengguna, dan menetapkan peran.', steps: ['Tambah pengguna: nama, email, kata sandi (sesuai kebijakan), peran.', 'Nonaktifkan akun alih-alih menghapus untuk menjaga jejak audit.'], perm: 'admin.users' },
-      { id: 'g-roles', title: 'Peran & izin', img: 'admin-roles', intro: 'Peran mengelompokkan izin granular: lihat, edit, trace, operasi TM/TR, AI, administrasi.', steps: ['Buat atau ubah peran, centang izin yang diperlukan.', 'Perubahan izin berlaku paling lambat 30 detik tanpa perlu login ulang.'], perm: 'admin.roles' },
-      { id: 'g-menus', title: 'Menu', img: 'admin-menus', intro: 'Mengatur menu samping: judul (ID/EN), ikon, urutan, induk, dan peran yang dapat melihat.', perm: 'admin.menus' },
-      { id: 'g-config', title: 'Konfigurasi', img: 'admin-config', intro: 'Parameter aplikasi per grup: umum, loading, topologi, monitoring, keandalan, aliran daya, SLD, AI. Nilai rahasia disamarkan.', steps: ['Ubah nilai lalu simpan; sebagian parameter berlaku seketika.', 'Untuk nilai rahasia, biarkan kosong agar nilai lama tetap dipakai.'], perm: 'admin.config' },
+      { id: 'g-roles', title: 'Peran & izin', img: 'admin-roles', intro: 'Peran mengelompokkan izin granular: lihat, susun/setujui/rilis perubahan, trace, operasi TM/TR, beban, master data, AI, administrasi. Tersedia peran bawaan supervisor & manajer untuk alur persetujuan.', steps: ['Buat atau ubah peran, centang izin yang diperlukan.', 'Perubahan izin berlaku paling lambat 30 detik tanpa perlu login ulang.'], perm: 'admin.roles' },
+      { id: 'g-menus', title: 'Menu', img: 'admin-menus', intro: 'Mengatur menu samping: judul (ID/EN), ikon, urutan, induk (submenu, mis. Map Editor), dan peran yang dapat melihat.', perm: 'admin.menus' },
+      {
+        id: 'g-config',
+        title: 'Konfigurasi & identitas aplikasi',
+        img: 'admin-config',
+        intro: 'Bagian Identitas aplikasi mengatur nama, deskripsi, dan logo (PNG/JPEG/SVG/WebP maks. 512 KB) yang tampil di menu samping, halaman masuk, judul tab, favicon, dan kepala laporan. Di bawahnya, parameter aplikasi per grup.',
+        steps: ['Isi nama & deskripsi, unggah logo, periksa pratinjau, lalu Simpan.', 'Ubah parameter lain lalu simpan; sebagian berlaku seketika.', 'Untuk nilai rahasia, biarkan kosong agar nilai lama tetap dipakai.'],
+        perm: 'admin.config',
+      },
       { id: 'g-layerset', title: 'Pengaturan layer', img: 'admin-layers', intro: 'Mengatur tipe komponen: nama, warna, simbol standar (dengan varian terbuka), zoom, ukuran, tegangan, topologi, arah switch, dan atribut SSOT.', perm: 'gis.settings' },
       { id: 'g-sysmon', title: 'Monitoring sistem', img: 'admin-monitoring', intro: 'Pemantauan server: CPU, memori, database, Redis, Kafka, WebSocket, dan kinerja API.', perm: 'admin.monitoring' },
     ],

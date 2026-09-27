@@ -6,6 +6,8 @@ import { api, setToken } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { Button, PrefsBar, Spinner } from '@/components/ui';
 import { Icon } from '@/components/Icon';
+import { AppLogo } from '@/components/AppLogo';
+import { applyBranding } from '@/lib/auth';
 
 export default function LoginPage() {
   return (
@@ -26,6 +28,15 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingCaptcha, setLoadingCaptcha] = useState(false);
+  const [brand, setBrand] = useState<{ name: string; description: string; has_logo: boolean; logo_version: number } | null>(null);
+  useEffect(() => {
+    api<{ name: string; description: string; has_logo: boolean; logo_version: number }>('/api/branding')
+      .then((b) => {
+        setBrand(b);
+        applyBranding(b.name, b.has_logo, b.logo_version);
+      })
+      .catch(() => {});
+  }, []);
 
   const loadCaptcha = useCallback(async () => {
     setLoadingCaptcha(true);
@@ -73,12 +84,10 @@ function LoginForm() {
       </div>
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-3 text-white">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 text-yellow-300 shadow-lg">
-            <Icon name="bolt" size={26} />
-          </div>
+          <AppLogo hasLogo={!!brand?.has_logo} version={brand?.logo_version || 0} size={48} className="shadow-lg" />
           <div>
-            <div className="text-2xl font-bold">QuadranGIS</div>
-            <div className="text-sm text-gray-300">{t('login.subtitle')}</div>
+            <div className="text-2xl font-bold">{brand?.name || 'QuadranGIS'}</div>
+            <div className="text-sm text-gray-300">{brand?.description || t('login.subtitle')}</div>
           </div>
         </div>
         <form onSubmit={submit} className="card space-y-4 p-6">

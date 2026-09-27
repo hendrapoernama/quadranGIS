@@ -315,8 +315,11 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	sum := s.d.Graph.Summarize(affectedNodes, affectedEdges)
 	report := s.buildGroupReport(pctx, sum)
 	reportJSON, _ := json.Marshal(report)
+	who := s.person(c)
+	channel := clientChannel(c)
 	m := gis.ManeuverRecord{TargetKind: targetKind, NodeID: targetID, NodeCode: code, NodeType: typeCode, Action: req.Action, WayEdgeID: wayEdge,
-		Kind: req.Kind, Note: strings.TrimSpace(req.Note), UserID: userID, Username: username, Affected: reportJSON}
+		Kind: req.Kind, Note: strings.TrimSpace(req.Note), UserID: userID, Username: username, Affected: reportJSON,
+		FullName: who.FullNameOr(), Role: who.Role, ClientIP: clientIP(c), Channel: channel}
 	mid, err := s.d.Power.InsertManeuver(pctx, m)
 	if err != nil {
 		handleErr(c, err)
@@ -376,7 +379,8 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	}
 	tid := targetID
 	base := gis.SOEEvent{TargetKind: targetKind, TargetID: &tid, TargetCode: code, TargetType: typeCode, WayEdgeID: wayEdge,
-		Kind: req.Kind, FeederCode: feederCode, Username: username}
+		Kind: req.Kind, FeederCode: feederCode, Username: username, UserID: userID, FullName: who.FullNameOr(), Role: who.Role,
+		ClientIP: clientIP(c), Channel: channel}
 	ev1 := base
 	ev1.Category, ev1.Event, ev1.Severity, ev1.Level = category, strings.ToUpper(req.Action), sev, level
 	ev1.Customers, ev1.LoadVA, ev1.Nodes, ev1.ManeuverID, ev1.OutageID, ev1.Note = report.Customers, report.LoadVA, len(affectedNodes), &mid, outageID, m.Note
@@ -923,8 +927,25 @@ func (s *Server) powerOutage(c *gin.Context) {
 	ok(c, gin.H{"outage": o, "affected_nodes": len(affected), "geojson": fc})
 }
 
+// clientChannel: kanal asal tindakan operator (header X-Client-Channel: web | mobile | sld | rencana), bawaan web.
+func clientChannel(c *gin.Context) string {
+	switch v := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Client-Channel"))); v {
+	case "web", "mobile", "sld", "rencana", "api":
+		return v
+	}
+	return "web"
+}
+
 // recordSOE menyimpan event SOE lalu menyiarkannya (WebSocket & Kafka).
 func (s *Server) recordSOE(ctx context.Context, e *gis.SOEEvent) {
+	if e.Username != "" && e.FullName == "" {
+		// identitas lengkap operator untuk jejak audit
+		var uid, full, role string
+		if err := s.d.Pool.QueryRow(ctx, `SELECT u.id::text, u.full_name, COALESCE(r.name, '') FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.username=$1`,
+			e.Username).Scan(&uid, &full, &role); err == nil {
+			e.UserID, e.FullName, e.Role = &uid, full, role
+		}
+	}
 	if err := s.d.Power.InsertSOE(ctx, e); err != nil {
 		log.Printf("[soe] simpan gagal: %v", err)
 		return
@@ -943,7 +964,7 @@ func (s *Server) powerSOE(c *gin.Context) {
 	f := gis.SOEFilter{
 		BeforeID: int64(queryInt(c, "before_id", 0)), AfterID: int64(queryInt(c, "after_id", 0)),
 		Category: c.Query("category"), Severity: c.Query("severity"), Kind: strings.ToUpper(c.Query("kind")), Q: c.Query("q"),
-		TargetKind: c.Query("target_kind"), TargetID: int64(queryInt(c, "target_id", 0)), Limit: queryInt(c, "limit", 300),
+		TargetKind: c.Query("target_kind"), TargetID: int64(queryInt(c, "target_id", 0)), Limit: queryInt(c, "limit", 300), User: c.Query("user"),
 	}
 	for _, p := range []struct {
 		key string

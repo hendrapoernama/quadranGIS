@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n';
 import type { Menu } from '@/lib/types';
 import { Icon } from '@/components/Icon';
 import { Sidebar } from '@/components/Sidebar';
+import { AppLogo } from '@/components/AppLogo';
 import { useFieldT } from '@/components/field/i18n';
 import { usePwa } from './PwaProvider';
 
@@ -20,7 +21,7 @@ const BOTTOM = ['/executive', '/monitoring', '/field', '/sld'];
 
 /** Cangkang ponsel: bar atas (☰, judul, status), laci menu, navigasi bawah. */
 export function MobileShell({ children }: { children: React.ReactNode }) {
-  const { menus } = useAuth();
+  const { menus, appName, hasLogo, logoVersion } = useAuth();
   const { pick } = useT();
   const f = useFieldT();
   const pathname = usePathname();
@@ -38,10 +39,8 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         <button className="rounded-md p-2 hover:bg-white/10" onClick={() => setDrawer(true)} aria-label={f('menu')}>
           <Icon name="menu" size={20} />
         </button>
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand-600 text-yellow-300">
-          <Icon name="bolt" size={16} />
-        </div>
-        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{current ? pick(current.title, current.title_en) : 'QuadranGIS'}</h1>
+        <AppLogo hasLogo={hasLogo} version={logoVersion} size={28} />
+        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{current ? pick(current.title, current.title_en) : appName}</h1>
         {!pwa.online && (
           <span className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-300">
             <Icon name="wifi" size={12} /> {f('offline')}

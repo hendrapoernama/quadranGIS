@@ -486,7 +486,7 @@ func StartExecScheduler(ctx context.Context, d *Deps) {
 				}
 				cur, _ := periodOf(kind, now)
 				from, to := periodOf(kind, cur.Add(-time.Hour))
-				if d.Exec.ReportExists(ctx, kind, from) {
+				if d.Exec.ReportExists(ctx, "reliability", kind, from) {
 					continue
 				}
 				if id, err := s.generatePeriodic(ctx, kind, from, to, "system"); err != nil {
@@ -683,7 +683,7 @@ func (s *Server) execRegion(c *gin.Context) {
 
 // GET /api/exec/reports?kind=
 func (s *Server) execListReports(c *gin.Context) {
-	items, err := s.d.Exec.ListReports(c.Request.Context(), c.Query("kind"), queryInt(c, "limit", 100))
+	items, err := s.d.Exec.ListReports(c.Request.Context(), "reliability", c.Query("kind"), queryInt(c, "limit", 100))
 	if err != nil {
 		handleErr(c, err)
 		return

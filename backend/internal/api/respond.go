@@ -47,6 +47,8 @@ func handleErr(c *gin.Context, err error) {
 		fail(c, http.StatusNotFound, domainMsg(c, err, "common.not_found"))
 	case errors.Is(err, repo.ErrConflict), errors.Is(err, gis.ErrConflict):
 		fail(c, http.StatusConflict, domainMsg(c, err, "common.conflict"))
+	case errors.Is(err, gis.ErrForbidden):
+		fail(c, http.StatusForbidden, domainMsg(c, err, "common.forbidden"))
 	case errors.Is(err, gis.ErrBadRequest):
 		fail(c, http.StatusBadRequest, domainMsg(c, err, "common.bad_payload"))
 	case errors.Is(err, repo.ErrSystemRole):

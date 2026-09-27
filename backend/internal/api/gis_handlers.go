@@ -64,13 +64,29 @@ func (s *Server) gisTile(c *gin.Context) {
 	c.Data(http.StatusOK, "application/x-protobuf", b)
 }
 
-// GET /api/gis/features/:kind/:id
+// paramFeatureID: id fitur (negatif = objek usulan paket perubahan yang belum dirilis).
+func paramFeatureID(c *gin.Context) (int64, bool) {
+	v, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || v == 0 {
+		failT(c, http.StatusBadRequest, "common.invalid_id")
+		return 0, false
+	}
+	return v, true
+}
+
+// GET /api/gis/features/:kind/:id  (?cs= paket aktif: tampilkan usulan pada objek)
 func (s *Server) gisGetFeature(c *gin.Context) {
 	if !validKind(c) {
 		return
 	}
-	id, okID := paramInt64(c, "id")
+	id, okID := paramFeatureID(c)
 	if !okID {
+		return
+	}
+	if handled, err := s.draftFeature(c, c.Param("kind"), id); handled {
+		if err != nil {
+			handleErr(c, err)
+		}
 		return
 	}
 	ft, err := s.d.Features.Get(c.Request.Context(), c.Param("kind"), id)
@@ -156,8 +172,18 @@ func (s *Server) afterEdit(c *gin.Context, res *gis.EditResult) {
 	}
 }
 
-// POST /api/gis/features
+// POST /api/gis/features  (mode persetujuan: diusulkan ke paket ?cs=)
 func (s *Server) gisCreateFeature(c *gin.Context) {
+	if s.approvalOn() {
+		if raw, ok := readBody(c); ok {
+			var k struct {
+				Kind string `json:"kind"`
+			}
+			_ = json.Unmarshal(raw, &k)
+			s.proposeEdit(c, "create", k.Kind, 0, raw)
+		}
+		return
+	}
 	var in gis.FeatureInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		fail(c, http.StatusBadRequest, tr(c, "common.bad_payload")+": "+err.Error())
@@ -180,8 +206,14 @@ func (s *Server) gisUpdateFeature(c *gin.Context) {
 	if !validKind(c) {
 		return
 	}
-	id, okID := paramInt64(c, "id")
+	id, okID := paramFeatureID(c)
 	if !okID {
+		return
+	}
+	if s.approvalOn() {
+		if raw, ok := readBody(c); ok {
+			s.proposeEdit(c, "update", c.Param("kind"), id, raw)
+		}
 		return
 	}
 	var in gis.FeatureInput
@@ -203,8 +235,12 @@ func (s *Server) gisDeleteFeature(c *gin.Context) {
 	if !validKind(c) {
 		return
 	}
-	id, okID := paramInt64(c, "id")
+	id, okID := paramFeatureID(c)
 	if !okID {
+		return
+	}
+	if s.approvalOn() {
+		s.proposeEdit(c, "delete", c.Param("kind"), id, nil)
 		return
 	}
 	res, err := s.d.Features.Delete(c.Request.Context(), c.Param("kind"), id, actorFrom(c))
@@ -230,6 +266,11 @@ func (s *Server) gisSplitEdge(c *gin.Context) {
 		failT(c, http.StatusBadRequest, "gis.split_point")
 		return
 	}
+	if s.approvalOn() {
+		raw, _ := json.Marshal(gin.H{"lng": *req.Lng, "lat": *req.Lat})
+		s.proposeEdit(c, "split", "edge", id, raw)
+		return
+	}
 	res, err := s.d.Features.SplitEdge(c.Request.Context(), id, *req.Lng, *req.Lat, actorFrom(c))
 	if err != nil {
 		handleErr(c, err)
@@ -243,6 +284,10 @@ func (s *Server) gisSplitEdge(c *gin.Context) {
 func (s *Server) gisMergeAtJunction(c *gin.Context) {
 	id, okID := paramInt64(c, "id")
 	if !okID {
+		return
+	}
+	if s.approvalOn() {
+		s.proposeEdit(c, "merge", "node", id, nil)
 		return
 	}
 	res, err := s.d.Features.MergeAtJunction(c.Request.Context(), id, actorFrom(c))
@@ -289,10 +334,15 @@ func (s *Server) gisSnap(c *gin.Context) {
 		failT(c, http.StatusBadRequest, "gis.lnglat_required")
 		return
 	}
-	items, err := s.d.Features.Snap(c.Request.Context(), lng, lat, queryFloat(c, "radius_m", 0))
+	radius := queryFloat(c, "radius_m", 0)
+	items, err := s.d.Features.Snap(c.Request.Context(), lng, lat, radius)
 	if err != nil {
 		handleErr(c, err)
 		return
+	}
+	if cs := csParam(c); cs > 0 && radius > 0 {
+		// titik usulan (belum dirilis) ikut menjadi sasaran snap
+		items = append(items, s.d.Changes.SnapDrafts(c.Request.Context(), cs, lng, lat, radius)...)
 	}
 	ok(c, gin.H{"items": items})
 }

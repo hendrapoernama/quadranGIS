@@ -4,9 +4,10 @@ import { useMemo, useRef, useState } from 'react';
 import { API_BASE, getToken } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { fmtNum } from '@/lib/format';
-import type { ComponentType } from '@/lib/types';
+import type { ComponentType, FeatureCollection } from '@/lib/types';
 import { Badge, Button, useToast } from '@/components/ui';
 import type { MapHandle } from './types';
+import { ImportPreview, type ImportReport } from './ImportPreview';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -15,27 +16,6 @@ interface Stats {
   bytes: number;
   by_type: Record<string, number>;
   too_large: boolean;
-}
-
-interface ImportItem {
-  index: number;
-  action: 'update' | 'create' | 'unchanged' | 'error';
-  kind: string;
-  id?: number;
-  type_code?: string;
-  code?: string;
-  changes?: string;
-  error?: string;
-}
-
-interface ImportReport {
-  applied: boolean;
-  features: number;
-  updates: number;
-  creates: number;
-  unchanged: number;
-  errors: number;
-  items: ImportItem[];
 }
 
 interface Props {
@@ -50,7 +30,10 @@ interface Props {
   drawing: boolean;
   onDrawArea: () => void;
   onClearArea: () => void;
-  onImported?: (tileVersion?: number) => void;
+  /** changesetId terisi bila impor masuk ke paket perubahan (mode persetujuan) */
+  onImported?: (changesetId?: number) => void;
+  /** mode persetujuan: impor menjadi paket perubahan */
+  approval?: boolean;
 }
 
 const mb = (b: number) => `${(b / 1024 / 1024).toFixed(2)} MB`;
@@ -87,6 +70,8 @@ export function ExchangePanel(props: Props) {
   const [busy, setBusy] = useState<'' | 'check' | 'download' | 'preview' | 'apply'>('');
   const [file, setFile] = useState<File | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
+  const [geojson, setGeojson] = useState<FeatureCollection | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const cats = useMemo(() => Array.from(new Set(exportable.map((x) => x.category))), [exportable]);
@@ -176,16 +161,26 @@ export function ExchangePanel(props: Props) {
     }
     setBusy(apply ? 'apply' : 'preview');
     try {
-      const res = await post(`/api/exchange/import?apply=${apply ? 1 : 0}`, await f.text(), 'application/geo+json', locale);
+      const text = await f.text();
+      if (!apply) {
+        try {
+          setGeojson(JSON.parse(text));
+        } catch {
+          setGeojson(null);
+        }
+      }
+      const res = await post(`/api/exchange/import?apply=${apply ? 1 : 0}&name=${encodeURIComponent(f.name)}`, text, 'application/geo+json', locale);
       if (!res.ok) {
         toast.push((await errorOf(res)).msg, 'error');
         return;
       }
       const r: ImportReport = await res.json();
       setReport(r);
+      setPreviewOpen(true);
       if (apply) {
-        toast.push(t('xchg.applied', { u: r.updates, c: r.creates, e: r.errors }), r.errors > 0 ? 'warning' : 'success');
-        props.onImported?.();
+        if (r.changeset_id) toast.push(t('cs.imported', { id: r.changeset_id }), r.errors > 0 ? 'warning' : 'success');
+        else toast.push(t('xchg.applied', { u: r.updates, c: r.creates, e: r.errors }), r.errors > 0 ? 'warning' : 'success');
+        props.onImported?.(r.changeset_id);
       }
     } catch (e: any) {
       toast.push(e.message, 'error');
@@ -201,8 +196,6 @@ export function ExchangePanel(props: Props) {
     setSelected(s);
     setStats(null);
   };
-  const actionBadge = (a: ImportItem['action']) =>
-    a === 'update' ? <Badge tone="blue">{t('xchg.act_update')}</Badge> : a === 'create' ? <Badge tone="green">{t('xchg.act_create')}</Badge> : a === 'error' ? <Badge tone="red">{t('xchg.act_error')}</Badge> : <Badge>{t('xchg.act_same')}</Badge>;
 
   return (
     <div className="space-y-3 text-sm text-gray-800">
@@ -341,31 +334,29 @@ export function ExchangePanel(props: Props) {
                 <span className="text-gray-500">{t('xchg.r_same', { n: report.unchanged })}</span>
                 <span className={report.errors > 0 ? 'text-red-700' : 'text-gray-500'}>{t('xchg.r_error', { n: report.errors })}</span>
               </div>
-              {report.items.length > 0 && (
-                <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded border border-gray-200 p-1">
-                  {report.items.slice(0, 200).map((it) => (
-                    <li key={it.index} className="flex items-start gap-1">
-                      {actionBadge(it.action)}
-                      <span className="min-w-0 flex-1">
-                        <span className="font-mono text-[11px]">{it.code || (it.id ? `#${it.id}` : `#${it.index}`)}</span>{' '}
-                        <span className="text-gray-500">{it.type_code ? typeName(it.type_code) : it.kind}</span>
-                        {it.changes && <span className="text-gray-600"> · {it.changes}</span>}
-                        {it.error && <span className="text-red-700"> · {it.error}</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {!report.applied && report.updates + report.creates > 0 && (
-                <Button size="sm" icon="check" loading={busy === 'apply'} onClick={() => runImport(true)}>
-                  {t('xchg.apply', { n: report.updates + report.creates })}
-                </Button>
-              )}
-              {report.applied && <div className="text-emerald-700">{t('xchg.applied_note')}</div>}
+              <Button size="sm" variant="secondary" icon="search" onClick={() => setPreviewOpen(true)}>
+                {t('xchg.open_preview')}
+              </Button>
+              {report.applied && <div className="text-emerald-700">{report.changeset_id ? t('cs.imported', { id: report.changeset_id }) : t('xchg.applied_note')}</div>}
             </div>
           )}
+          {props.approval && <div className="mt-2 text-[11px] text-brand-700">{t('xchg.approval_import')}</div>}
           <div className="mt-2 text-[11px] text-gray-500">{t('xchg.qgis_note')}</div>
         </div>
+      )}
+      {report && file && (
+        <ImportPreview
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          report={report}
+          fileName={file.name}
+          geojson={geojson}
+          types={props.types}
+          mapRef={props.mapRef}
+          approval={!!props.approval}
+          applying={busy === 'apply'}
+          onApply={() => runImport(true)}
+        />
       )}
     </div>
   );

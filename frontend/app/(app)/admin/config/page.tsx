@@ -6,6 +6,7 @@ import { useT } from '@/lib/i18n';
 import type { AppConfig } from '@/lib/types';
 import { Button, Confirm, Field, Modal, PageHeader, useToast } from '@/components/ui';
 import { fmtDate } from '@/lib/format';
+import { BrandingForm } from '@/components/BrandingForm';
 
 const GROUP_KEYS: Record<string, string> = {
   general: 'config.group_general',
@@ -41,7 +42,8 @@ export default function ConfigPage() {
     load();
   }, [load]);
 
-  const groups = useMemo(() => Array.from(new Set(items.map((i) => i.group))), [items]);
+  // grup branding dikelola lewat bagian Identitas Aplikasi
+  const groups = useMemo(() => Array.from(new Set(items.map((i) => i.group))).filter((g) => g !== 'branding'), [items]);
   const changed = Object.keys(draft).filter((k) => draft[k] !== items.find((i) => i.key === k)?.value);
 
   async function saveAll() {
@@ -124,6 +126,7 @@ export default function ConfigPage() {
           </>
         }
       />
+      <BrandingForm />
       <div className="space-y-4">
         {groups.map((g) => (
           <div key={g} className="card overflow-hidden">

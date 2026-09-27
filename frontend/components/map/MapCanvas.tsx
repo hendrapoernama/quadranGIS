@@ -34,7 +34,13 @@ interface Props {
   onError?: (sourceId: string, message: string) => void;
   /** poligon area seleksi selesai digambar (mode 'area') */
   onArea?: (ring: [number, number][]) => void;
+  /** parameter tambahan untuk snap (mis. `cs=12`: titik usulan paket perubahan ikut disnap) */
+  snapQuery?: string;
 }
+
+/** Lapisan pratinjau paket perubahan: tambah (oranye), ubah (biru), hapus (merah), pisah/gabung (ungu). */
+const DRAFT_COLOR: any = ['match', ['get', 'op'], 'create', '#f97316', 'update', '#2563eb', 'delete', '#dc2626', '#9333ea'];
+const DRAFT_LAYERS = ['draft-fill', 'draft-line', 'draft-point'];
 
 type Coord = [number, number];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -191,7 +197,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     const radius = Math.max(1, 8 * metersPerPixel(lat, map.getZoom()));
     try {
       const r = await api<{ items: { kind: string; lng: number; lat: number; dist_m: number }[] }>(
-        `/api/gis/snap?lng=${lng}&lat=${lat}&radius_m=${radius.toFixed(2)}`,
+        `/api/gis/snap?lng=${lng}&lat=${lat}&radius_m=${radius.toFixed(2)}${p.current.snapQuery ? `&${p.current.snapQuery}` : ''}`,
       );
       const node = r.items.filter((i) => i.kind === 'node').sort((a, b) => a.dist_m - b.dist_m)[0];
       const edge = r.items.filter((i) => i.kind === 'edge').sort((a, b) => a.dist_m - b.dist_m)[0];
@@ -436,6 +442,24 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       for (const layer of buildLayers(p.current.types, font, colorMode.current)) map.addLayer(layer);
       applyDarkLabels(p.current.initialBasemap === 'dark');
       applyBoundary();
+      // pratinjau paket perubahan (di atas jaringan aktif)
+      map.addSource('draft', { type: 'geojson', data: EMPTY as any });
+      map.addLayer({ id: 'draft-fill', type: 'fill', source: 'draft', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': DRAFT_COLOR, 'fill-opacity': 0.25, 'fill-outline-color': DRAFT_COLOR } });
+      map.addLayer({
+        id: 'draft-line',
+        type: 'line',
+        source: 'draft',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': DRAFT_COLOR, 'line-width': ['case', ['==', ['get', 'op'], 'delete'], 5, 4], 'line-opacity': 0.85, 'line-dasharray': [2, 1.2] },
+      });
+      map.addLayer({
+        id: 'draft-point',
+        type: 'circle',
+        source: 'draft',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-radius': 7, 'circle-color': '#ffffff', 'circle-stroke-color': DRAFT_COLOR, 'circle-stroke-width': 3.5 },
+      });
       // posisi GPS pengguna (lingkar akurasi + titik), selalu paling atas
       map.addSource('user-loc', { type: 'geojson', data: EMPTY as any });
       map.addLayer({ id: 'user-acc', type: 'fill', source: 'user-loc', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.12, 'fill-outline-color': '#2563eb' } });
@@ -468,7 +492,9 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       const kind = modeKind();
       if (kind === 'vertex') return; // kursor diatur oleh handle
       if (kind === 'select') {
-        const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density'].filter((l) => map.getLayer(l)) });
+        const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], {
+          layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density', ...DRAFT_LAYERS].filter((l) => map.getLayer(l)),
+        });
         map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
         return;
       }
@@ -506,6 +532,13 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       const { lng, lat } = e.lngLat;
       if (!map.getLayer('nodes')) return;
       if (mode.kind === 'select') {
+        // objek usulan (paket perubahan) didahulukan
+        const dh = map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers: DRAFT_LAYERS.filter((l) => map.getLayer(l)) });
+        const d = dh.find((h) => h.layer.id === 'draft-point') || dh[0];
+        if (d && d.properties?.fid) {
+          p.current.onSelect(d.properties.kind === 'edge' ? 'edge' : 'node', Number(d.properties.fid));
+          return;
+        }
         const hits = map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density'].filter((l) => map.getLayer(l)) });
         const node = hits.find((h) => NODE_LAYERS.includes(h.layer.id));
         const edge = hits.find((h) => h.layer.id === 'edges');
@@ -656,6 +689,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       },
       setTrace: (fc) => setSource('trace', fc || EMPTY),
       setOverlay: (fc) => setSource('overlay', fc || EMPTY),
+      setDraft: (fc) => setSource('draft', fc || EMPTY),
       setBoundary: (fc) => {
         boundaryData.current = fc;
         setSource('boundary', fc || EMPTY);

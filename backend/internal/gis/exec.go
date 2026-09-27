@@ -3,6 +3,7 @@ package gis
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ var ReportKinds = []string{"daily", "weekly", "monthly"}
 // PeriodicReport adalah satu snapshot laporan berkala.
 type PeriodicReport struct {
 	ID          int64           `json:"id"`
+	Category    string          `json:"category"` // reliability | load
 	Kind        string          `json:"kind"`
 	PeriodStart time.Time       `json:"period_start"`
 	PeriodEnd   time.Time       `json:"period_end"`
@@ -34,11 +36,11 @@ type PeriodicReport struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 }
 
-const periodicCols = `id, kind, period_start, period_end, title, narrative, narrative_by, generated_by, generated_at`
+const periodicCols = `id, category, kind, period_start, period_end, title, narrative, narrative_by, generated_by, generated_at`
 
 func scanPeriodic(row pgx.Row, withData bool) (PeriodicReport, error) {
 	var r PeriodicReport
-	dest := []any{&r.ID, &r.Kind, &r.PeriodStart, &r.PeriodEnd, &r.Title, &r.Narrative, &r.NarrativeBy, &r.GeneratedBy, &r.GeneratedAt}
+	dest := []any{&r.ID, &r.Category, &r.Kind, &r.PeriodStart, &r.PeriodEnd, &r.Title, &r.Narrative, &r.NarrativeBy, &r.GeneratedBy, &r.GeneratedAt}
 	var data []byte
 	if withData {
 		dest = append(dest, &data)
@@ -56,12 +58,15 @@ func scanPeriodic(row pgx.Row, withData bool) (PeriodicReport, error) {
 }
 
 // ListReports mengembalikan laporan berkala terbaru (tanpa data), opsional per jenis.
-func (e *Exec) ListReports(ctx context.Context, kind string, limit int) ([]PeriodicReport, error) {
+func (e *Exec) ListReports(ctx context.Context, category, kind string, limit int) ([]PeriodicReport, error) {
+	if category == "" {
+		category = "reliability"
+	}
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	rows, err := e.pool.Query(ctx, `SELECT `+periodicCols+` FROM periodic_reports
-		WHERE ($1 = '' OR kind = $1) ORDER BY period_start DESC, kind LIMIT $2`, kind, limit)
+		WHERE category = $3 AND ($1 = '' OR kind = $1) ORDER BY period_start DESC, kind LIMIT $2`, kind, limit, category)
 	if err != nil {
 		return nil, err
 	}
@@ -83,20 +88,23 @@ func (e *Exec) GetReport(ctx context.Context, id int64) (PeriodicReport, error) 
 }
 
 // ReportExists memeriksa apakah laporan untuk jenis & awal periode sudah ada.
-func (e *Exec) ReportExists(ctx context.Context, kind string, start time.Time) bool {
+func (e *Exec) ReportExists(ctx context.Context, category, kind string, start time.Time) bool {
 	var n int
-	_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM periodic_reports WHERE kind = $1 AND period_start = $2`, kind, start).Scan(&n)
+	_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM periodic_reports WHERE category = $3 AND kind = $1 AND period_start = $2`, kind, start, category).Scan(&n)
 	return n > 0
 }
 
 // SaveReport menyimpan laporan (menimpa data laporan dengan jenis & periode yang sama; ringkasan dipertahankan).
 func (e *Exec) SaveReport(ctx context.Context, r PeriodicReport) (int64, error) {
 	var id int64
-	err := e.pool.QueryRow(ctx, `INSERT INTO periodic_reports (kind, period_start, period_end, title, data, generated_by)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (kind, period_start) DO UPDATE SET period_end = EXCLUDED.period_end, title = EXCLUDED.title,
+	if r.Category == "" {
+		r.Category = "reliability"
+	}
+	err := e.pool.QueryRow(ctx, `INSERT INTO periodic_reports (kind, period_start, period_end, title, data, generated_by, category)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (category, kind, period_start) DO UPDATE SET period_end = EXCLUDED.period_end, title = EXCLUDED.title,
 			data = EXCLUDED.data, generated_by = EXCLUDED.generated_by, generated_at = now()
-		RETURNING id`, r.Kind, r.PeriodStart, r.PeriodEnd, r.Title, []byte(r.Data), r.GeneratedBy).Scan(&id)
+		RETURNING id`, r.Kind, r.PeriodStart, r.PeriodEnd, r.Title, []byte(r.Data), r.GeneratedBy, r.Category).Scan(&id)
 	return id, err
 }
 
@@ -240,4 +248,49 @@ func (g *Graph) Ready() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return !g.loading && len(g.nodes) > 0 && !g.groupsAt.IsZero()
+}
+
+// FeederTie adalah switch terbuka yang menghubungkan dua penyulang (titik manuver pelimpahan beban).
+type FeederTie struct {
+	Switch int64 `json:"switch_id"`
+	A      int64 `json:"a"` // kepala penyulang
+	B      int64 `json:"b"`
+}
+
+// FeederTies mengembalikan pasangan penyulang yang terhubung lewat switch terbuka (kondisi saat ini).
+func (g *Graph) FeederTies() []FeederTie {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := []FeederTie{}
+	seen := map[[3]int64]bool{}
+	for id, n := range g.nodes {
+		if !n.isSwitch() || (!n.open() && len(g.openWays[id]) == 0) {
+			continue
+		}
+		fs := map[int64]bool{}
+		for _, eid := range g.adj[id] {
+			nb := g.nodes[g.edges[eid].other(id)]
+			if nb.feeder != 0 {
+				fs[nb.feeder] = true
+			}
+		}
+		if n.feeder != 0 {
+			fs[n.feeder] = true
+		}
+		list := make([]int64, 0, len(fs))
+		for f := range fs {
+			list = append(list, f)
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i] < list[j] })
+		for i := 0; i < len(list); i++ {
+			for j := i + 1; j < len(list); j++ {
+				k := [3]int64{id, list[i], list[j]}
+				if !seen[k] {
+					seen[k] = true
+					out = append(out, FeederTie{Switch: id, A: list[i], B: list[j]})
+				}
+			}
+		}
+	}
+	return out
 }

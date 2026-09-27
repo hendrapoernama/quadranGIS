@@ -156,8 +156,9 @@ func main() {
 		Cfg: cfg, Pool: pool, Cache: rdb, JWT: jwtSvc, Captcha: captcha,
 		Users: users, Roles: roles, Menus: menus, Configs: configs, Audit: audit, MetricsRepo: metricsRepo,
 		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries, SLD: sld, Ops: gis.NewOps(pool),
-		Exec: gis.NewExec(pool), Field: gis.NewField(pool), Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
+		Exec: gis.NewExec(pool), Field: gis.NewField(pool), Units: gis.NewUnits(pool, configs), Changes: gis.NewChanges(pool, configs, features), Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
 	}
+	api.StartLoad(ctx, deps) // pembebanan SCADA: konsumer Kafka, simulator, pekerjaan terjadwal
 	router := api.NewRouter(deps)
 	api.StartExecScheduler(ctx, deps)
 	go func() { // wilayah UP3/ULP untuk kejadian padam lama (sesudah migrasi 023)

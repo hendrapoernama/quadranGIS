@@ -30,21 +30,35 @@ type SOEEvent struct {
 	OutageID    *int64    `json:"outage_id"`
 	Username    string    `json:"username"`
 	Note        string    `json:"note"`
+	// identitas operator (audit buka / tutup switch)
+	UserID   *string `json:"user_id"`
+	FullName string  `json:"full_name"`
+	Role     string  `json:"role"`
+	ClientIP string  `json:"client_ip"`
+	Channel  string  `json:"channel"` // web | mobile | sld | rencana | api | sistem
 }
 
 const soeCols = `id, ts, category, event, severity, target_kind, target_id, target_code, target_type, way_edge_id, kind, level,
-	feeder_code, customers, load_va, nodes, duration_sec, maneuver_id, outage_id, username, note`
+	feeder_code, customers, load_va, nodes, duration_sec, maneuver_id, outage_id, username, note, user_id::text, full_name, role, client_ip, channel`
 
 // InsertSOE menyimpan event; ID dan cap waktu (clock_timestamp, presisi mikrodetik) diisi ke e.
 func (p *Power) InsertSOE(ctx context.Context, e *SOEEvent) error {
 	if e.Severity == "" {
 		e.Severity = "info"
 	}
+	if e.Channel == "" {
+		e.Channel = "sistem"
+		if e.Username != "" {
+			e.Channel = "web"
+		}
+	}
 	return p.pool.QueryRow(ctx, `INSERT INTO soe_events (category, event, severity, target_kind, target_id, target_code, target_type,
-		way_edge_id, kind, level, feeder_code, customers, load_va, nodes, duration_sec, maneuver_id, outage_id, username, note)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id, ts`,
+		way_edge_id, kind, level, feeder_code, customers, load_va, nodes, duration_sec, maneuver_id, outage_id, username, note,
+		user_id, full_name, role, client_ip, channel)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::uuid,$21,$22,$23,$24) RETURNING id, ts`,
 		e.Category, e.Event, e.Severity, e.TargetKind, e.TargetID, e.TargetCode, e.TargetType, e.WayEdgeID, e.Kind, e.Level,
-		e.FeederCode, e.Customers, e.LoadVA, e.Nodes, e.DurationSec, e.ManeuverID, e.OutageID, e.Username, e.Note).Scan(&e.ID, &e.TS)
+		e.FeederCode, e.Customers, e.LoadVA, e.Nodes, e.DurationSec, e.ManeuverID, e.OutageID, e.Username, e.Note,
+		e.UserID, e.FullName, e.Role, e.ClientIP, e.Channel).Scan(&e.ID, &e.TS)
 }
 
 // SOEFilter menyaring daftar SOE.
@@ -58,6 +72,7 @@ type SOEFilter struct {
 	From, To   time.Time
 	TargetKind string
 	TargetID   int64
+	User       string // username operator
 	Limit      int
 }
 
@@ -96,13 +111,16 @@ func (p *Power) ListSOE(ctx context.Context, f SOEFilter) ([]SOEEvent, error) {
 		add("kind = $%d", f.Kind)
 	}
 	if q := strings.TrimSpace(f.Q); q != "" {
-		add("(target_code ILIKE $%[1]d OR feeder_code ILIKE $%[1]d OR username ILIKE $%[1]d OR note ILIKE $%[1]d)", "%"+q+"%")
+		add("(target_code ILIKE $%[1]d OR feeder_code ILIKE $%[1]d OR username ILIKE $%[1]d OR full_name ILIKE $%[1]d OR note ILIKE $%[1]d)", "%"+q+"%")
 	}
 	if !f.From.IsZero() {
 		add("ts >= $%d", f.From)
 	}
 	if !f.To.IsZero() {
 		add("ts < $%d", f.To)
+	}
+	if f.User != "" {
+		add("username = $%d", f.User)
 	}
 	if f.TargetID > 0 {
 		add("target_id = $%d", f.TargetID)
@@ -122,7 +140,7 @@ func (p *Power) ListSOE(ctx context.Context, f SOEFilter) ([]SOEEvent, error) {
 		var e SOEEvent
 		if err := rows.Scan(&e.ID, &e.TS, &e.Category, &e.Event, &e.Severity, &e.TargetKind, &e.TargetID, &e.TargetCode, &e.TargetType,
 			&e.WayEdgeID, &e.Kind, &e.Level, &e.FeederCode, &e.Customers, &e.LoadVA, &e.Nodes, &e.DurationSec, &e.ManeuverID,
-			&e.OutageID, &e.Username, &e.Note); err != nil {
+			&e.OutageID, &e.Username, &e.Note, &e.UserID, &e.FullName, &e.Role, &e.ClientIP, &e.Channel); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

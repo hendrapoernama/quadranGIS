@@ -23,6 +23,7 @@ var (
 	ErrNotFound   = errors.New("not found")
 	ErrBadRequest = errors.New("bad request")
 	ErrConflict   = errors.New("topology conflict")
+	ErrForbidden  = errors.New("forbidden")
 )
 
 // Error adalah kesalahan domain dengan pesan yang sudah diterjemahkan.
@@ -57,8 +58,23 @@ type FeatureInput struct {
 	Code       *string         `json:"code"`
 	Name       *string         `json:"name"`
 	Status     string          `json:"status"`
-	Geometry   json.RawMessage `json:"geometry"`
+	Geometry   json.RawMessage `json:"geometry,omitempty"`
 	Properties map[string]any  `json:"properties"`
+	// UnitID: unit pemilik / pengelola aset (nil = tidak diubah, 0 = dikosongkan)
+	UnitID *int `json:"unit_id,omitempty"`
+}
+
+// setUnit menyimpan unit pemilik bila dikirim.
+func (e *editor) setUnit(kind string, id int64, unit *int) error {
+	if unit == nil {
+		return nil
+	}
+	table := "gis_nodes"
+	if kind == "edge" {
+		table = "gis_edges"
+	}
+	_, err := e.tx.Exec(e.ctx, `UPDATE `+table+` SET unit_id = NULLIF($2, 0) WHERE id = $1`, id, *unit)
+	return err
 }
 
 func str(p *string) string {
@@ -668,6 +684,9 @@ func (f *Features) Create(ctx context.Context, in FeatureInput, actor Actor) (*E
 		e.history("edge", id, "create", map[string]any{"type_code": in.TypeCode, "from": fromID, "to": toID})
 		e.res.ID = id
 	}
+	if err := e.setUnit(in.Kind, e.res.ID, in.UnitID); err != nil {
+		return nil, err
+	}
 	e.finish()
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -871,6 +890,9 @@ func (f *Features) Update(ctx context.Context, kind string, id int64, in Feature
 		}
 		e.history("edge", id, "update", map[string]any{"type_code": in.TypeCode, "code": str(in.Code), "status": in.Status, "from": newFrom, "to": newTo, "reshaped": len(in.Geometry) > 0})
 	}
+	if err := e.setUnit(kind, id, in.UnitID); err != nil {
+		return nil, err
+	}
 	e.finish()
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -979,10 +1001,10 @@ func collectIDs(rows pgx.Rows) ([]int64, error) {
 
 const nodeSelect = `SELECT n.id, n.type_code, n.code, n.name, n.status, n.properties, ST_AsGeoJSON(n.geom), n.created_at, n.updated_at,
 	(SELECT count(*) FROM gis_edges e WHERE e.from_node_id=n.id OR e.to_node_id=n.id)::int, ST_AsGeoJSON(n.footprint),
-	CASE WHEN n.footprint IS NULL THEN 0 ELSE ST_Area(n.footprint::geography) END, n.energized, n.open_ways FROM gis_nodes n`
+	CASE WHEN n.footprint IS NULL THEN 0 ELSE ST_Area(n.footprint::geography) END, n.energized, n.open_ways, n.unit_id FROM gis_nodes n`
 
 const edgeSelect = `SELECT e.id, e.type_code, e.code, e.name, e.status, e.properties, ST_AsGeoJSON(e.geom), e.created_at, e.updated_at,
-	e.from_node_id, e.to_node_id, e.length_m, COALESCE(fn.code,''), COALESCE(tn.code,''), COALESCE(fn.type_code,''), COALESCE(tn.type_code,''), e.energized
+	e.from_node_id, e.to_node_id, e.length_m, COALESCE(fn.code,''), COALESCE(tn.code,''), COALESCE(fn.type_code,''), COALESCE(tn.type_code,''), e.energized, e.unit_id
 	FROM gis_edges e LEFT JOIN gis_nodes fn ON fn.id=e.from_node_id LEFT JOIN gis_nodes tn ON tn.id=e.to_node_id`
 
 func scanNode(row pgx.Row) (models.Feature, error) {
@@ -996,7 +1018,8 @@ func scanNode(row pgx.Row) (models.Feature, error) {
 	var areaM2 float64
 	var energized bool
 	var openWays []int64
-	if err := row.Scan(&ft.ID, &typeCode, &code, &name, &status, &props, &geom, &createdAt, &updatedAt, &degree, &footprint, &areaM2, &energized, &openWays); err != nil {
+	var unitID *int
+	if err := row.Scan(&ft.ID, &typeCode, &code, &name, &status, &props, &geom, &createdAt, &updatedAt, &degree, &footprint, &areaM2, &energized, &openWays, &unitID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ft, ErrNotFound
 		}
@@ -1010,7 +1033,7 @@ func scanNode(row pgx.Row) (models.Feature, error) {
 	ft.Type = "Feature"
 	ft.Geometry = json.RawMessage(geom)
 	ft.Properties = map[string]any{"kind": "node", "type_code": typeCode, "code": code, "name": name, "status": status,
-		"properties": p, "created_at": createdAt, "updated_at": updatedAt, "degree": degree, "energized": energized, "open_ways": openWays}
+		"properties": p, "created_at": createdAt, "updated_at": updatedAt, "degree": degree, "energized": energized, "open_ways": openWays, "unit_id": unitID}
 	if footprint != nil {
 		ft.Properties["footprint"] = json.RawMessage(*footprint)
 		ft.Properties["area_m2"] = math.Round(areaM2*10) / 10
@@ -1162,8 +1185,9 @@ func scanEdge(row pgx.Row) (models.Feature, error) {
 	var fromID, toID int64
 	var length float64
 	var energized bool
+	var unitID *int
 	if err := row.Scan(&ft.ID, &typeCode, &code, &name, &status, &props, &geom, &createdAt, &updatedAt,
-		&fromID, &toID, &length, &fromCode, &toCode, &fromType, &toType, &energized); err != nil {
+		&fromID, &toID, &length, &fromCode, &toCode, &fromType, &toType, &energized, &unitID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ft, ErrNotFound
 		}
@@ -1175,7 +1199,7 @@ func scanEdge(row pgx.Row) (models.Feature, error) {
 	ft.Geometry = json.RawMessage(geom)
 	ft.Properties = map[string]any{"kind": "edge", "type_code": typeCode, "code": code, "name": name, "status": status,
 		"properties": p, "created_at": createdAt, "updated_at": updatedAt, "from_node_id": fromID, "to_node_id": toID,
-		"length_m": math.Round(length*100) / 100, "from_code": fromCode, "to_code": toCode, "from_type": fromType, "to_type": toType, "energized": energized}
+		"length_m": math.Round(length*100) / 100, "from_code": fromCode, "to_code": toCode, "from_type": fromType, "to_type": toType, "energized": energized, "unit_id": unitID}
 	return ft, nil
 }
 

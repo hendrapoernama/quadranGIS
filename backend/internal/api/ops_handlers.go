@@ -39,7 +39,13 @@ const (
 func (s *Server) simParams() gis.SimParams {
 	kv := s.d.Configs.Float("ops.feeder_kv", 20)
 	amp := s.d.Configs.Float("ops.feeder_capacity_a", 400)
-	return gis.SimParams{CapacityVA: math.Sqrt(3) * kv * 1000 * amp, LoadFactor: s.d.Configs.Float("powerflow.load_factor", 0.6)}
+	p := gis.SimParams{CapacityVA: math.Sqrt(3) * kv * 1000 * amp, LoadFactor: s.d.Configs.Float("powerflow.load_factor", 0.6)}
+	// kalibrasi dari beban ukur SCADA: beban puncak 7 hari & rating kubikel per penyulang
+	if s.d.Load != nil && s.d.Configs.Bool("load.calibrate_sim", true) {
+		cal := s.loadCalibration(context.Background())
+		p.Scale, p.Caps = cal.scale, cal.caps
+	}
+	return p
 }
 
 func claimsUser(c *gin.Context) (*string, string) {

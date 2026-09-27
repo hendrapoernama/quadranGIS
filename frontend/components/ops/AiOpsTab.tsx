@@ -24,7 +24,7 @@ interface Props {
   visible: boolean;
 }
 
-type Task = Exclude<AiOpsTask, 'report'>;
+type Task = Exclude<AiOpsTask, 'report' | 'load'>;
 
 /** Tab AI Operasi: analisis kejadian padam, review rencana, serah terima shift, temuan & rekomendasi. */
 export function AiOpsTab({ preset, refreshKey, visible }: Props) {

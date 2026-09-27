@@ -8,7 +8,7 @@ import { Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import { useExecT } from '@/components/exec/i18n';
 
-export type AiOpsTask = 'outage' | 'plan' | 'shift' | 'report' | 'insights';
+export type AiOpsTask = 'outage' | 'plan' | 'shift' | 'report' | 'insights' | 'load';
 
 export interface AiOpsParams {
   outage_id?: number;

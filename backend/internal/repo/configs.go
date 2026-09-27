@@ -123,6 +123,10 @@ func (c *Configs) List(ctx context.Context) ([]models.Config, error) {
 			m.HasValue = strings.TrimSpace(m.Value) != ""
 			m.Value = ""
 		}
+		if m.Key == "app.logo" {
+			// logo (data URL besar) dikelola lewat bagian Identitas Aplikasi, tidak dikirim di daftar
+			continue
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -134,6 +138,9 @@ func (c *Configs) Public() map[string]string {
 	defer c.mu.RUnlock()
 	out := map[string]string{}
 	for k, v := range c.values {
+		if k == "app.logo" {
+			continue
+		}
 		if strings.HasPrefix(k, "app.") || strings.HasPrefix(k, "loading.") || strings.HasPrefix(k, "topology.") || strings.HasPrefix(k, "trace.") ||
 			strings.HasPrefix(k, "map.") || strings.HasPrefix(k, "monitoring.") || strings.HasPrefix(k, "mobile.") {
 			out[k] = v

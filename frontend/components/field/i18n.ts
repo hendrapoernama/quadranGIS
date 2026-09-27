@@ -104,6 +104,7 @@ const ID = {
   topic_outage: 'Padam & pulih',
   topic_report: 'Laporan pelanggan',
   topic_plan: 'Rencana manuver disetujui',
+  topic_load: 'Beban lebih & data SCADA terhenti',
   recent_photos: 'Foto terbaru saya',
   // peta
   locate: 'Lokasi saya',
@@ -212,6 +213,7 @@ const EN: Dict = {
   topic_outage: 'Outages & restorations',
   topic_report: 'Customer reports',
   topic_plan: 'Switching plans approved',
+  topic_load: 'Overload & SCADA data stopped',
   recent_photos: 'My recent photos',
   locate: 'My location',
   save_area: 'Save offline area',

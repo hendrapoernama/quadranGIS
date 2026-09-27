@@ -105,6 +105,76 @@ Buka http://localhost:3000.
 - **Realtime**: setiap perubahan disiarkan lewat Redis pub/sub → WebSocket ke
   semua klien; tile diperbarui otomatis. Event juga dipublikasikan ke Kafka
   (`quadran.gis.events`) dan dikonsumsi kembali ke hypertable `stream_events`.
+- Buka / tutup switch dan energize / deenergize **tidak** dilakukan dari editor;
+  operasi itu hanya ada di menu **Pusat Operasi** (dan SLD).
+
+### Alur persetujuan editing (paket perubahan)
+
+Migrasi `029_units_workflow_branding.sql`, konfigurasi `gis.approval_enabled` (bawaan `true`).
+
+- Selama alur aktif, setiap tambah / ubah / hapus / pisah / gabung di editor dan setiap impor GeoJSON
+  **tidak langsung mengubah jaringan aktif**. Perubahan disimpan sebagai operasi tertunda di
+  **paket perubahan** (`gis_changesets`, `gis_change_items`).
+- Alur & jenjang:
+  1. **Draf** — disusun editor (`gis.edit`). Paket draf dibuat otomatis pada edit pertama, atau dibuat
+     manual di tab **Perubahan** pada editor.
+  2. **Diajukan** — penyusun mengajukan paket.
+  3. **Disetujui** — supervisor (`gis.approve`) menyetujui, atau menolak dengan alasan wajib.
+     Paket yang ditolak kembali ke penyusun untuk diperbaiki dan diajukan ulang. Penyusun tidak boleh
+     menyetujui paketnya sendiri (`gis.approval_allow_self`).
+  4. **Dirilis** — manajer (`gis.release`) merilis paket. Operasi diputar ulang berurutan lewat editor
+     bertopologi yang sama (snap, sambung, pisah garis otomatis), lalu tile, graf, dan siaran realtime
+     diperbarui.
+- Role baru: **supervisor** (`gis.approve`) dan **manajer** (`gis.approve` + `gis.release`).
+  Admin memiliki semuanya.
+- Di editor:
+  - objek usulan tampil sebagai lapisan pratinjau: oranye = baru, biru = diubah, merah = dihapus,
+    ungu = pisah / gabung;
+  - objek baru yang belum dirilis memakai id negatif, dan dapat dipilih, diubah, atau dibatalkan;
+  - garis baru dapat di-snap ke titik usulan;
+  - panel atribut menampilkan kondisi usulan beserta penandanya.
+- **Kunci objek**: satu objek aktif hanya boleh memiliki usulan di satu paket terbuka.
+- **Deteksi konflik**: bila objek berubah atau terhapus setelah diusulkan, rilis ditolak seluruhnya.
+  Penyusun lalu menyinkronkan (*rebase*) atau membatalkan item tersebut.
+- Menu induk **Map Editor** (migrasi `030_menu_map_editor.sql`) berisi submenu **Editor Peta
+  Jaringan** (`/map`) dan **Persetujuan Perubahan** (`/changes`).
+- Menu **Persetujuan Perubahan** (`/changes`) memuat:
+  - daftar paket per status ("Perlu tindakan" sesuai izin);
+  - tahapan beserta pelaku & waktunya;
+  - tabel perubahan *sebelum → sesudah* (atribut, kode/nama, jenis, unit, geometri);
+  - konflik, jejak audit (aksi, nama, role, catatan), dan tautan *Lihat di peta*.
+- Setiap transisi dicatat di `gis_changeset_log` dan audit, serta disiarkan realtime (`changeset.*`).
+- Mematikan `gis.approval_enabled` mengembalikan editing langsung seperti sebelumnya.
+
+### Master data unit & kepemilikan aset
+
+Menu **Master Data → Unit** (`/master/units`, izin `master.view` / `master.manage`).
+
+- Jenjang: **PUSAT → REGION → UID / UP2B → UP3 / UP2D → ULP**. UP2B setara UID, dan UP2D setara UP3.
+- Induk yang sah divalidasi server.
+- Tiap unit menyimpan kode, nama, jenis, induk, alamat, koordinat, kontak, wilayah kerja (poligon batas
+  wilayah), dan status aktif.
+- Unit terisi awal dari batas wilayah yang ada (UID JAKARTA RAYA, UP3, ULP) ditambah contoh PUSAT,
+  REGION, UP2B, dan UP2D. Semuanya dapat diubah.
+- **Kepemilikan aset** tersimpan di `gis_nodes.unit_id` / `gis_edges.unit_id`, dan dapat ditetapkan per
+  objek di panel atribut editor (lewat alur persetujuan).
+- Bila kosong, pemilik diturunkan otomatis dari lokasi, yaitu ULP terdekat dalam `unit.auto_max_km`:
+  - GI, trafo GI, kubikel / penyulang, dan recloser dikelola UP3;
+  - gardu, trafo distribusi, LBS, switch TR, dan tiang dikelola ULP;
+  - aset di luar semua wilayah memakai `unit.default_code`.
+- *Tetapkan kepemilikan otomatis* menyimpan pemilik ke aset, dengan pratinjau lebih dulu.
+- **Analisa beban & susut** memakai unit pemilik aset untuk UID / UP3 / ULP titik ukur
+  (`scada_points.unit_id`), dengan cadangan poligon wilayah GI.
+
+### Identitas aplikasi
+
+**Administrasi → Konfigurasi → Identitas aplikasi**: nama (`app.name`), deskripsi (`app.description`),
+dan logo.
+
+- Logo berupa PNG / JPEG / SVG / WebP, maksimal 512 KB, disimpan sebagai data URL di `app.logo`.
+- Identitas ini tampil di sidebar, halaman masuk, header mobile, judul tab & favicon, dan kepala laporan.
+- API publik: `GET /api/branding` dan `GET /api/branding/logo`. SVG disajikan dengan CSP tanpa skrip.
+- Ubah lewat `PUT /api/admin/branding` (izin `admin.config`).
 
 ### Trace kelistrikan
 - Graf jaringan dimuat di memori (id, tipe, status, konektivitas). Jarak hop dari
@@ -145,6 +215,8 @@ di GI Gambir.
   tipe komponen punya kolom `title_en` / `name_en` yang dapat diubah di admin.
 - **Sidebar** dapat diciutkan (ikon saja) atau disembunyikan penuh (tombol
   panel atau **Ctrl+B**); tombol tipis di tepi kiri menampilkannya kembali.
+- Warna latar dan teks sidebar **mengikuti tema** terang/gelap (variabel CSS `--sb-*`
+  dan kelas `.sb*` di `globals.css`); item aktif tetap biru.
 
 ## Bangunan, editing lanjutan, dan alat ukur
 
@@ -339,6 +411,11 @@ manuver & kejadian padam yang sudah ada.
   beban, durasi), serta bagian jaringan padam / nyala akibat edit jaringan atau muat
   ulang graf (kategori *topologi*). Tiap event membawa objek, penyulang, jenis
   (GANGGUAN / PEMELIHARAAN / MLS), pengguna, dan catatan.
+- **Identitas operator** (audit buka / tutup, migrasi `029`): tiap event & manuver menyimpan pengguna
+  (username, nama lengkap, role), kanal (`web`, `mobile`, `sld` — header `X-Client-Channel`; event
+  otomatis = `sistem`), dan alamat IP. Tab SOE menampilkan "Operator: nama (username · role) kanal".
+  Klik nama operator untuk menyaring event berdasarkan operator tersebut; ekspor CSV memuat kolom
+  operator.
 - **Keparahan**: normal (pemulihan), peringatan, serius (manuver GANGGUAN; padam
   zona / gardu distribusi), kritis (padam GI / trafo GI / penyulang).
 - **Realtime**: setiap event disiarkan lewat WebSocket (`type: "soe"`) dan Kafka.
@@ -348,7 +425,7 @@ manuver & kejadian padam yang sudah ada.
   dijeda), filter kategori / keparahan / jenis, pencarian, *Muat lebih lama*,
   unduh CSV, bunyi alarm opsional untuk event serius & kritis, badge jumlah event
   belum dibaca saat tab lain aktif; klik kode objek untuk memilih & terbang ke objek.
-- **API**: `GET /api/power/soe?limit&before_id&after_id&category&severity&kind&q&from&to&target_kind&target_id`.
+- **API**: `GET /api/power/soe?limit&before_id&after_id&category&severity&kind&q&from&to&target_kind&target_id&user`.
 - **Retensi**: `monitoring.soe_retention_days` (bawaan 365 hari), dibersihkan tiap 6 jam.
 
 ## Export / import data GIS
@@ -372,7 +449,18 @@ manuver & kejadian padam yang sudah ada.
   sudah ada di lokasi itu (import ulang aman). Ujung garis mengikuti sambungan
   di aplikasi: menggeser node di QGIS memindahkan node (garis ikut), mengubah
   vertex tengah membentuk ulang garis. Fitur yang dihapus di QGIS **tidak**
-  dihapus. Selalu ada pratinjau sebelum diterapkan.
+  dihapus.
+- **Pratinjau & rekap sebelum impor**:
+  - jumlah fitur, baru, ubah, sama, dan galat, disertai bilah proporsi;
+  - rekap per layer;
+  - daftar yang bisa difilter & dicari, berisi alasan galat per fitur;
+  - *Tampilkan di peta* (hijau = baru, biru = ubah, merah = galat);
+  - unduh CSV daftar galat;
+  - hasil impor berupa rekap berhasil / gagal.
+- Validasi pratinjau mencakup: geometri & jenis, `type_code` wajib, kode ganda di dalam berkas,
+  atribut SSOT bentrok, dan titik bertopologi yang menumpuk objek lain.
+- Dalam mode persetujuan, impor dimasukkan ke **paket perubahan baru** (sumber `import`) dan baru
+  berlaku setelah disetujui & dirilis.
 - API: `POST /api/exchange/export {format: geojson|gdb, dry, bbox|polygon, types, energized}`,
   `POST /api/exchange/import?apply=0|1` (badan GeoJSON).
 
@@ -628,6 +716,175 @@ QuadranGIS dapat dipasang di ponsel sebagai **Progressive Web App** (`public/man
   Sertifikat self-signed pengembangan tidak diterima ponsel.
 - Push di iOS butuh iOS 16.4+ dan aplikasi yang sudah dipasang ke Layar Utama.
 
+## Analisa Beban & Energi (load profile) trafo GI, penyulang & gardu dari SCADA/AMR
+
+Menu **Analisa Beban & Energi** (`/load`, sebelumnya "Pembebanan"; migrasi `027_load_profile.sql` dan `028_load_energy_losses.sql`,
+izin `load.view` dan `load.manage`). Paket backend-nya `internal/load`.
+
+**Alur data:**
+
+- Konsumer Kafka membaca topik `load.kafka_topic` (bawaan `scada.load.30m`, group `load.kafka_group`),
+  menampung pesan, lalu menyimpan per batch.
+- Setiap batch diikuti rekap harian, deteksi anomali, dan siaran realtime `load.data` / `load.anomaly`.
+- Data juga bisa dikirim lewat HTTP: `POST /api/load/ingest`.
+- **Kontrak pesan** (satu objek atau array per pesan; `type` = `feeder` | `trafo_gi` | `gd`):
+
+  ```json
+  {"point":"KBK-GMB-02","type":"feeder","ts":"2026-09-27T10:30:00+07:00",
+   "i_r":182,"i_s":175,"i_t":190,"v_r":20.3,"v_s":20.4,"v_t":20.2,
+   "p_mw":6.1,"q_mvar":1.9,"s_mva":6.39,"pf":0.95,"f_hz":50.01,
+   "kwh_imp":3050,"kwh_exp":0,"kvarh_imp":950,"kvarh_exp":0,"quality":"good"}
+  ```
+
+  - `ts` = awal periode 30 menit; tanpa zona waktu dianggap WIB.
+  - `v_r/v_s/v_t` (kV) boleh antarfasa atau fasa-netral. Nilai < 75% tegangan nominal titik dianggap
+    fasa-netral lalu dikali √3 untuk tegangan antarfasa `v_kv`.
+  - Energi `kwh_*` / `kvarh_*` adalah energi selama periode (`load.energy_mode = interval`), atau
+    register meter (`cumulative`, bisa juga per pesan lewat `"energy_mode"`). Pada mode kumulatif,
+    energi periode = selisih register dengan slot 30 menit sebelumnya. Register yang turun (reset)
+    atau slot bolong menghasilkan energi kosong. Register terakhir disimpan di `scada_registers`.
+  - Besaran yang tidak dikirim diturunkan: S dari P/Q atau arus × tegangan, P dari S × `load.default_pf`,
+    Q dari S dan P, dan pf dari P/S.
+  - Kiriman ulang untuk titik & waktu yang sama menimpa data lama.
+
+**Pembebanan berbasis MW:**
+
+- Besaran beban utama di seluruh analisa, laporan, prakiraan, dan N-1 adalah daya aktif **P (MW)**.
+- % pembebanan = |P| ÷ daya mampu. Daya mampu = rating MVA × `load.cap_pf` (bawaan 0,85).
+  Untuk penyulang, rating MVA = √3 × kV × arus nominal kubikel; untuk gardu, rating = kVA trafo.
+- Energi harian dihitung dari meter kWh. Bila meter kosong, dipakai integrasi MW × 0,5 jam, dan
+  jumlah slot bermeter dicatat sebagai `metered_slots`.
+
+**Pemetaan titik** (`scada_points`):
+
+- Kode titik = kode kubikel penyulang, kode trafo GI, atau kode gardu di GIS, dan bisa dipetakan otomatis.
+- Kode baru dari SCADA/AMR yang cocok dengan objek GIS **didaftarkan otomatis** (`load.auto_register`).
+  Kapasitas gardu diambil dari atribut `daya_kva` trafo distribusi di dalam gardu; bila kosong,
+  dipakai `load.default_gd_kva`.
+- Hierarki disinkronkan dari graf: gardu → penyulang pemasok (`feeder_id`) → trafo GI → GI → UP3/ULP
+  (poligon wilayah) → UID (atribut `uid` pada UP3, bawaan `load.default_uid`).
+- Kode dari SCADA yang belum dikenal dicatat di daftar *belum dipetakan*.
+
+**Penyimpanan:**
+
+- `load_30m` adalah hypertable TimescaleDB (chunk 7 hari, kompresi setelah 21 hari). Tabel ini
+  menyimpan arus & tegangan per fasa, P/Q/S, pf, frekuensi, energi impor/ekspor, dan % pembebanan.
+- `load_daily` berisi rekap harian WIB:
+  - puncak MW & jamnya, puncak MVA, puncak WBP/LWBP, beban minimum dan rata-rata;
+  - energi impor/ekspor (MWh), MVArh, dan faktor beban;
+  - jam ≥ 80% / ≥ 100%, ketidakseimbangan, pf, tegangan, dan frekuensi.
+- `load_baseline` berisi profil dasar MW (median & MAD per jenis hari × slot, 4 minggu), diperbarui
+  tiap hari.
+- Beban kelompok (GI, UP3, UID, sistem) = jumlah serentak per slot dari **titik dasar**: trafo GI
+  yang terukur ditambah penyulang yang trafonya tidak terukur, supaya tidak terhitung dua kali.
+  Gardu berada di hilir penyulang, jadi tidak ikut dijumlah.
+
+**Analisa** (gardu, penyulang, trafo GI, GI, UP3, UID, sistem):
+
+- **Harian:** kurva MW 48 slot vs minggu lalu vs prakiraan, dan karakter beban. Untuk satu titik ada
+  panel **besaran SCADA**: arus per fasa, tegangan per fasa, P/Q/S, pf, frekuensi, energi
+  kWh/kvarh impor-ekspor per 30 menit, serta tabel data 30 menit (unduh CSV). Gardu ditampilkan dalam kW / V.
+- **Bulanan:** puncak harian, energi harian, dan peta panas hari × jam.
+- **Tahunan:** puncak bulanan vs tahun lalu (pertumbuhan), kurva lama beban, dan tabel bulanan
+  (energi, faktor beban, jam ≥ 80%, kelengkapan data).
+- Ringkasan menampilkan:
+  - puncak sistem hari ini & kemarin, dan energi hari ini & kemarin;
+  - susut kemarin, kelengkapan data, dan beban lebih;
+  - peringkat pembebanan penyulang/trafo dan gardu.
+
+**Susut energi (losses)** — tab **Susut**, `GET /api/load/losses` dan `/api/load/losses/feeder`:
+
+- **Neraca energi harian antar-tingkat meter:**
+  - trafo GI → Σ penyulang (selisih GI: bus 20 kV, pemakaian sendiri, beda meter);
+  - penyulang → Σ gardu (**susut distribusi**: JTM + trafo gardu sampai meter gardu).
+- Energi harian dikoreksi untuk slot yang hilang, dan hanya hari dengan ≥ 40 slot yang dihitung.
+- Bila tidak semua gardu penyulang bermeter, energi gardu diperkirakan dari **cakupan** kapasitas
+  (kVA) gardu yang terukur. Hari dengan cakupan < `load.losses_min_coverage` (bawaan 90%) tidak
+  dihitung, dan statusnya ditandai *lengkap / estimasi / cakupan kurang*.
+- Hasil tersedia per penyulang, per trafo GI, dan agregat GI / UP3 / UID / sistem, untuk periode
+  harian, 30 hari, bulanan, atau tahunan. Ada juga susut gabungan trafo GI → gardu dan tren susut harian.
+- **Rincian penyulang:**
+  - profil per 30 menit (beban penyulang vs Σ gardu vs susut);
+  - susut harian, dan energi & pembebanan tiap gardu;
+  - **dekomposisi** susut dengan regresi L = a + b·P + c·P² atas slot 30 hari: komponen tetap
+    (rugi inti trafo), sebanding beban (indikasi non-teknis / meter), dan kuadrat beban (rugi teknis I²R).
+- Anomali `losses` dicatat harian:
+  - susut distribusi ≥ `load.losses_high_pct`;
+  - susut negatif (indikasi kesalahan meter atau gardu tercatat di penyulang lain);
+  - selisih trafo GI ≥ `load.losses_gi_pct`.
+
+**Anomali** (`load_anomalies`; slot berurutan digabung menjadi satu kejadian dengan status
+terbuka → ditangani → selesai):
+
+- **Kualitas data:**
+  - data hilang (termasuk titik yang berhenti mengirim > 1 jam);
+  - nilai macet;
+  - di luar batas fisik (termasuk energi negatif / frekuensi mustahil);
+  - beban nol tanpa kejadian padam (gardu dicocokkan dengan padam penyulangnya);
+  - lonjakan / penurunan tajam (median & MAD profil dasar);
+  - **energi meter ≠ integrasi daya** (> `load.energy_dev_pct`, minimal 2 jam);
+  - incoming trafo GI ≠ Σ penyulang (> `load.mismatch_pct`).
+- **Kondisi jaringan:**
+  - beban tinggi / lebih (`load.warn_pct`, `load.over_pct`);
+  - ketidakseimbangan fasa;
+  - faktor daya rendah;
+  - tegangan di luar batas;
+  - **frekuensi di luar batas** (`load.f_nominal` ± `load.f_dev`);
+  - **susut tinggi / negatif**;
+  - pergeseran level harian dibanding hari sejenis, yang otomatis **dikaitkan dengan manuver /
+    kejadian padam** pada penyulang itu.
+- Anomali serius dikirim sebagai Web Push topik `load`. Data hilang pada gardu tidak dikirim sebagai
+  notifikasi karena jumlah gardu sangat banyak.
+
+**Laporan beban:**
+
+- Laporan harian, bulanan, dan tahunan dibuat otomatis (≥ 00:40 WIB) atau manual. Laporan disimpan
+  di `periodic_reports` dengan kategori `load`.
+- Isi laporan:
+  - beban sistem (MW) vs periode sebelumnya & tahun lalu, dan energi impor/ekspor;
+  - beban per UID/UP3/GI;
+  - trafo & penyulang dengan pembebanan tertinggi, titik yang pernah ≥ 80%, dan gardu ≥ 80%;
+  - **susut energi**: neraca GI & distribusi, susut per UP3, dan penyulang dengan susut tertinggi;
+  - ringkasan anomali dan kelengkapan data.
+- Laporan bisa dicetak / PDF, diunduh CSV, dan diberi ringkasan AI.
+
+**Analisa lanjutan:**
+
+- **Prakiraan beban (MW):** hari sejenis berbobot × tren mingguan, pita 10–90%, uji mundur MAPE, dan
+  proyeksi puncak bulanan 12 bulan beserta bulan saat daya mampu terlampaui.
+- **Kontingensi N-1:** beban puncak penyulang (MW) dilimpahkan lewat tie ke tetangga, dengan beban
+  tetangga pada saat yang sama. Hasilnya aman / parsial / tidak aman.
+- **Beban gardu:**
+  - gardu bermeter memakai beban puncak & energi terukurnya;
+  - gardu tanpa meter mendapat alokasi beban puncak penyulang sebanding daya kontrak;
+  - keduanya dibandingkan dengan daya mampu trafo gardu.
+- **Karakter beban:** residensial / bisnis / industri / campuran, dari profil dasar (penyulang, trafo GI, gardu).
+- **Indeks kesehatan aset** (trafo GI / penyulang / gardu): pembebanan 12 bulan, umur, dan anomali.
+- **Kalibrasi simulasi & FLISR:** faktor = puncak MVA terukur 7 hari ÷ daya kontrak. Faktor ini dipakai
+  simulasi what-if dan FLISR menggantikan faktor beban tetap, dan rating kubikel dipakai sebagai
+  kapasitas (`load.calibrate_sim`).
+- **AI pembebanan** (`POST /api/ai/ops` dengan `task: load`) mendapat konteks beban MW, gardu
+  terberat, dan susut.
+
+**Simulator SCADA/AMR** (`load.simulator`, aktif bawaan di pengembangan):
+
+- Membangkitkan data sintetis realistis:
+  - bentuk kurva per jenis beban, hari kerja/libur (`load.holidays`), musim, dan pertumbuhan 5%/tahun;
+  - semua besaran pesan: tegangan per fasa, frekuensi sistem, dan energi kWh/kvarh.
+- Neraca energinya konsisten:
+  - trafo GI = Σ penyulang × (1 + susut GI 0,3–1,2%);
+  - Σ gardu = penyulang − susut distribusi (tetap + non-teknis + I²R). Sebagian kecil penyulang
+    sengaja diberi susut non-teknis tinggi.
+- Menyisipkan anomali telemetri & meter agar deteksi teruji, dan mengirim data **live tiap 30 menit
+  lewat Kafka**.
+- Saat pertama start:
+  - titik dipetakan otomatis;
+  - gardu diberi meter, yaitu seluruh gardu penyulang nyata + `load.sim_gd_feeders` penyulang
+    simulasi massal;
+  - riwayat diisi: 400 hari untuk titik nyata, 35 hari untuk titik simulasi massal beserta gardunya.
+- Pengisian ulang tersedia lewat `POST /api/load/simulator/backfill`.
+- **Matikan `load.simulator` saat SCADA/AMR asli tersambung.**
+
 ## Aliran daya (power flow)
 
 Menu **Aliran Daya** (`/powerflow`) menghitung aliran daya tiap penyulang dengan
@@ -745,6 +1002,19 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | GET/POST/DELETE | `/api/exec/reports[/:id]` | laporan berkala `{kind: daily\|weekly\|monthly, date}` (ubah: `exec.report`) |
 | PUT  | `/api/exec/reports/:id/narrative` | simpan ringkasan eksekutif |
 | POST | `/api/ai/ops` | `{task: outage\|plan\|shift\|report\|insights, outage_id\|plan_id\|report_id\|hours, messages?}` → analisis AI (SSE) |
+| GET  | `/api/load/overview` | ringkasan pembebanan: puncak sistem (MW), energi, susut kemarin, kelengkapan data, peringkat penyulang/trafo/gardu, anomali, status Kafka |
+| GET  | `/api/load/entities?level=` / `/api/load/analysis?level&id&period=day\|month\|year&date` | objek analisa & analisa beban (level `system\|uid\|up3\|gi\|trafo_gi\|feeder\|gd\|point`) |
+| GET  | `/api/load/ranking?period&date&kind` | peringkat pembebanan titik |
+| GET/PUT | `/api/load/anomalies[/:id]` · `/api/load/anomalies/:id/series` | anomali beban & data di sekitarnya (ubah: `load.manage`) |
+| GET/POST/DELETE | `/api/load/points[/:id]` · `POST /api/load/points/automap` | titik SCADA ↔ objek GIS |
+| POST | `/api/load/ingest` | kirim pesan SCADA lewat HTTP (jalur sama dengan Kafka) |
+| POST | `/api/load/simulator/backfill` · `/api/load/recompute` | isi riwayat simulasi · hitung ulang rekap/anomali |
+| GET/POST/PUT/DELETE | `/api/load/reports[/:id][/narrative]` | laporan beban harian/bulanan/tahunan |
+| GET  | `/api/load/forecast` · `/n1` · `/gd?point` · `/profiles` · `/health` · `/calibration` | analisa lanjutan |
+| GET/POST/PUT | `/api/gis/changesets[/:id]` · `/:id/geojson` · `POST /:id/submit\|approve\|reject\|release\|cancel` · `DELETE /:id/items/:item` · `POST /:id/items/:item/rebase` | paket perubahan (alur persetujuan editing); editing memakai `?cs=` |
+| GET/POST/PUT/DELETE | `/api/units[/:id]` · `GET /api/units/owner?kind&id` · `GET /api/units/:id/assets` · `POST /api/units/auto-assign` | master data unit & kepemilikan aset |
+| GET/PUT | `/api/branding` · `/api/branding/logo` (publik) · `PUT /api/admin/branding` | identitas aplikasi |
+| GET  | `/api/load/losses?level&id&period=day\|30d\|month\|year&date` · `/api/load/losses/feeder?point&date&days` | neraca energi & susut (GI, distribusi, gabungan) · rincian susut penyulang (profil, dekomposisi, gardu) |
 | GET  | `/api/field/nearby?lng&lat&radius&types&limit` | aset terdekat dari posisi GPS (urut jarak) |
 | GET/POST/DELETE | `/api/field/photos[/:id]` | foto aset (`kind=node\|edge\|report&id`); unggah multipart `image`, `thumb`, `client_id` (izin `field.photo`) |
 | GET  | `/api/field/photos/:id/image?thumb=1` | isi foto / thumbnail (cache immutable) |

@@ -35,6 +35,10 @@ type ManeuverRecord struct {
 	Note       string          `json:"note"`
 	UserID     *string         `json:"user_id"`
 	Username   string          `json:"username"`
+	FullName   string          `json:"full_name"`
+	Role       string          `json:"role"`
+	ClientIP   string          `json:"client_ip"`
+	Channel    string          `json:"channel"` // web | mobile | sld | rencana | api
 	Affected   json.RawMessage `json:"affected"`
 	OutageID   *int64          `json:"outage_id"`
 	CreatedAt  time.Time       `json:"created_at"`
@@ -127,9 +131,11 @@ func (p *Power) InsertManeuver(ctx context.Context, m ManeuverRecord) (int64, er
 	if m.TargetKind == "" {
 		m.TargetKind = "node"
 	}
-	err := p.pool.QueryRow(ctx, `INSERT INTO maneuvers (node_id, node_code, node_type, action, way_edge_id, kind, note, user_id, username, affected, outage_id, target_kind)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-		m.NodeID, m.NodeCode, m.NodeType, m.Action, m.WayEdgeID, m.Kind, m.Note, m.UserID, m.Username, []byte(m.Affected), m.OutageID, m.TargetKind).Scan(&id)
+	err := p.pool.QueryRow(ctx, `INSERT INTO maneuvers (node_id, node_code, node_type, action, way_edge_id, kind, note, user_id, username, affected, outage_id, target_kind,
+			full_name, role, client_ip, channel)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+		m.NodeID, m.NodeCode, m.NodeType, m.Action, m.WayEdgeID, m.Kind, m.Note, m.UserID, m.Username, []byte(m.Affected), m.OutageID, m.TargetKind,
+		m.FullName, m.Role, m.ClientIP, m.Channel).Scan(&id)
 	return id, err
 }
 
@@ -283,7 +289,8 @@ func (p *Power) ListManeuvers(ctx context.Context, nodeID int64, limit int) ([]M
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	q := `SELECT id, node_id, node_code, node_type, action, way_edge_id, kind, note, user_id, username, affected, outage_id, created_at, target_kind FROM maneuvers`
+	q := `SELECT id, node_id, node_code, node_type, action, way_edge_id, kind, note, user_id, username, affected, outage_id, created_at, target_kind,
+		full_name, role, client_ip, channel FROM maneuvers`
 	args := []any{limit}
 	if nodeID > 0 {
 		q += ` WHERE node_id=$2`
@@ -300,7 +307,8 @@ func (p *Power) ListManeuvers(ctx context.Context, nodeID int64, limit int) ([]M
 		var m ManeuverRecord
 		var affected []byte
 		var uid *string
-		if err := rows.Scan(&m.ID, &m.NodeID, &m.NodeCode, &m.NodeType, &m.Action, &m.WayEdgeID, &m.Kind, &m.Note, &uid, &m.Username, &affected, &m.OutageID, &m.CreatedAt, &m.TargetKind); err != nil {
+		if err := rows.Scan(&m.ID, &m.NodeID, &m.NodeCode, &m.NodeType, &m.Action, &m.WayEdgeID, &m.Kind, &m.Note, &uid, &m.Username, &affected, &m.OutageID, &m.CreatedAt, &m.TargetKind,
+			&m.FullName, &m.Role, &m.ClientIP, &m.Channel); err != nil {
 			return nil, err
 		}
 		m.UserID = uid

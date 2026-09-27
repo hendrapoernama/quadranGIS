@@ -40,6 +40,8 @@ export interface MapHandle {
   setTrace: (fc: FeatureCollection | null) => void;
   /** overlay analisis: fitur dengan properti color (dan big untuk titik besar) */
   setOverlay: (fc: FeatureCollection | null) => void;
+  /** pratinjau paket perubahan (properti op: create | update | delete | split | merge, fid = id objek) */
+  setDraft: (fc: FeatureCollection | null) => void;
   setSelected: (f: GeoFeature | null) => void;
   setVisibleTypes: (codes: string[]) => void;
   setBasemap: (kind: BasemapKind) => void;

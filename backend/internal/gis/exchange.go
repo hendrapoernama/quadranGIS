@@ -334,14 +334,18 @@ type ImportItem struct {
 
 // ImportReport adalah hasil (atau pratinjau) import.
 type ImportReport struct {
-	Applied   bool          `json:"applied"`
-	Features  int           `json:"features"`
-	Updates   int           `json:"updates"`
-	Creates   int           `json:"creates"`
-	Unchanged int           `json:"unchanged"`
-	Errors    int           `json:"errors"`
-	Items     []ImportItem  `json:"items"` // perubahan & galat (maks. 500 baris)
-	Results   []*EditResult `json:"-"`
+	Applied   bool `json:"applied"`
+	Features  int  `json:"features"`
+	Updates   int  `json:"updates"`
+	Creates   int  `json:"creates"`
+	Unchanged int  `json:"unchanged"`
+	Errors    int  `json:"errors"`
+	Proposed  int  `json:"proposed"` // mode persetujuan: diusulkan ke paket perubahan
+	// rekap per jenis layer: type_code → aksi (create/update/unchanged/error) → jumlah
+	ByType      map[string]map[string]int `json:"by_type"`
+	ChangesetID int64                     `json:"changeset_id,omitempty"`
+	Items       []ImportItem              `json:"items"` // perubahan & galat (maks. 5000 baris)
+	Results     []*EditResult             `json:"-"`
 }
 
 type importCandidate struct {
@@ -606,7 +610,9 @@ func (f *Features) alreadyExists(ctx context.Context, kind, typ, code string, ge
 // ImportGeoJSON membandingkan GeoJSON (hasil export yang diedit di QGIS) dengan data saat ini,
 // lalu bila apply=true menerapkan pembaruan & pembuatan fitur baru lewat editor bertopologi.
 // Fitur yang tidak ada di file TIDAK dihapus.
-func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, actor Actor) (*ImportReport, error) {
+//
+// propose (opsional, mode persetujuan): perubahan tidak diterapkan melainkan diusulkan ke paket perubahan.
+func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, actor Actor, propose func(op, kind string, id int64, in FeatureInput) (int64, error)) (*ImportReport, error) {
 	lang := actor.Lang
 	if len(raw) > ExportMaxBytes {
 		return nil, errT(ErrBadRequest, lang, "xchg.file_too_large", ExportMaxBytes>>20)
@@ -618,8 +624,16 @@ func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, ac
 	if err := json.Unmarshal(raw, &fc); err != nil || fc.Type != "FeatureCollection" {
 		return nil, errT(ErrBadRequest, lang, "xchg.not_geojson")
 	}
-	rep := &ImportReport{Applied: apply, Features: len(fc.Features), Items: []ImportItem{}}
+	rep := &ImportReport{Applied: apply, Features: len(fc.Features), Items: []ImportItem{}, ByType: map[string]map[string]int{}}
 	addItem := func(it ImportItem) {
+		t := it.Type
+		if t == "" {
+			t = "-"
+		}
+		if rep.ByType[t] == nil {
+			rep.ByType[t] = map[string]int{}
+		}
+		rep.ByType[t][it.Action]++
 		switch it.Action {
 		case "update":
 			rep.Updates++
@@ -630,7 +644,7 @@ func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, ac
 		case "error":
 			rep.Errors++
 		}
-		if it.Action != "unchanged" && len(rep.Items) < 500 {
+		if it.Action != "unchanged" && len(rep.Items) < 5000 {
 			rep.Items = append(rep.Items, it)
 		}
 	}
@@ -682,6 +696,7 @@ func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, ac
 	}
 
 	cands := []importCandidate{}
+	seenCode := map[string]int{}
 	for i, ft := range fc.Features {
 		p := pre[i]
 		fields := ft.Properties
@@ -777,6 +792,35 @@ func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, ac
 			addItem(it)
 			continue
 		}
+		// kode ganda di dalam berkas
+		if code != "" {
+			k := p.kind + "|" + typ + "|" + code
+			if first, dup := seenCode[k]; dup {
+				it.Action, it.Error = "error", i18n.T(lang, "xchg.dup_in_file", code, first)
+				addItem(it)
+				continue
+			}
+			seenCode[k] = i + 1
+		}
+		// atribut SSOT (mis. nomor meter / id pelanggan) tidak boleh sama dengan objek lain
+		if err := f.checkSSOT(ctx, lang, props, "", 0); err != nil {
+			it.Action, it.Error = "error", err.Error()
+			addItem(it)
+			continue
+		}
+		// titik bertopologi yang menumpuk objek lain (bukan junction) di lokasi yang sama akan ditolak editor
+		if p.kind == "node" && p.gtype == "Point" {
+			if ct, ok := f.types.Get(typ); ok && ct.Topology {
+				var oid int64
+				var otc string
+				if err := f.pool.QueryRow(ctx, `SELECT id, type_code FROM gis_nodes WHERE ST_DWithin(geom, ST_SetSRID(ST_GeomFromGeoJSON($1),4326), $2)
+					AND type_code <> $3 LIMIT 1`, string(p.geom), f.tolDeg(), junctionType).Scan(&oid, &otc); err == nil {
+					it.Action, it.Error = "error", i18n.T(lang, "gis.node_exists", otc, oid)
+					addItem(it)
+					continue
+				}
+			}
+		}
 		it.Action = "create"
 		cands = append(cands, importCandidate{item: it, input: in})
 	}
@@ -796,6 +840,20 @@ func (f *Features) ImportGeoJSON(ctx context.Context, raw []byte, apply bool, ac
 		it := c.item
 		var res *EditResult
 		var err error
+		if propose != nil {
+			var pid int64
+			pid, err = propose(it.Action, it.Kind, it.ID, c.input)
+			if err != nil {
+				it.Action, it.Error = "error", err.Error()
+			} else {
+				rep.Proposed++
+				if it.Action == "create" {
+					it.ID = pid
+				}
+			}
+			addItem(it)
+			continue
+		}
 		if it.Action == "update" {
 			res, err = f.Update(ctx, it.Kind, it.ID, c.input, actor)
 		} else {

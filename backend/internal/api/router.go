@@ -47,6 +47,9 @@ type Deps struct {
 	Ops         *gis.Ops
 	Exec        *gis.Exec
 	Field       *gis.Field
+	Units       *gis.Units
+	Changes     *gis.Changes
+	Load        *LoadStack
 	Hub         *realtime.Hub
 	Producer    *stream.Producer
 	Collector   *monitor.Collector
@@ -117,6 +120,9 @@ func NewRouter(d *Deps) *gin.Engine {
 	// autentikasi
 	api.GET("/auth/captcha", s.captcha)
 	api.POST("/auth/login", s.login)
+	// identitas aplikasi (juga untuk halaman masuk)
+	api.GET("/branding", s.branding)
+	api.GET("/branding/logo", s.brandingLogo)
 
 	authed := api.Group("")
 	authed.Use(middleware.Auth(d.JWT, func(ctx context.Context, userID string) ([]string, bool, error) {
@@ -164,6 +170,29 @@ func NewRouter(d *Deps) *gin.Engine {
 	ge.POST("/nodes/:id/merge", s.gisMergeAtJunction)
 	ge.POST("/topology/rebuild", s.topologyRebuild)
 
+	// paket perubahan (alur persetujuan editing): lihat = penyusun / penyetuju / perilis
+	gc := authed.Group("/gis/changesets")
+	gc.Use(middleware.RequireAnyPermission("gis.edit", "gis.approve", "gis.release"))
+	gc.GET("", s.csList)
+	gc.GET("/:id", s.csGet)
+	gc.GET("/:id/geojson", s.csGeoJSON)
+	gc.POST("", middleware.RequirePermission("gis.edit"), s.csCreate)
+	gc.PUT("/:id", middleware.RequirePermission("gis.edit"), s.csUpdate)
+	gc.POST("/:id/:action", s.csAction)
+	gc.DELETE("/:id/items/:item", middleware.RequirePermission("gis.edit"), s.csRemoveItem)
+	gc.POST("/:id/items/:item/rebase", middleware.RequirePermission("gis.edit"), s.csRebaseItem)
+
+	// master data unit & kepemilikan aset
+	un := authed.Group("/units")
+	un.Use(middleware.RequireAnyPermission("master.view", "gis.view"))
+	un.GET("", s.unitsList)
+	un.GET("/owner", s.unitsOwner)
+	un.GET("/:id/assets", s.unitsAssets)
+	un.POST("", middleware.RequirePermission("master.manage"), s.unitsSave)
+	un.PUT("/:id", middleware.RequirePermission("master.manage"), s.unitsSave)
+	un.DELETE("/:id", middleware.RequirePermission("master.manage"), s.unitsDelete)
+	un.POST("/auto-assign", middleware.RequirePermission("master.manage"), s.unitsAutoAssign)
+
 	gt := authed.Group("/gis")
 	gt.Use(middleware.RequirePermission("gis.trace"))
 	gt.POST("/trace", s.gisTrace)
@@ -204,6 +233,37 @@ func NewRouter(d *Deps) *gin.Engine {
 	fd.GET("/photos/:id/image", s.fieldPhotoImage)
 	fd.POST("/photos", middleware.RequirePermission("field.photo"), s.fieldUploadPhoto)
 	fd.DELETE("/photos/:id", middleware.RequirePermission("field.photo"), s.fieldDeletePhoto)
+
+	// pembebanan (load profile) trafo GI, penyulang & gardu dari SCADA/AMR 30 menit, susut energi
+	ld := authed.Group("/load")
+	ld.Use(middleware.RequirePermission("load.view"))
+	ld.GET("/overview", s.loadOverview)
+	ld.GET("/entities", s.loadEntities)
+	ld.GET("/analysis", s.loadAnalysis)
+	ld.GET("/ranking", s.loadRanking)
+	ld.GET("/anomalies", s.loadAnomalies)
+	ld.GET("/anomalies/:id/series", s.loadAnomalySeries)
+	ld.PUT("/anomalies/:id", middleware.RequirePermission("load.manage"), s.loadUpdateAnomaly)
+	ld.GET("/points", s.loadPoints)
+	ld.POST("/points", middleware.RequirePermission("load.manage"), s.loadSavePoint)
+	ld.DELETE("/points/:id", middleware.RequirePermission("load.manage"), s.loadDeletePoint)
+	ld.POST("/points/automap", middleware.RequirePermission("load.manage"), s.loadAutoMap)
+	ld.POST("/ingest", middleware.RequirePermission("load.manage"), s.loadIngest)
+	ld.POST("/simulator/backfill", middleware.RequirePermission("load.manage"), s.loadBackfill)
+	ld.POST("/recompute", middleware.RequirePermission("load.manage"), s.loadRecompute)
+	ld.GET("/reports", s.loadReports)
+	ld.GET("/reports/:id", s.loadGetReport)
+	ld.POST("/reports", middleware.RequirePermission("load.manage"), s.loadGenerateReport)
+	ld.PUT("/reports/:id/narrative", middleware.RequirePermission("load.manage"), s.loadReportGuard, s.execSetNarrative)
+	ld.DELETE("/reports/:id", middleware.RequirePermission("load.manage"), s.loadReportGuard, s.execDeleteReport)
+	ld.GET("/forecast", s.loadForecast)
+	ld.GET("/n1", s.loadN1)
+	ld.GET("/gd", s.loadGDAlloc)
+	ld.GET("/profiles", s.loadProfiles)
+	ld.GET("/health", s.loadHealth)
+	ld.GET("/calibration", s.loadCalibrationList)
+	ld.GET("/losses", s.loadLosses)
+	ld.GET("/losses/feeder", s.loadFeederLosses)
 
 	// notifikasi Web Push (semua pengguna yang login)
 	pu := authed.Group("/push")
@@ -268,6 +328,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	aig.POST("/ops", s.aiOps)
 
 	// administrasi
+	authed.PUT("/admin/branding", middleware.RequirePermission("admin.config"), s.brandingSave)
 	adm := authed.Group("/admin")
 	adm.GET("/users", middleware.RequirePermission("admin.users"), s.listUsers)
 	adm.POST("/users", middleware.RequirePermission("admin.users"), s.createUser)

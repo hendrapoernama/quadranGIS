@@ -51,6 +51,12 @@ const paths: Record<string, React.ReactNode> = {
     </>
   ),
   activity: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />,
+  chart: (
+    <>
+      <path d="M3 3v18h18" />
+      <path d="M7 15l4-5 3 3 5-6" />
+    </>
+  ),
   logout: (
     <>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

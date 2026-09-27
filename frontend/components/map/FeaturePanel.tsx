@@ -1,6 +1,5 @@
 'use client';
 
-import { OperateBox, type ManeuverBody } from '@/components/power/OperateBox';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -10,8 +9,7 @@ import { Badge, Button, Confirm, useToast } from '@/components/ui';
 import { fmtDate, fmtLength, fmtVA } from '@/lib/format';
 import { fmtArea } from '@/lib/geo';
 import { SectionRecap } from '@/components/power/SectionRecap';
-
-export type { ManeuverBody } from '@/components/power/OperateBox';
+import { useUnits, unitLabel } from '@/components/units/useUnits';
 
 interface Props {
   feature: GeoFeature | null;
@@ -19,7 +17,8 @@ interface Props {
   types: ComponentType[];
   canEdit: boolean;
   canTrace: boolean;
-  canManeuver?: boolean;
+  /** mode persetujuan: simpan / hapus menjadi usulan dalam paket perubahan */
+  approval?: boolean;
   onSave: (kind: 'node' | 'edge', id: number, body: any) => Promise<void>;
   onDelete: (kind: 'node' | 'edge', id: number) => Promise<void>;
   onMove: (nodeId: number) => void;
@@ -31,13 +30,19 @@ interface Props {
   onTrace: (nodeId: number, direction: 'down' | 'up' | 'connected') => void;
   onSelect: (kind: 'node' | 'edge', id: number) => void;
   onFlyTo: () => void;
-  onManeuver?: (nodeId: number, body: ManeuverBody) => Promise<void>;
+}
+
+interface OwnerInfo {
+  unit_id: number | null;
+  auto: boolean;
+  unit?: { id: number; name: string; kind: string } | null;
+  boundary?: string;
 }
 
 type KV = { k: string; v: string };
 
 export function FeaturePanel(props: Props) {
-  const { feature, loading, types, canEdit, canTrace, canManeuver = false } = props;
+  const { feature, loading, types, canEdit, canTrace, approval = false } = props;
   const { t, pick, locale } = useT();
   const router = useRouter();
   const toast = useToast();
@@ -52,6 +57,9 @@ export function FeaturePanel(props: Props) {
   const [deleting, setDeleting] = useState(false);
   const [neighbors, setNeighbors] = useState<any[]>([]);
   const [history, setHistory] = useState<any[] | null>(null);
+  const [unitId, setUnitId] = useState<string>('');
+  const [owner, setOwner] = useState<OwnerInfo | null>(null);
+  const units = useUnits();
 
   const kind = feature?.properties.kind as 'node' | 'edge' | undefined;
   const id = feature?.id;
@@ -77,7 +85,14 @@ export function FeaturePanel(props: Props) {
     );
     setHistory(null);
     setNeighbors([]);
-    if (p.kind === 'node') {
+    setUnitId(p.unit_id ? String(p.unit_id) : '');
+    setOwner(null);
+    if (feature.id > 0) {
+      api<OwnerInfo>(`/api/units/owner?kind=${p.kind}&id=${feature.id}`)
+        .then(setOwner)
+        .catch(() => setOwner(null));
+    }
+    if (p.kind === 'node' && feature.id > 0) {
       api<{ items: any[] }>(`/api/gis/nodes/${feature.id}/neighbors`)
         .then((r) => setNeighbors(r.items))
         .catch(() => setNeighbors([]));
@@ -115,7 +130,9 @@ export function FeaturePanel(props: Props) {
           if (!Number.isNaN(n)) properties[f.key] = n;
         } else properties[f.key] = String(v);
       }
-      await props.onSave(kind!, id!, { type_code: typeCode, code, name, status, properties });
+      const body: Record<string, any> = { type_code: typeCode, code, name, status, properties };
+      if (unitId !== (p.unit_id ? String(p.unit_id) : '')) body.unit_id = unitId ? Number(unitId) : 0;
+      await props.onSave(kind!, id!, body);
     } finally {
       setSaving(false);
     }
@@ -167,6 +184,13 @@ export function FeaturePanel(props: Props) {
           {p.status === 'open' && <Badge tone="red">OPEN</Badge>}
         </div>
       </div>
+
+      {p.pending && (
+        <div className={`rounded-md border px-2 py-1.5 text-xs ${p.pending.op === 'delete' ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+          <b>{t(`cs.op_${p.pending.op}` as any)}</b> · {t('cs.pending_in', { id: p.pending.changeset_id })}
+          <div className="text-[11px] opacity-80">{t('cs.pending_hint')}</div>
+        </div>
+      )}
 
       {/* ---- kondisi kelistrikan & group */}
       <div className="rounded-md border border-gray-200 p-2 text-xs">
@@ -288,10 +312,23 @@ export function FeaturePanel(props: Props) {
           <label className="label">{t('common.name')}</label>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} disabled={!canEdit} />
         </div>
+        <div className="col-span-2">
+          <label className="label" title={t('unit.owner_hint')}>
+            {t('unit.owner')}
+          </label>
+          <select className="input" value={unitId} onChange={(e) => setUnitId(e.target.value)} disabled={!canEdit}>
+            <option value="">
+              {owner?.auto && owner.unit ? t('unit.owner_auto', { name: owner.unit.name }) : t('unit.owner_none')}
+            </option>
+            {units.map((u) => (
+              <option key={u.id} value={String(u.id)}>
+                {unitLabel(u)}
+              </option>
+            ))}
+          </select>
+          {owner?.unit && !owner.auto && <div className="mt-0.5 text-[11px] text-gray-500">{t('unit.owner_set')}</div>}
+        </div>
       </div>
-
-      {/* ---- operasi: buka / tutup alat switching, energize / deenergize objek & saluran */}
-      {props.onManeuver && <OperateBox feature={feature} types={types} submit={(body) => props.onManeuver!(id!, body)} />}
 
       {kind === 'edge' && (
         <div className="rounded-md border border-gray-200 p-2 text-xs">
@@ -397,7 +434,7 @@ export function FeaturePanel(props: Props) {
         </div>
       </div>
 
-      {canTrace && kind === 'node' && inGraph && (
+      {canTrace && kind === 'node' && inGraph && id! > 0 && (
         <div className="flex flex-wrap gap-1">
           <Button size="sm" variant="secondary" icon="arrow-down" onClick={() => props.onTrace(id!, 'down')}>
             {t('feature.trace_down')}
@@ -431,7 +468,7 @@ export function FeaturePanel(props: Props) {
                     {t('feature.redraw_building')}
                   </Button>
                 )}
-                {p.type_code === 'junction' && neighbors.length === 2 && (
+                {p.type_code === 'junction' && neighbors.length === 2 && id! > 0 && (
                   <Button size="sm" variant="secondary" icon="link" onClick={() => props.onMerge(id!)} title={t('feature.merge_hint')}>
                     {t('feature.merge')}
                   </Button>
@@ -442,9 +479,11 @@ export function FeaturePanel(props: Props) {
                 <Button size="sm" variant="secondary" icon="vertices" onClick={() => props.onVertex('edge', id!)} title={t('feature.vertex_hint')}>
                   {t('feature.vertex_edit')}
                 </Button>
-                <Button size="sm" variant="secondary" icon="scissors" onClick={() => props.onSplit(id!)} title={t('feature.split_hint')}>
-                  {t('feature.split')}
-                </Button>
+                {id! > 0 && (
+                  <Button size="sm" variant="secondary" icon="scissors" onClick={() => props.onSplit(id!)} title={t('feature.split_hint')}>
+                    {t('feature.split')}
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" icon="edit" onClick={() => props.onReshape(id!, typeCode)}>
                   {t('feature.reshape')}
                 </Button>
@@ -452,21 +491,28 @@ export function FeaturePanel(props: Props) {
             )}
           </div>
           <div className="flex flex-wrap gap-1">
-            <Button size="sm" onClick={save} loading={saving} icon="check">
-              {t('common.save')}
+            <Button size="sm" onClick={save} loading={saving} icon="check" disabled={p.pending?.op === 'delete'}>
+              {approval ? t('cs.save_propose') : t('common.save')}
             </Button>
-            <Button size="sm" variant="danger" icon="trash" onClick={() => setConfirmDel(true)}>
-              {t('common.delete')}
+            <Button size="sm" variant="danger" icon="trash" onClick={() => setConfirmDel(true)} disabled={p.pending?.op === 'delete'}>
+              {approval ? (id! < 0 ? t('cs.cancel_new') : t('cs.delete_propose')) : t('common.delete')}
             </Button>
           </div>
+          {approval && <div className="text-[11px] text-gray-500">{t('cs.approval_note')}</div>}
         </div>
       )}
 
       <div className="text-[11px] text-gray-400">
-        {t('feature.created_at')} {fmtDate(p.created_at)} · {t('feature.updated_at')} {fmtDate(p.updated_at)} ·{' '}
-        <button className="text-brand-700 hover:underline" onClick={loadHistory}>
-          {t('feature.history')}
-        </button>
+        {t('feature.created_at')} {fmtDate(p.created_at)} · {t('feature.updated_at')} {fmtDate(p.updated_at)}
+        {id! > 0 && (
+          <>
+            {' '}
+            ·{' '}
+            <button className="text-brand-700 hover:underline" onClick={loadHistory}>
+              {t('feature.history')}
+            </button>
+          </>
+        )}
       </div>
       {history && (
         <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-gray-200 p-2 text-xs">

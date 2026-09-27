@@ -198,7 +198,7 @@ type PushSub struct {
 }
 
 // PushTopics adalah topik notifikasi yang tersedia.
-var PushTopics = []string{"outage", "report", "plan"}
+var PushTopics = []string{"outage", "report", "plan", "load"}
 
 // SavePushSub menyimpan / memperbarui langganan (endpoint unik).
 func (f *Field) SavePushSub(ctx context.Context, s PushSub) error {

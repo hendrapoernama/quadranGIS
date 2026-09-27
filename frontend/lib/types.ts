@@ -241,6 +241,12 @@ export interface SOEEvent {
   outage_id: number | null;
   username: string;
   note: string;
+  /** identitas operator yang melakukan buka / tutup (audit) */
+  user_id?: string | null;
+  full_name?: string;
+  role?: string;
+  client_ip?: string;
+  channel?: string;
 }
 
 export interface ReliabilityGroup {

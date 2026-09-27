@@ -503,7 +503,7 @@ function Notifications() {
   const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const [perm, setPerm] = useState<NotificationPermission>(supported ? Notification.permission : 'denied');
   const [sub, setSub] = useState<PushSubscription | null>(null);
-  const [topics, setTopics] = useState<string[]>(['outage', 'report', 'plan']);
+  const [topics, setTopics] = useState<string[]>(['outage', 'report', 'plan', 'load']);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!supported) return;
@@ -568,7 +568,7 @@ function Notifications() {
       ) : (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-3 text-xs text-gray-800">
-            {(['outage', 'report', 'plan'] as const).map((tp) => (
+            {(['outage', 'report', 'plan', 'load'] as const).map((tp) => (
               <label key={tp} className="flex items-center gap-1.5">
                 <input
                   type="checkbox"

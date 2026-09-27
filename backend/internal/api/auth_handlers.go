@@ -138,12 +138,15 @@ func (s *Server) me(c *gin.Context) {
 		}
 	}
 	ok(c, gin.H{
-		"user":           u,
-		"permissions":    perms,
-		"menus":          menus,
-		"app_name":       s.d.Configs.Str("app.name", "QuadranGIS"),
-		"default_locale": s.d.Configs.Str("app.default_locale", "id"),
-		"default_theme":  s.d.Configs.Str("app.default_theme", "system"),
+		"user":            u,
+		"permissions":     perms,
+		"menus":           menus,
+		"app_name":        s.d.Configs.Str("app.name", "QuadranGIS"),
+		"app_description": s.d.Configs.Str("app.description", "GIS Kelistrikan"),
+		"logo_version":    s.d.Configs.Int("app.logo_version", 0),
+		"has_logo":        strings.HasPrefix(s.d.Configs.Str("app.logo", ""), "data:"),
+		"default_locale":  s.d.Configs.Str("app.default_locale", "id"),
+		"default_theme":   s.d.Configs.Str("app.default_theme", "system"),
 	})
 }
 

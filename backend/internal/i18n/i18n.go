@@ -27,6 +27,7 @@ func Parse(v string) Lang {
 var msgs = map[string][2]string{
 	// [0]=id, [1]=en
 	"common.not_found":    {"data tidak ditemukan", "data not found"},
+	"common.forbidden":    {"tidak diizinkan", "not allowed"},
 	"common.conflict":     {"data sudah ada", "data already exists"},
 	"common.server_error": {"terjadi kesalahan pada server", "an internal server error occurred"},
 	"common.bad_payload":  {"payload tidak valid", "invalid payload"},
@@ -85,6 +86,9 @@ var msgs = map[string][2]string{
 	"gis.geom_polygon":       {"geometri harus Polygon (atau Point untuk bangunan dengan ukuran bawaan)", "geometry must be a Polygon (or a Point for a building with default size)"},
 	"gis.polygon_invalid":    {"Polygon tidak valid: cincin luar minimal 3 titik", "invalid Polygon: the outer ring needs at least 3 points"},
 	"gis.split_point":        {"lng & lat titik pisah wajib diisi", "split point lng & lat are required"},
+	"xchg.dup_in_file":       {"kode %s ganda di dalam berkas (sama dengan fitur #%d)", "code %s is duplicated in the file (same as feature #%d)"},
+	"cs.proposed":            {"Diusulkan ke paket perubahan #%d — jaringan aktif belum berubah sampai paket disetujui & dirilis", "Proposed in change set #%d — the live network changes only after the set is approved & released"},
+	"cs.import_proposed":     {"%d perubahan impor dimasukkan ke paket perubahan #%d untuk disetujui", "%d imported changes added to change set #%d for approval"},
 	"gis.split_not_edge":     {"pemisahan hanya untuk garis", "only lines can be split"},
 	"gis.msg_split_done":     {"Garis #%d dipisah pada titik baru #%d", "Line #%d was split at new point #%d"},
 	"gis.merge_not_junction": {"penggabungan hanya pada junction", "merging is only possible at a junction"},

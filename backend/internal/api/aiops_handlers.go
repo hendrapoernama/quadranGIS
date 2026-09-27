@@ -14,13 +14,14 @@ import (
 
 	"quadrangis/internal/ai"
 	"quadrangis/internal/gis"
+	"quadrangis/internal/load"
 	"quadrangis/internal/middleware"
 )
 
 // AI untuk operasi: konteks disusun deterministik dari data aplikasi (kejadian padam, FLISR,
 // simulasi rencana, laporan pelanggan, keandalan), LLM hanya menulis analisis/narasi.
 
-var aiOpsTasks = []string{"outage", "plan", "shift", "report", "insights"}
+var aiOpsTasks = []string{"outage", "plan", "shift", "report", "insights", "load"}
 
 type aiOpsReq struct {
 	Task     string       `json:"task"`
@@ -45,6 +46,9 @@ func aiTaskPrompt(task string, en bool) string {
 			"(padam aktif, laporan pelanggan, rencana manuver), temuan yang perlu diawasi, dan prioritas tindakan shift berikutnya. Gunakan poin-poin singkat.",
 		"report": "Tulis ringkasan eksekutif laporan berkala ini untuk manajemen (maks. 300 kata): kinerja keandalan (SAIDI, SAIFI, ENS) dibanding target & periode sebelumnya, " +
 			"kejadian menonjol, wilayah & penyulang bermasalah, layanan laporan pelanggan (SLA), lalu 3 rekomendasi prioritas.",
+		"load": "Analisis kondisi pembebanan trafo GI & penyulang berikut untuk perencana & operator: (1) ringkasan beban sistem (puncak, tren, prakiraan besok), " +
+			"(2) trafo/penyulang kritis (beban lebih, jam di atas 80%/100%) dan risikonya, (3) anomali data & kondisi yang perlu ditindaklanjuti (bedakan masalah telemetri vs jaringan), " +
+			"(4) rekomendasi: pelimpahan beban/manuver, pemecahan beban, uprating, perbaikan titik ukur, dengan prioritas.",
 		"insights": "Analisis temuan operasi berikut. Kelompokkan menurut prioritas penanganan, jelaskan kemungkinan akar masalah tiap kelompok, " +
 			"dan usulkan rencana tindakan (korektif segera & pemeliharaan preventif 30 hari) dengan penanggung jawab fungsi (operasi, pemeliharaan, pelayanan pelanggan).",
 	}
@@ -53,6 +57,7 @@ func aiTaskPrompt(task string, en bool) string {
 		"plan":     "Review this switching plan: is the step order safe and logical, what risks the simulation shows (paralleling, overload, extra customers off), suggested fixes, and a safety & coordination checklist before execution. End with a verdict: READY / NEEDS CHANGES.",
 		"shift":    "Write a shift handover report for the next operator: events & switching during the shift, current network condition, open work (active outages, customer reports, switching plans), items to watch, and priorities for the next shift. Use short bullet points.",
 		"report":   "Write an executive summary of this periodic report for management (max 300 words): reliability (SAIDI, SAIFI, ENS) vs targets and the previous period, notable events, problem regions & feeders, customer report service (SLA), then 3 priority recommendations.",
+		"load":     "Analyze the transformer & feeder loading below for planners & operators: (1) system load summary (peak, trend, tomorrow's forecast), (2) critical transformers/feeders (overload, hours above 80%/100%) and risks, (3) data & condition anomalies to follow up (telemetry vs network issues), (4) prioritized recommendations: load transfer/switching, load splitting, uprating, metering fixes.",
 		"insights": "Analyze the following operational findings. Group them by handling priority, explain likely root causes, and propose an action plan (immediate corrective & 30-day preventive maintenance) with the responsible function (operations, maintenance, customer service).",
 	}
 	if en {
@@ -340,6 +345,9 @@ func (s *Server) aiReportContext(ctx context.Context, id int64) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	if r.Category == "load" {
+		return aiLoadReportContext(r), nil
+	}
 	var d struct {
 		CustomersServed int                              `json:"customers_served"`
 		Targets         targets                          `json:"targets"`
@@ -499,6 +507,12 @@ func (s *Server) aiOps(c *gin.Context) {
 		target = fmt.Sprint(req.Hours)
 	case "insights":
 		data = s.aiInsightsContext(ctx, lang)
+	case "load":
+		if s.d.Load == nil {
+			failT(c, http.StatusBadRequest, "ai.ops_bad_task")
+			return
+		}
+		data = s.aiLoadContext(ctx)
 	}
 	if err != nil {
 		handleErr(c, err)
@@ -545,4 +559,192 @@ func (s *Server) aiOps(c *gin.Context) {
 		return
 	}
 	s.streamLLM(c, p, key, base, model, system, clean, "ai.ops", gin.H{"task": req.Task, "target": target, "context_chars": len(data)})
+}
+
+// aiLoadContext: ringkasan pembebanan (puncak sistem, prakiraan, titik kritis, anomali, kesehatan trafo).
+func (s *Server) aiLoadContext(ctx context.Context) string {
+	var b strings.Builder
+	ls := s.d.Load
+	st := s.loadSettings()
+	pts, err := ls.Repo.Points(ctx)
+	if err != nil {
+		return "Data pembebanan tidak tersedia."
+	}
+	base := basePoints(pts)
+	ids := []int32{}
+	cap := 0.0
+	for _, p := range base {
+		ids = append(ids, int32(p.ID))
+		cap += p.CapMW(st.CapPF)
+	}
+	now := time.Now()
+	l := now.In(load.Loc)
+	today := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, load.Loc)
+	nGD := 0
+	for _, p := range pts {
+		if p.Kind == "gd" {
+			nGD++
+		}
+	}
+	fmt.Fprintf(&b, "Titik ukur SCADA/AMR: %d (trafo GI & penyulang %d, gardu distribusi %d). Beban dalam MW; daya mampu titik dasar %.0f MW (rating MVA × %.2f). Batas peringatan %.0f%%, beban lebih %.0f%%.\n",
+		len(pts), len(pts)-nGD, nGD, cap, st.CapPF, st.Warn, st.Over)
+	days, _ := ls.Repo.DailyGroup(ctx, ids, today.AddDate(0, 0, -30), today.AddDate(0, 0, 1), cap, st.Warn, st.Over)
+	for i, d := range days {
+		if i >= len(days)-7 {
+			pt := ""
+			if d.PeakTS != nil {
+				pt = d.PeakTS.In(load.Loc).Format("15:04")
+			}
+			fmt.Fprintf(&b, "- %s: puncak sistem %.1f MW pukul %s (%.0f%%), energi %.0f MWh, faktor beban %.2f\n", d.Day, d.PeakMW, pt, d.PeakUtil, d.EnergyMWh, d.LoadFactor)
+		}
+	}
+	hist, _ := ls.Repo.Series(ctx, ids, today.AddDate(0, 0, -35), today, cap)
+	if _, info := load.Forecast(hist, today.AddDate(0, 0, 1), 1, st.Holidays, cap); info.PeakMW > 0 && info.PeakTS != nil {
+		fmt.Fprintf(&b, "Prakiraan puncak sistem besok %.1f MW pukul %s (%.0f%% daya mampu, MAPE uji mundur %.1f%%).\n", info.PeakMW, info.PeakTS.In(load.Loc).Format("15:04"), info.PeakUtil, info.MAPE)
+	}
+	if lr, err := s.lossReport(ctx, today.AddDate(0, 0, -7), today); err == nil {
+		d, g := lr["dist"].(load.BalanceResult), lr["gi"].(load.BalanceResult)
+		fmt.Fprintf(&b, "Susut energi 7 hari (neraca meter): distribusi penyulang→gardu %.2f%% (%.0f MWh dari %.0f MWh, cakupan meter gardu %.0f%%, %d penyulang), trafo GI→penyulang %.2f%%, gabungan %.2f%%.\n",
+			d.Pct, d.Loss, d.EIn, d.Coverage, d.Included, g.Pct, lr["combined_pct"])
+		if w, ok := lr["worst_feeders"].([]lossRow); ok {
+			for i, f := range w {
+				if i >= 8 || f.Valid == 0 {
+					break
+				}
+				fmt.Fprintf(&b, "- susut penyulang %s (UP3 %s): %.1f%% (%.1f MWh), cakupan %.0f%%\n", f.Code, f.UP3, f.Pct, f.Loss, f.Coverage)
+			}
+		}
+	}
+	rank, _ := s.loadRankItems(ctx, today.AddDate(0, 0, -7), today.AddDate(0, 0, 1), "")
+	b.WriteString("Titik dengan pembebanan tertinggi 7 hari terakhir:\n")
+	for i, r := range rank {
+		if i >= 15 {
+			break
+		}
+		kind := "penyulang"
+		if r.Kind == "trafo_gi" {
+			kind = "trafo GI"
+		}
+		fmt.Fprintf(&b, "- %s %s (UP3 %s): puncak %.2f MW = %.0f%%, jam >%.0f%%: %.1f, jam >%.0f%%: %.1f, faktor beban %.2f, ketidakseimbangan maks %.0f%%\n",
+			kind, r.Code, r.UP3, r.PeakMW, r.PeakUtil, st.Warn, r.Hours80, st.Over, r.Hours100, r.LF, r.Imbalance)
+	}
+	if gds, _ := s.loadRankItems(ctx, today.AddDate(0, 0, -7), today.AddDate(0, 0, 1), "gd"); len(gds) > 0 {
+		b.WriteString("Gardu distribusi dengan pembebanan tertinggi 7 hari terakhir:\n")
+		for i, r := range gds {
+			if i >= 10 {
+				break
+			}
+			fmt.Fprintf(&b, "- gardu %s (penyulang %s): puncak %.0f kW = %.0f%%, jam >%.0f%%: %.1f\n", r.Code, r.Parent, r.PeakMW*1000, r.PeakUtil, st.Warn, r.Hours80)
+		}
+	}
+	counts, open, _ := ls.Repo.AnomalyCounts(ctx, now.AddDate(0, 0, -7), now.Add(time.Hour))
+	fmt.Fprintf(&b, "Anomali 7 hari (jenis → tingkat → jumlah): %v; masih terbuka %d.\n", counts, open)
+	as, _ := ls.Repo.ListAnomalies(ctx, "", "", "active", 0, now.AddDate(0, 0, -7), now.Add(time.Hour), 400)
+	pm := s.pointCodes(ctx)
+	n := 0
+	for _, a := range as {
+		if a.Severity != "serious" && a.Severity != "critical" && a.Kind != "mismatch" && a.Kind != "level_shift" && a.Kind != "losses" {
+			continue
+		}
+		if n >= 20 {
+			break
+		}
+		n++
+		v := ""
+		if a.Value != nil {
+			v = fmt.Sprintf(" nilai %.1f", *a.Value)
+		}
+		fmt.Fprintf(&b, "- [%s] %s pada %s %s s.d. %s (%d slot)%s %s\n", a.Severity, a.Kind, pm[a.PointID].Code, a.Start.In(load.Loc).Format("02/01 15:04"),
+			a.End.In(load.Loc).Format("02/01 15:04"), a.Slots, v, a.Explanation)
+	}
+	return b.String()
+}
+
+// aiLoadReportContext: isi laporan beban dalam bentuk ringkas untuk ringkasan eksekutif.
+func aiLoadReportContext(r gis.PeriodicReport) string {
+	type stat struct {
+		PeakMW     float64    `json:"peak_mw"`
+		PeakTS     *time.Time `json:"peak_ts"`
+		PeakUtil   float64    `json:"peak_util"`
+		EnergyMWh  float64    `json:"energy_mwh"`
+		LoadFactor float64    `json:"load_factor"`
+		Hours80    float64    `json:"hours_over80"`
+		Hours100   float64    `json:"hours_over100"`
+	}
+	type grp struct {
+		Name     string  `json:"name"`
+		PeakMW   float64 `json:"peak_mw"`
+		PeakUtil float64 `json:"peak_util"`
+		Energy   float64 `json:"energy_mwh"`
+	}
+	type rank struct {
+		Code     string  `json:"code"`
+		Kind     string  `json:"kind"`
+		UP3      string  `json:"up3"`
+		PeakMW   float64 `json:"peak_mw"`
+		PeakUtil float64 `json:"peak_util"`
+		Hours80  float64 `json:"hours_over80"`
+		Hours100 float64 `json:"hours_over100"`
+	}
+	var d struct {
+		CapMW  float64 `json:"cap_mw"`
+		Losses *struct {
+			Dist     load.BalanceResult `json:"dist"`
+			GI       load.BalanceResult `json:"gi"`
+			Combined float64            `json:"combined_pct"`
+			Worst    []lossRow          `json:"worst_feeders"`
+		} `json:"losses"`
+		Active       int                       `json:"active"`
+		System       stat                      `json:"system"`
+		Previous     stat                      `json:"previous"`
+		LastYear     stat                      `json:"last_year"`
+		UP3          []grp                     `json:"up3"`
+		GI           []grp                     `json:"gi"`
+		TopFeeders   []rank                    `json:"top_feeders"`
+		TopTrafos    []rank                    `json:"top_trafos"`
+		Completeness float64                   `json:"completeness"`
+		Counts       map[string]map[string]int `json:"anomaly_counts"`
+	}
+	_ = json.Unmarshal(r.Data, &d)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s (periode %s s.d. %s). %d titik ukur aktif, daya mampu titik dasar %.0f MW, kelengkapan data %.1f%%.\n", r.Title, fmtT(r.PeriodStart), fmtT(r.PeriodEnd), d.Active, d.CapMW, d.Completeness)
+	pt := func(t *time.Time) string {
+		if t == nil {
+			return "-"
+		}
+		return fmtT(*t)
+	}
+	fmt.Fprintf(&b, "Beban puncak sistem %.1f MW (%s, %.0f%% daya mampu); periode sebelumnya %.1f MW; tahun lalu %.1f MW. Energi %.0f MWh (sebelumnya %.0f, tahun lalu %.0f). Faktor beban %.2f.\n",
+		d.System.PeakMW, pt(d.System.PeakTS), d.System.PeakUtil, d.Previous.PeakMW, d.LastYear.PeakMW, d.System.EnergyMWh, d.Previous.EnergyMWh, d.LastYear.EnergyMWh, d.System.LoadFactor)
+	for i, g := range d.UP3 {
+		if i >= 8 {
+			break
+		}
+		fmt.Fprintf(&b, "- UP3 %s: puncak %.1f MW (%.0f%%), energi %.0f MWh\n", g.Name, g.PeakMW, g.PeakUtil, g.Energy)
+	}
+	for i, g := range d.GI {
+		if i >= 8 {
+			break
+		}
+		fmt.Fprintf(&b, "- GI %s: puncak %.1f MW (%.0f%%)\n", g.Name, g.PeakMW, g.PeakUtil)
+	}
+	for _, l := range [][]rank{d.TopTrafos, d.TopFeeders} {
+		for i, x := range l {
+			if i >= 8 {
+				break
+			}
+			fmt.Fprintf(&b, "- %s %s (UP3 %s): puncak %.2f MW = %.0f%%, jam ≥80%%: %.1f, jam ≥100%%: %.1f\n", x.Kind, x.Code, x.UP3, x.PeakMW, x.PeakUtil, x.Hours80, x.Hours100)
+		}
+	}
+	if l := d.Losses; l != nil {
+		fmt.Fprintf(&b, "Susut energi: distribusi %.2f%% (%.0f MWh, cakupan meter gardu %.0f%%), trafo GI→penyulang %.2f%%, gabungan %.2f%%.\n", l.Dist.Pct, l.Dist.Loss, l.Dist.Coverage, l.GI.Pct, l.Combined)
+		for i, f := range l.Worst {
+			if i >= 6 || f.Valid == 0 {
+				break
+			}
+			fmt.Fprintf(&b, "- susut tertinggi: penyulang %s %.1f%% (%.1f MWh)\n", f.Code, f.Pct, f.Loss)
+		}
+	}
+	fmt.Fprintf(&b, "Anomali per jenis & tingkat: %v\n", d.Counts)
+	return b.String()
 }

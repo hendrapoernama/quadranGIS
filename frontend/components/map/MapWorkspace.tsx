@@ -1,6 +1,5 @@
 'use client';
 
-import { OPERATE_PERMS } from '@/components/power/OperateBox';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -18,13 +17,15 @@ import { useFieldT } from '@/components/field/i18n';
 import { SearchBox } from './SearchBox';
 import { BoundaryControl, useBoundaryOverlay } from './BoundaryOverlay';
 import { LayerPanel } from './LayerPanel';
-import { FeaturePanel, type ManeuverBody } from './FeaturePanel';
+import { FeaturePanel } from './FeaturePanel';
+import { ChangesPanel } from './ChangesPanel';
 import { TracePanel, type TraceSeed } from './TracePanel';
 import { ExchangePanel } from './ExchangePanel';
 import { modeLabel, type BasemapKind, type BasemapPref, type ColorMode, type ConnectedEdge, type DrawMode, type MapHandle, type MeasureResult } from './types';
 
-type Tab = 'layers' | 'feature' | 'trace' | 'data';
+type Tab = 'layers' | 'feature' | 'trace' | 'data' | 'changes';
 const BASEMAP_KEY = 'qgis_basemap';
+const CS_KEY = 'qgis_changeset';
 
 function readBasemapPref(): BasemapPref {
   try {
@@ -79,7 +80,24 @@ export default function MapWorkspace() {
 
   const canEdit = has('gis.edit');
   const canTrace = has('gis.trace');
-  const canManeuver = OPERATE_PERMS.some((x) => has(x));
+  // ---- alur persetujuan: paket perubahan aktif milik pengguna (csId) atau pratinjau paket lain (viewCs)
+  const [approval, setApproval] = useState(false);
+  const [csId, setCsIdState] = useState(0);
+  const [viewCs, setViewCs] = useState(0);
+  const [csRefresh, setCsRefresh] = useState(0);
+  const setCsId = useCallback((id: number) => {
+    setCsIdState(id);
+    try {
+      if (id) window.localStorage.setItem(CS_KEY, String(id));
+      else window.localStorage.removeItem(CS_KEY);
+    } catch {
+      /* abaikan */
+    }
+  }, []);
+  const shownCs = viewCs || csId;
+  /** parameter paket untuk permintaan editing / baca fitur */
+  const csq = approval && csId ? `?cs=${csId}` : '';
+  const csRead = approval && shownCs ? `?cs=${shownCs}` : '';
   const typeName = useCallback(
     (c: string) => {
       const x = types.find((y) => y.code === c);
@@ -108,6 +126,50 @@ export default function MapWorkspace() {
   }, []);
 
   useEffect(() => {
+    if (!loaded || !(canEdit || has('gis.approve') || has('gis.release'))) return;
+    api<{ enabled: boolean; active: number; items: { id: number; status: string; created_by: string | null }[] }>('/api/gis/changesets?mine=1&status=draft,rejected')
+      .then((r) => {
+        setApproval(r.enabled);
+        if (!r.enabled) return;
+        let saved = 0;
+        try {
+          saved = Number(window.localStorage.getItem(CS_KEY) || 0);
+        } catch {
+          /* abaikan */
+        }
+        const own = r.items.map((x) => x.id);
+        const q = Number(new URLSearchParams(window.location.search).get('cs') || 0);
+        if (q && own.includes(q)) setCsId(q);
+        else {
+          if (q) {
+            setViewCs(q);
+            setTab('changes');
+            setPanelOpen(true);
+          }
+          setCsId(own.includes(saved) ? saved : r.active || 0);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // lapisan pratinjau paket yang sedang ditampilkan
+  const loadDraft = useCallback(async () => {
+    if (!approval || !shownCs) {
+      mapRef.current?.setDraft(null);
+      return;
+    }
+    try {
+      mapRef.current?.setDraft(await api(`/api/gis/changesets/${shownCs}/geojson`));
+    } catch {
+      mapRef.current?.setDraft(null);
+    }
+  }, [approval, shownCs]);
+  useEffect(() => {
+    if (mapReady) loadDraft();
+  }, [loadDraft, mapReady, csRefresh]);
+
+  useEffect(() => {
     if (!loaded) return;
     const timer = setInterval(() => {
       api('/api/gis/topology/status').then(setGraph).catch(() => {});
@@ -131,7 +193,7 @@ export default function MapWorkspace() {
 
   const reloadSelected = useCallback(async (kind: 'node' | 'edge', id: number) => {
     try {
-      const f = await api<GeoFeature>(`/api/gis/features/${kind}/${id}`);
+      const f = await api<GeoFeature>(`/api/gis/features/${kind}/${id}${csRead}`);
       setSelected(f);
       mapRef.current?.setSelected(f);
       return f;
@@ -140,7 +202,7 @@ export default function MapWorkspace() {
       mapRef.current?.setSelected(null);
       return null;
     }
-  }, []);
+  }, [csRead]);
 
   useEffect(() => {
     realtime.connect();
@@ -172,6 +234,15 @@ export default function MapWorkspace() {
           return cur;
         });
         api('/api/gis/topology/status').then(setGraph).catch(() => {});
+      } else if (ev.type.startsWith('changeset.')) {
+        const d = ev.data || {};
+        setLastEvent(`${t('cs.tab')} #${d.id}: ${t(`cs.st_${d.status}` as any)} ${t('map.by')} ${d.by || ev.username || '-'}`);
+        if (ev.username !== user?.username) toast.push(`${t('cs.tab')} #${d.id} "${d.title}": ${t(`cs.st_${d.status}` as any)} (${d.by || ev.username})`, 'info');
+        if (ev.type === 'changeset.release') {
+          scheduleRefresh();
+          api('/api/gis/topology/status').then(setGraph).catch(() => {});
+        }
+        setCsRefresh((x) => x + 1);
       } else if (ev.type === 'energized') {
         scheduleRefresh(ev.tile_version);
         setLastEvent(t('map.energized_event'));
@@ -195,7 +266,7 @@ export default function MapWorkspace() {
       setTab('feature');
       setPanelOpen(true);
       try {
-        const f = await api<GeoFeature>(`/api/gis/features/${kind}/${id}`);
+        const f = await api<GeoFeature>(`/api/gis/features/${kind}/${id}${csRead}`);
         setSelected(f);
         mapRef.current?.setSelected(f);
         return f;
@@ -206,7 +277,7 @@ export default function MapWorkspace() {
         setSelLoading(false);
       }
     },
-    [toast],
+    [toast, csRead],
   );
 
   const clearSelection = () => {
@@ -232,19 +303,27 @@ export default function MapWorkspace() {
   // ------------------------------------------------------------ editing
   const afterEdit = useCallback(
     (res: EditResult) => {
+      const pr = res as EditResult & { pending?: boolean; changeset?: { id: number } };
+      if (pr.pending) {
+        // usulan: jaringan aktif tidak berubah; perbarui paket & lapisan pratinjau
+        if (pr.changeset?.id && pr.changeset.id !== csId) setCsId(pr.changeset.id);
+        setCsRefresh((x) => x + 1);
+        if (res.messages?.length) toast.push(res.messages.join(' · '), 'info');
+        return;
+      }
       const v = res.feature?.properties?.tile_version as number | undefined;
       mapRef.current?.refreshTiles(v);
       if (v) setTileVersion(v);
       if (res.messages?.length) toast.push(res.messages.join(' · '), 'info');
       api('/api/gis/topology/status').then(setGraph).catch(() => {});
     },
-    [toast],
+    [toast, csId, setCsId],
   );
 
   const createPoint = useCallback(
     async (typeCode: string, lng: number, lat: number) => {
       try {
-        const res = await api<EditResult>('/api/gis/features', { method: 'POST', body: { kind: 'node', type_code: typeCode, geometry: { type: 'Point', coordinates: [lng, lat] } } });
+        const res = await api<EditResult>(`/api/gis/features${csq}`, { method: 'POST', body: { kind: 'node', type_code: typeCode, geometry: { type: 'Point', coordinates: [lng, lat] } } });
         afterEdit(res);
         toast.push(t('map.created', { type: typeName(typeCode), id: res.id }), 'success');
         select('node', res.id);
@@ -252,13 +331,13 @@ export default function MapWorkspace() {
         toast.push(e.message, 'error');
       }
     },
-    [afterEdit, select, toast, typeName, t],
+    [afterEdit, select, toast, typeName, t, csq],
   );
 
   const createPolygon = useCallback(
     async (typeCode: string, ring: [number, number][]) => {
       try {
-        const res = await api<EditResult>('/api/gis/features', {
+        const res = await api<EditResult>(`/api/gis/features${csq}`, {
           method: 'POST',
           body: { kind: 'node', type_code: typeCode, geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] } },
         });
@@ -269,13 +348,13 @@ export default function MapWorkspace() {
         toast.push(e.message, 'error');
       }
     },
-    [afterEdit, select, toast, typeName, t],
+    [afterEdit, select, toast, typeName, t, csq],
   );
 
   const createLine = useCallback(
     async (typeCode: string, coords: [number, number][]) => {
       try {
-        const res = await api<EditResult>('/api/gis/features', { method: 'POST', body: { kind: 'edge', type_code: typeCode, geometry: { type: 'LineString', coordinates: coords } } });
+        const res = await api<EditResult>(`/api/gis/features${csq}`, { method: 'POST', body: { kind: 'edge', type_code: typeCode, geometry: { type: 'LineString', coordinates: coords } } });
         afterEdit(res);
         toast.push(t('map.created', { type: typeName(typeCode), id: res.id }), 'success');
         select('edge', res.id);
@@ -283,13 +362,13 @@ export default function MapWorkspace() {
         toast.push(e.message, 'error');
       }
     },
-    [afterEdit, select, toast, typeName, t],
+    [afterEdit, select, toast, typeName, t, csq],
   );
 
   const moveNode = useCallback(
     async (nodeId: number, lng: number, lat: number) => {
       try {
-        const res = await api<EditResult>(`/api/gis/features/node/${nodeId}`, { method: 'PUT', body: { geometry: { type: 'Point', coordinates: [lng, lat] } } });
+        const res = await api<EditResult>(`/api/gis/features/node/${nodeId}${csq}`, { method: 'PUT', body: { geometry: { type: 'Point', coordinates: [lng, lat] } } });
         afterEdit(res);
         toast.push(t('map.moved', { id: nodeId }), 'success');
         setMode({ kind: 'select' });
@@ -299,13 +378,13 @@ export default function MapWorkspace() {
         setMode({ kind: 'select' });
       }
     },
-    [afterEdit, select, toast, t],
+    [afterEdit, select, toast, t, csq],
   );
 
   const reshapeEdge = useCallback(
     async (edgeId: number, coords: [number, number][]) => {
       try {
-        const res = await api<EditResult>(`/api/gis/features/edge/${edgeId}`, { method: 'PUT', body: { geometry: { type: 'LineString', coordinates: coords } } });
+        const res = await api<EditResult>(`/api/gis/features/edge/${edgeId}${csq}`, { method: 'PUT', body: { geometry: { type: 'LineString', coordinates: coords } } });
         afterEdit(res);
         toast.push(t('map.reshaped', { id: edgeId }), 'success');
         setMode({ kind: 'select' });
@@ -315,13 +394,13 @@ export default function MapWorkspace() {
         setMode({ kind: 'select' });
       }
     },
-    [afterEdit, select, toast, t],
+    [afterEdit, select, toast, t, csq],
   );
 
   const reshapePolygon = useCallback(
     async (nodeId: number, ring: [number, number][]) => {
       try {
-        const res = await api<EditResult>(`/api/gis/features/node/${nodeId}`, { method: 'PUT', body: { geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] } } });
+        const res = await api<EditResult>(`/api/gis/features/node/${nodeId}${csq}`, { method: 'PUT', body: { geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] } } });
         afterEdit(res);
         toast.push(t('map.reshaped_building', { id: nodeId }), 'success');
         setMode({ kind: 'select' });
@@ -331,37 +410,39 @@ export default function MapWorkspace() {
         setMode({ kind: 'select' });
       }
     },
-    [afterEdit, select, toast, t],
+    [afterEdit, select, toast, t, csq],
   );
 
   const splitEdge = useCallback(
     async (edgeId: number, lng: number, lat: number) => {
       try {
-        const res = await api<EditResult>(`/api/gis/edges/${edgeId}/split`, { method: 'POST', body: { lng, lat } });
+        const res = await api<EditResult>(`/api/gis/edges/${edgeId}/split${csq}`, { method: 'POST', body: { lng, lat } });
         afterEdit(res);
         toast.push(t('map.split_done', { id: edgeId }), 'success');
         setMode({ kind: 'select' });
-        if (res.feature) select('node', res.feature.id);
+        if (res.feature && !(res as any).pending) select('node', res.feature.id);
+        else if ((res as any).pending) select('edge', edgeId);
       } catch (e: any) {
         toast.push(e.message, 'error');
         setMode({ kind: 'select' });
       }
     },
-    [afterEdit, select, toast, t],
+    [afterEdit, select, toast, t, csq],
   );
 
   const mergeAtJunction = useCallback(
     async (nodeId: number) => {
       try {
-        const res = await api<EditResult>(`/api/gis/nodes/${nodeId}/merge`, { method: 'POST' });
+        const res = await api<EditResult>(`/api/gis/nodes/${nodeId}/merge${csq}`, { method: 'POST' });
         afterEdit(res);
         toast.push(t('map.merge_done', { id: res.id }), 'success');
-        select('edge', res.id);
+        if ((res as any).pending) select('node', nodeId);
+        else select('edge', res.id);
       } catch (e: any) {
         toast.push(e.message, 'error');
       }
     },
-    [afterEdit, select, toast, t],
+    [afterEdit, select, toast, t, csq],
   );
 
   /** Menyiapkan sesi edit vertex: untuk node, ambil geometri garis-garis yang terhubung agar ikut bergerak. */
@@ -371,7 +452,7 @@ export default function MapWorkspace() {
       if (!f || f.id !== id || (f.properties.kind as string) !== target) f = await reloadSelected(target, id);
       if (!f) return;
       let connected: ConnectedEdge[] = [];
-      if (target === 'node') {
+      if (target === 'node' && id > 0) {
         try {
           const nb = await api<{ items: any[] }>(`/api/gis/nodes/${id}/neighbors`);
           const feats = await Promise.all(nb.items.slice(0, 24).map((n) => api<GeoFeature>(`/api/gis/features/edge/${n.edge_id}`)));
@@ -390,7 +471,7 @@ export default function MapWorkspace() {
   const vertexCommit = useCallback(
     async (target: 'edge' | 'node', id: number, geometry: any) => {
       try {
-        const res = await api<EditResult>(`/api/gis/features/${target}/${id}`, { method: 'PUT', body: { geometry } });
+        const res = await api<EditResult>(`/api/gis/features/${target}/${id}${csq}`, { method: 'PUT', body: { geometry } });
         afterEdit(res);
         const f = res.feature || (await reloadSelected(target, id));
         if (f) {
@@ -405,15 +486,15 @@ export default function MapWorkspace() {
         if (modeRef.current.kind === 'vertex' && f) await startVertexEdit(target, id, f);
       }
     },
-    [afterEdit, reloadSelected, startVertexEdit, toast],
+    [afterEdit, reloadSelected, startVertexEdit, toast, csq],
   );
 
   const saveAttrs = useCallback(
     async (kind: 'node' | 'edge', id: number, body: any) => {
       try {
-        const res = await api<EditResult>(`/api/gis/features/${kind}/${id}`, { method: 'PUT', body });
+        const res = await api<EditResult>(`/api/gis/features/${kind}/${id}${csq}`, { method: 'PUT', body });
         afterEdit(res);
-        toast.push(t('map.attrs_saved'), 'success');
+        if (!(res as any).pending) toast.push(t('map.attrs_saved'), 'success');
         if (res.feature) {
           setSelected(res.feature);
           mapRef.current?.setSelected(res.feature);
@@ -422,46 +503,23 @@ export default function MapWorkspace() {
         toast.push(e.message, 'error');
       }
     },
-    [afterEdit, toast, t],
-  );
-
-  const doManeuver = useCallback(
-    async (targetId: number, body: ManeuverBody) => {
-      const { target = 'node', ...rest } = body;
-      try {
-        const res = await api<{ message: string; tile_version: number; feature?: GeoFeature }>('/api/gis/maneuver', {
-          method: 'POST',
-          body: target === 'edge' ? { edge_id: targetId, ...rest } : { node_id: targetId, ...rest },
-        });
-        mapRef.current?.refreshTiles(res.tile_version);
-        if (res.tile_version) setTileVersion(res.tile_version);
-        toast.push(res.message, body.action === 'open' ? 'warning' : 'success');
-        if (res.feature) {
-          setSelected(res.feature);
-          mapRef.current?.setSelected(res.feature);
-        } else await reloadSelected(target, targetId);
-        api('/api/gis/topology/status').then(setGraph).catch(() => {});
-      } catch (e: any) {
-        toast.push(e.message, 'error');
-        throw e;
-      }
-    },
-    [reloadSelected, toast],
+    [afterEdit, toast, t, csq],
   );
 
   const deleteFeature = useCallback(
     async (kind: 'node' | 'edge', id: number) => {
       try {
-        const res = await api<EditResult>(`/api/gis/features/${kind}/${id}`, { method: 'DELETE' });
+        const res = await api<EditResult>(`/api/gis/features/${kind}/${id}${csq}`, { method: 'DELETE' });
         afterEdit(res);
         toast.push(t('map.deleted', { kind: kind === 'node' ? t('map.node') : t('map.edge'), id }), 'success');
         setMode({ kind: 'select' });
-        clearSelection();
+        if ((res as any).pending && !(res as any).removed) reloadSelected(kind, id);
+        else clearSelection();
       } catch (e: any) {
         toast.push(e.message, 'error');
       }
     },
-    [afterEdit, toast, t],
+    [afterEdit, toast, t, csq, reloadSelected],
   );
 
   const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
@@ -560,6 +618,7 @@ export default function MapWorkspace() {
           mapRef.current?.setColorMode(colorMode);
         }}
         onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
+        snapQuery={approval && csId ? `cs=${csId}` : undefined}
         onArea={(ring) => {
           setArea(ring);
           setMode({ kind: 'select' });
@@ -669,6 +728,7 @@ export default function MapWorkspace() {
               {tabBtn('feature', selected ? t('map.tab_feature_id', { id: selected.id }) : t('map.tab_feature'))}
               {canTrace && tabBtn('trace', t('map.tab_trace'))}
               {tabBtn('data', t('map.tab_data'))}
+              {approval && (canEdit || viewCs > 0) && tabBtn('changes', t('cs.tab'))}
             </>
           )}
           <button className="p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')}>
@@ -702,8 +762,7 @@ export default function MapWorkspace() {
                 types={types}
                 canEdit={canEdit}
                 canTrace={canTrace}
-                canManeuver={canManeuver}
-                onManeuver={doManeuver}
+                approval={approval}
                 onSave={saveAttrs}
                 onDelete={deleteFeature}
                 onMove={(id) => setMode({ kind: 'move', nodeId: id })}
@@ -749,9 +808,40 @@ export default function MapWorkspace() {
                   setArea(null);
                   mapRef.current?.setArea(null);
                 }}
-                onImported={() => {
+                approval={approval}
+                onImported={(changesetId) => {
+                  if (changesetId) {
+                    setCsId(changesetId);
+                    setViewCs(0);
+                    setCsRefresh((x) => x + 1);
+                    return;
+                  }
                   mapRef.current?.refreshTiles();
                   api('/api/gis/topology/status').then(setGraph).catch(() => {});
+                }}
+              />
+            )}
+            {tab === 'changes' && approval && (
+              <ChangesPanel
+                types={types}
+                csId={shownCs}
+                editable={!viewCs && canEdit}
+                refresh={csRefresh}
+                onSelect={(k, fid) => {
+                  select(k, fid).then((f) => {
+                    const b = f ? bboxOf([f]) : null;
+                    if (b) mapRef.current?.fitBBox(b);
+                  });
+                }}
+                onChanged={() => setCsRefresh((x) => x + 1)}
+                onSwitch={(id) => {
+                  setViewCs(0);
+                  setCsId(id);
+                  setCsRefresh((x) => x + 1);
+                }}
+                onCloseView={() => {
+                  setViewCs(0);
+                  setCsRefresh((x) => x + 1);
                 }}
               />
             )}
