@@ -5,7 +5,7 @@ import { useT } from '@/lib/i18n';
 // Kamus modul eksekutif: dasbor, laporan berkala, keandalan wilayah, AI operasi (ID / EN).
 const ID = {
   // dasbor
-  exec_title: 'Dasbor Eksekutif',
+  exec_title: 'Keandalan & Operasi',
   exec_subtitle: 'Kinerja keandalan, operasi & layanan pelanggan',
   tab_summary: 'Ringkasan',
   tab_reports: 'Laporan Berkala',
@@ -179,7 +179,7 @@ const ID = {
 type Dict = typeof ID;
 
 const EN: Dict = {
-  exec_title: 'Executive Dashboard',
+  exec_title: 'Reliability and Operations',
   exec_subtitle: 'Reliability, operations & customer service performance',
   tab_summary: 'Summary',
   tab_reports: 'Periodic Reports',

@@ -135,10 +135,10 @@ const overview = (
         ['Admin sistem', 'Pengguna, peran & izin, menu, konfigurasi & identitas aplikasi, pemantauan server', 'Administrasi, Master Data'],
         ['Editor GIS', 'Menyusun perubahan aset (draf), atribut SSOT & unit pemilik, impor/ekspor QGIS', 'Map Editor › Editor Peta Jaringan'],
         ['Supervisor', 'Memeriksa & menyetujui / menolak paket perubahan jaringan', 'Map Editor › Persetujuan Perubahan'],
-        ['Manajer', 'Menyetujui dan merilis paket perubahan ke jaringan aktif, laporan', 'Persetujuan Perubahan, Dasbor Eksekutif'],
+        ['Manajer', 'Menyetujui dan merilis paket perubahan ke jaringan aktif, laporan', 'Persetujuan Perubahan, Dashboard › Keandalan & Operasi'],
         ['Operator / Dispatcher', 'Monitoring realtime, manuver TM & TR, FLISR, rencana manuver, laporan gangguan', 'Pusat Operasi, SLD'],
         ['Operator TR (ULP)', 'Operasi jaringan tegangan rendah saja, laporan & foto lapangan', 'Pusat Operasi, Lapangan (ponsel)'],
-        ['Manajemen', 'Kinerja keandalan, beban & energi, susut, laporan berkala', 'Dasbor Eksekutif, Keandalan Wilayah, Analisa Beban & Energi'],
+        ['Manajemen', 'Kinerja keandalan, beban & energi, susut, laporan berkala', 'Dashboard › Keandalan & Operasi, Keandalan Wilayah, Analisa Beban & Energi'],
         ['Perencana / Viewer', 'Aliran daya, pembebanan, prakiraan, N-1, trace', 'Aliran Daya, Analisa Beban & Energi, SLD, AI'],
       ]}
     />
@@ -153,7 +153,7 @@ const features = (
     <FeatureCard icon="🔎" title="Topologi & Trace" items={['Graf jaringan di memori, jutaan node', 'Downtrace, uptrace, terhubung', 'Berhenti pada tipe tertentu, ringkasan per tipe', 'Validasi topologi (objek terisolasi, ujung bebas)']} />
     <FeatureCard icon="⚡" title="Pusat Operasi" items={['Rekap GI, trafo GI, penyulang, zona, gardu, pelanggan, beban', 'Peta nyala/padam realtime + filter', 'Buka/tutup & energize/deenergize (hanya dari sini & SLD)', 'Grup Operasi: FLISR, rencana manuver & simulasi, laporan gangguan, AI operasi']} />
     <FeatureCard icon="🧾" title="SOE Realtime" items={['Sequence of Events presisi milidetik', 'Identitas operator: nama, role, kanal (web/ponsel/SLD), IP', 'Jeda/lanjut, filter, alarm suara, ekspor CSV', 'Sinkron ulang otomatis bila koneksi putus']} />
-    <FeatureCard icon="📊" title="Dasbor Eksekutif & Keandalan" items={['KPI kondisi & kinerja periode vs target SAIDI/SAIFI', 'Laporan berkala harian–tahunan, ringkasan AI, cetak PDF', 'Keandalan per UP3/ULP di peta wilayah', 'Wawasan otomatis & AI operasi']} />
+    <FeatureCard icon="📊" title="Dashboard Keandalan & Operasi" items={['KPI kondisi & kinerja periode vs target SAIDI/SAIFI', 'Laporan berkala harian–tahunan, ringkasan AI, cetak PDF', 'Keandalan per UP3/ULP di peta wilayah', 'Wawasan otomatis & AI operasi']} />
     <FeatureCard icon="📈" title="Analisa Beban & Energi" items={['Load profile trafo GI, penyulang & gardu (SCADA/AMR 30 menit)', 'Besaran lengkap: arus & tegangan per fasa, P/Q/S, pf, frekuensi, kWh/kvarh', 'Pembebanan MW, energi harian/bulanan/tahunan, anomali data', 'Susut energi GI→penyulang→gardu, prakiraan, N-1, laporan']} />
     <FeatureCard icon="📱" title="Lapangan (PWA)" items={['Dipasang di ponsel seperti aplikasi', 'Aset terdekat dengan GPS, foto aset', 'Laporan gangguan cepat, tetap tersimpan saat offline', 'Notifikasi push & peta area offline']} />
     <FeatureCard icon="📐" title="Single Line Diagram" items={['Otomatis dari GIS: penyulang, GI, gardu, objek, area', '4 tingkat detail, penyederhanaan & lipatan baris', 'Manuver langsung dari diagram, status realtime', 'Overlay aliran daya, ekspor SVG/PNG/PDF']} />
@@ -637,13 +637,13 @@ const guide: { group: string; items: GuideItem[] }[] = [
     ],
   },
   {
-    group: 'Dasbor Eksekutif & Keandalan Wilayah',
+    group: 'Dashboard & Keandalan Wilayah',
     items: [
       {
         id: 'g-exec',
-        title: 'Dasbor eksekutif',
+        title: 'Keandalan & Operasi',
         img: 'executive',
-        intro: 'Ringkasan kondisi saat ini dan kinerja periode (hari ini, bulan ini, 30 hari, tahun ini): SAIDI, SAIFI, ENS, kejadian padam, laporan & SLA, tahun berjalan vs target.',
+        intro: 'Menu Dashboard › Keandalan & Operasi (sebelumnya Dasbor Eksekutif). Ringkasan kondisi saat ini dan kinerja periode (hari ini, bulan ini, 30 hari, tahun ini): SAIDI, SAIFI, ENS, kejadian padam, laporan & SLA, tahun berjalan vs target.',
         steps: ['Pilih periode; bandingkan dengan periode sebelumnya.', 'Lihat tren SAIDI 12 bulan, kejadian per hari, kategori, penyulang terdampak, dan wilayah dengan SAIDI tertinggi.'],
         perm: 'exec.view',
       },
@@ -725,15 +725,6 @@ const guide: { group: string; items: GuideItem[] }[] = [
         steps: ['Pilih subtab analisa, lalu objeknya.'],
         perm: 'load.view',
       },
-      {
-        id: 'g-load-points',
-        title: 'Titik SCADA & kontrak pesan',
-        img: 'load-points',
-        intro: 'Daftar titik ukur (trafo GI, penyulang, gardu) beserta pemetaan ke objek GIS, rating, dan data terakhir; kontrak pesan Kafka dan kirim data uji.',
-        steps: ['Tambah / ubah titik, atau Petakan otomatis dari GIS (termasuk gardu).', 'Kode baru dari SCADA/AMR yang cocok dengan kode GIS didaftarkan otomatis.'],
-        tips: ['Matikan simulator (load.simulator) saat SCADA/AMR asli sudah tersambung.'],
-        perm: 'load.manage',
-      },
     ],
   },
   {
@@ -743,7 +734,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
         id: 'g-field',
         title: 'Aplikasi lapangan',
         img: 'field',
-        intro: 'Versi ponsel yang dapat dipasang seperti aplikasi (Tambahkan ke layar utama). Menu bawah berisi Dasbor, Pusat Operasi, Lapangan, SLD, dan Menu.',
+        intro: 'Versi ponsel yang dapat dipasang seperti aplikasi (Tambahkan ke layar utama). Menu bawah berisi Keandalan & Operasi, Pusat Operasi, Lapangan, SLD, dan Menu.',
         steps: [
           'Aktifkan GPS untuk melihat aset terdekat (gardu, proteksi/switch, tiang, pelanggan).',
           'Laporan gangguan cepat: pilih jenis, isi keterangan, tambah foto, kirim. Tanpa sinyal, laporan disimpan lalu dikirim otomatis.',
@@ -828,6 +819,15 @@ const guide: { group: string; items: GuideItem[] }[] = [
           'Aset yang tidak tersambung ke GI dikelompokkan di “Tidak tersambung ke sumber” — periksa topologinya di Map Editor.',
         ],
         perm: 'master.view atau gis.view',
+      },
+      {
+        id: 'g-load-points',
+        title: 'Titik SCADA & kontrak pesan',
+        img: 'load-points',
+        intro: 'Menu Master Data › Titik SCADA (sebelumnya tab di Analisa Beban & Energi): daftar titik ukur (trafo GI, penyulang, gardu) beserta pemetaan ke objek GIS, rating, dan data terakhir; kontrak pesan Kafka dan kirim data uji.',
+        steps: ['Tambah / ubah titik, atau Petakan otomatis dari GIS (termasuk gardu).', 'Kode baru dari SCADA/AMR yang cocok dengan kode GIS didaftarkan otomatis.'],
+        tips: ['Matikan simulator (load.simulator) saat SCADA/AMR asli sudah tersambung.'],
+        perm: 'load.manage',
       },
       {
         id: 'g-units',

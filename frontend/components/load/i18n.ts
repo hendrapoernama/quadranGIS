@@ -12,6 +12,8 @@ const ID = {
   tab_reports: 'Laporan Beban',
   tab_advanced: 'Analisa Lanjutan',
   tab_points: 'Titik SCADA',
+  points_title: 'Titik SCADA',
+  points_subtitle: 'Titik ukur trafo GI, penyulang & gardu distribusi, pemetaan ke objek GIS, dan kontrak pesan SCADA/AMR (Kafka)',
   // ringkasan
   points: 'Titik ukur',
   feeders: 'Penyulang',
@@ -306,6 +308,8 @@ const EN: Dict = {
   tab_reports: 'Load Reports',
   tab_advanced: 'Advanced Analysis',
   tab_points: 'SCADA Points',
+  points_title: 'SCADA Points',
+  points_subtitle: 'Measuring points of GI transformers, feeders & distribution substations, mapping to GIS objects, and the SCADA/AMR message contract (Kafka)',
   points: 'Measuring points',
   feeders: 'Feeders',
   trafos: 'GI transformers',

@@ -593,7 +593,8 @@ anak menambah SAIDI/ENS tetapi tidak menambah SAIFI maupun jumlah kejadian.
 
 ## Dasbor eksekutif, laporan berkala, keandalan wilayah & AI operasi
 
-Migrasi `023_executive.sql` menambahkan menu **Dasbor Eksekutif** (`/executive`) dan
+Migrasi `023_executive.sql` menambahkan menu **Dasbor Eksekutif** (`/executive`; sejak migrasi
+`032_menu_dashboard_scada.sql` menjadi **Dashboard › Keandalan & Operasi** / *Reliability and Operations*) dan
 **Keandalan Wilayah** (`/reliability`). Izinnya `exec.view` untuk melihat dan `exec.report`
 untuk menyusun/menghapus laporan dan menulis ringkasan. Target keandalan diatur di konfigurasi
 `reliability.target_saidi_year` (bawaan 120 menit/pelanggan) dan `reliability.target_saifi_year`
@@ -782,7 +783,8 @@ izin `load.view` dan `load.manage`). Paket backend-nya `internal/load`.
 - Energi harian dihitung dari meter kWh. Bila meter kosong, dipakai integrasi MW × 0,5 jam, dan
   jumlah slot bermeter dicatat sebagai `metered_slots`.
 
-**Pemetaan titik** (`scada_points`):
+**Pemetaan titik** (`scada_points`, menu **Master Data › Titik SCADA** `/master/scada-points`; tautan
+lama `/load?tab=points` diarahkan ke sana):
 
 - Kode titik = kode kubikel penyulang, kode trafo GI, atau kode gardu di GIS, dan bisa dipetakan otomatis.
 - Kode baru dari SCADA/AMR yang cocok dengan objek GIS **didaftarkan otomatis** (`load.auto_register`).

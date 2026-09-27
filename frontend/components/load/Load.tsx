@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
@@ -16,11 +17,12 @@ import { Anomalies } from './Anomalies';
 import { LoadReports } from './Reports';
 import { Advanced } from './Advanced';
 import { Losses } from './Losses';
-import { Points } from './Points';
 import type { BalanceResult, RankItem, SeriesPoint } from './types';
 
-type Tab = 'overview' | 'analysis' | 'losses' | 'anomalies' | 'reports' | 'advanced' | 'points';
-const TABS: Tab[] = ['overview', 'analysis', 'losses', 'anomalies', 'reports', 'advanced', 'points'];
+type Tab = 'overview' | 'analysis' | 'losses' | 'anomalies' | 'reports' | 'advanced';
+const TABS: Tab[] = ['overview', 'analysis', 'losses', 'anomalies', 'reports', 'advanced'];
+/** titik SCADA kini menu tersendiri: Master Data › Titik SCADA */
+const POINTS_PATH = '/master/scada-points';
 
 interface Overview {
   points: Record<string, number>;
@@ -55,6 +57,7 @@ export default function Load() {
   const { locale } = useT();
   const { has } = useAuth();
   const toast = useToast();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>('overview');
   const [ov, setOv] = useState<Overview | null>(null);
   const [focus, setFocus] = useState<{ level: string; id: string } | null>(null);
@@ -62,9 +65,10 @@ export default function Load() {
   const canManage = has('load.manage');
 
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('tab') as Tab | null;
-    if (t && TABS.includes(t)) setTab(t);
-  }, []);
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'points') router.replace(POINTS_PATH);
+    else if (t && TABS.includes(t as Tab)) setTab(t as Tab);
+  }, [router]);
 
   const load = useCallback(async () => {
     try {
@@ -108,7 +112,6 @@ export default function Load() {
     ['anomalies', L('tab_anomalies'), 'alert'],
     ['reports', L('tab_reports'), 'list'],
     ['advanced', L('tab_advanced'), 'sparkles'],
-    ['points', L('tab_points'), 'settings'],
   ];
 
   return (
@@ -127,13 +130,12 @@ export default function Load() {
           </button>
         ))}
       </div>
-      {tab === 'overview' && (ov ? <OverviewView ov={ov} onOpen={openAnalysis} onLosses={() => setTab('losses')} /> : <Spinner size={20} />)}
+      {tab === 'overview' && (ov ? <OverviewView ov={ov} onOpen={openAnalysis} onLosses={() => setTab('losses')} onPoints={() => router.push(POINTS_PATH)} /> : <Spinner size={20} />)}
       {tab === 'analysis' && <Analysis focus={focus} refresh={tick} />}
       {tab === 'losses' && <Losses onOpen={openAnalysis} />}
       {tab === 'anomalies' && <Anomalies canManage={canManage} refresh={tick} onOpen={openAnalysis} />}
       {tab === 'reports' && <LoadReports canManage={canManage} />}
       {tab === 'advanced' && <Advanced onOpen={openAnalysis} />}
-      {tab === 'points' && <Points canManage={canManage} overview={ov} onChanged={load} />}
     </div>
   );
 }
@@ -159,7 +161,7 @@ function Tile({ label, value, sub, tone, onClick }: { label: string; value: Reac
   );
 }
 
-function OverviewView({ ov, onOpen, onLosses }: { ov: Overview; onOpen: (level: string, id: string) => void; onLosses: () => void }) {
+function OverviewView({ ov, onOpen, onLosses, onPoints }: { ov: Overview; onOpen: (level: string, id: string) => void; onLosses: () => void; onPoints: () => void }) {
   const L = useLoadT();
   const { warn, over } = ov.settings;
   const ser = ov.system_series || [];
@@ -177,6 +179,7 @@ function OverviewView({ ov, onOpen, onLosses }: { ov: Overview; onOpen: (level: 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <Tile
           label={L('points')}
+          onClick={onPoints}
           value={fmtNum(ov.points.active)}
           sub={`${fmtNum(ov.points.trafo_gi)} ${L('trafos').toLowerCase()} · ${fmtNum(ov.points.feeder)} ${L('feeders').toLowerCase()} · ${fmtNum(ov.points.gd)} ${L('gds').toLowerCase()}`}
         />
