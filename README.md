@@ -842,6 +842,40 @@ lama `/load?tab=points` diarahkan ke sana):
   - susut negatif (indikasi kesalahan meter atau gardu tercatat di penyulang lain);
   - selisih trafo GI ≥ `load.losses_gi_pct`.
 
+**Susut gardu → pelanggan (kWh tagihan bulanan)**
+
+Mode **Gardu → pelanggan (bulanan)** pada tab **Susut** dibuat dengan migrasi `033_customer_kwh.sql`.
+Data kWh pelanggan tidak berasal dari SCADA; datanya diimpor per bulan dari billing / AP2T.
+
+- **Impor** CSV (pemisah `;` `,` tab `|`) atau XLSX (lembar pertama, tanpa pustaka tambahan):
+  - kolom wajib `IDPEL` dan `kWh`; opsional `BLTH`/periode, nama, tarif, daya (judul kolom dikenali dari beberapa alias);
+  - angka format Indonesia (`1.234,5`) maupun internasional; baris ganda (periode + IDPEL sama) dijumlahkan;
+  - pratinjau dulu (`apply=0`), lalu simpan (`apply=1`); `replace=1` mengganti seluruh data periode;
+  - maksimum 200 MB (nginx punya lokasi khusus untuk endpoint impor);
+  - riwayat impor tersimpan dan dapat dihapus.
+- **Pencocokan**: atribut `idpel` pelanggan GIS (indeks `gis_nodes_idpel_idx`), lalu `kode_ssot`, lalu kode objek.
+  Gardu pelanggan ditentukan dari topologi (`Graph.SinkGroups`).
+- **Susut gardu** = energi keluar gardu (AMR, Σ hari sah × hari sebulan ÷ hari sah) − Σ kWh pelanggan.
+  Bulan energi gardu = BLTH − `load.lv_billing_lag_months` (migrasi `034_billing_lag.sql`, bawaan 0; bisa diganti
+  per tampilan dengan `lag=0..3`), karena BLTH umumnya memuat pemakaian bulan sebelumnya.
+  Status per gardu:
+  - `ok` / `estimasi` — dihitung;
+  - `tagihan_kurang` — pelanggan bertagihan < `load.lv_min_billed_pct`;
+  - `energi_kurang` — hari data AMR < `load.lv_min_energy_days_pct`;
+  - `tanpa_meter` — gardu tanpa meter AMR.
+  Tanda hasil: `tinggi` (≥ `load.lv_losses_high_pct`) dan `negatif`.
+- **Rincian gardu**: tren 12 bulan dan daftar pelanggan dengan jam nyala (kWh ÷ kVA kontrak). Tanda pelanggan:
+  `nol`, `rendah` (< `load.lv_low_hours`), `tanpa_tagihan`, `melebihi_daya`.
+- Data: tabel `customer_kwh` (PK periode + IDPEL, `node_id` NULL bila tidak ditemukan) dan `customer_kwh_imports`.
+
+| Metode | Path | Keterangan |
+|---|---|---|
+| POST | `/api/load/customer-kwh/import?period=&apply=0\|1&replace=0\|1&name=` | pratinjau / simpan berkas (izin `load.manage`) |
+| GET/DELETE | `/api/load/customer-kwh` · `/api/load/customer-kwh/imports/:id` | periode & riwayat impor / hapus impor |
+| GET | `/api/load/customer-kwh/unmatched?period=&format=csv` · `/api/load/customer-kwh/template` | IDPEL tak ditemukan, template berkas |
+| GET | `/api/load/losses/customers?period=&lag=&up3&ulp&feeder&q&status&sort&dir&offset&limit&format=csv` | susut per gardu + rekap penyulang |
+| GET | `/api/load/losses/customers/gd?period=&gd=` | rincian gardu: pelanggan & tren 12 bulan |
+
 **Anomali** (`load_anomalies`; slot berurutan digabung menjadi satu kejadian dengan status
 terbuka → ditangani → selesai):
 

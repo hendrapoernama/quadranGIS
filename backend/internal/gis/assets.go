@@ -648,3 +648,16 @@ func (g *Graph) AssetAnchors(level string, ids []int64) []int64 {
 	}
 	return out
 }
+
+// SinkGroups mengembalikan gardu dan penyulang (kepala) tiap node (sejajar dengan ids; 0 = tidak ada).
+func (g *Graph) SinkGroups(ids []int64) (gd, feeder []int64) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	gd, feeder = make([]int64, len(ids)), make([]int64, len(ids))
+	for i, id := range ids {
+		if n, ok := g.nodes[id]; ok {
+			gd[i], feeder[i] = n.gd, n.feeder
+		}
+	}
+	return gd, feeder
+}

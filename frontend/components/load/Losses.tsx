@@ -11,6 +11,8 @@ import { csvRow, downloadText } from '@/components/exec/common';
 import { useLoadT } from './i18n';
 import { EntityPicker, StatCard, UtilBar, fmtMWh, fmtPct, lossClass, todayISO, utilClass, type EntityRef } from './common';
 import type { BalanceResult, LossRow } from './types';
+import { CustomerLosses } from './CustomerLosses';
+import { useCLT } from './i18nCustomer';
 
 interface Resp {
   level: string;
@@ -38,7 +40,25 @@ function yesterdayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function Losses({ onOpen }: { onOpen: (level: string, id: string) => void }) {
+/** Tab Susut: neraca AMR harian (GI → penyulang → gardu) atau gardu → kWh pelanggan bulanan (tagihan). */
+export function Losses({ onOpen, canManage }: { onOpen: (level: string, id: string) => void; canManage: boolean }) {
+  const C = useCLT();
+  const [mode, setMode] = useState<'amr' | 'cust'>(() => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('losses') === 'customers' ? 'cust' : 'amr'));
+  return (
+    <div className="space-y-3">
+      <div className="flex w-fit rounded-md border border-gray-300 bg-white p-0.5 text-xs" role="tablist">
+        {(['amr', 'cust'] as const).map((m) => (
+          <button key={m} role="tab" aria-selected={mode === m} className={`rounded px-3 py-1.5 ${mode === m ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900' : 'text-gray-600 hover:bg-gray-100'}`} onClick={() => setMode(m)}>
+            {C(m === 'amr' ? 'mode_amr' : 'mode_cust')}
+          </button>
+        ))}
+      </div>
+      {mode === 'amr' ? <AmrLosses onOpen={onOpen} /> : <CustomerLosses canManage={canManage} onOpenPoint={(id) => onOpen('point', id)} />}
+    </div>
+  );
+}
+
+function AmrLosses({ onOpen }: { onOpen: (level: string, id: string) => void }) {
   const L = useLoadT();
   const { locale } = useT();
   const toast = useToast();

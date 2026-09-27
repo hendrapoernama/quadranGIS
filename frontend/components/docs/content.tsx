@@ -154,7 +154,7 @@ const features = (
     <FeatureCard icon="⚡" title="Pusat Operasi" items={['Rekap GI, trafo GI, penyulang, zona, gardu, pelanggan, beban', 'Peta nyala/padam realtime + filter', 'Buka/tutup & energize/deenergize (hanya dari sini & SLD)', 'Grup Operasi: FLISR, rencana manuver & simulasi, laporan gangguan, AI operasi']} />
     <FeatureCard icon="🧾" title="SOE Realtime" items={['Sequence of Events presisi milidetik', 'Identitas operator: nama, role, kanal (web/ponsel/SLD), IP', 'Jeda/lanjut, filter, alarm suara, ekspor CSV', 'Sinkron ulang otomatis bila koneksi putus']} />
     <FeatureCard icon="📊" title="Dashboard Keandalan & Operasi" items={['KPI kondisi & kinerja periode vs target SAIDI/SAIFI', 'Laporan berkala harian–tahunan, ringkasan AI, cetak PDF', 'Keandalan per UP3/ULP di peta wilayah', 'Wawasan otomatis & AI operasi']} />
-    <FeatureCard icon="📈" title="Analisa Beban & Energi" items={['Load profile trafo GI, penyulang & gardu (SCADA/AMR 30 menit)', 'Besaran lengkap: arus & tegangan per fasa, P/Q/S, pf, frekuensi, kWh/kvarh', 'Pembebanan MW, energi harian/bulanan/tahunan, anomali data', 'Susut energi GI→penyulang→gardu, prakiraan, N-1, laporan']} />
+    <FeatureCard icon="📈" title="Analisa Beban & Energi" items={['Load profile trafo GI, penyulang & gardu (SCADA/AMR 30 menit)', 'Besaran lengkap: arus & tegangan per fasa, P/Q/S, pf, frekuensi, kWh/kvarh', 'Pembebanan MW, energi harian/bulanan/tahunan, anomali data', 'Susut GI→penyulang→gardu→pelanggan (impor kWh tagihan bulanan)', 'Prakiraan, N-1, laporan']} />
     <FeatureCard icon="📱" title="Lapangan (PWA)" items={['Dipasang di ponsel seperti aplikasi', 'Aset terdekat dengan GPS, foto aset', 'Laporan gangguan cepat, tetap tersimpan saat offline', 'Notifikasi push & peta area offline']} />
     <FeatureCard icon="📐" title="Single Line Diagram" items={['Otomatis dari GIS: penyulang, GI, gardu, objek, area', '4 tingkat detail, penyederhanaan & lipatan baris', 'Manuver langsung dari diagram, status realtime', 'Overlay aliran daya, ekspor SVG/PNG/PDF']} />
     <FeatureCard icon="🔋" title="Aliran Daya" items={['Backward/forward sweep per penyulang', 'Tegangan (pu), arus, pembebanan penghantar & trafo, susut', 'Skenario faktor beban, cos φ, tegangan kirim', 'Kalibrasi beban dari data SCADA']} />
@@ -256,6 +256,7 @@ const business = (
         { title: 'Data SCADA / AMR', who: 'Sistem', desc: 'Pesan 30 menit trafo GI, penyulang, gardu lewat Kafka: arus & tegangan per fasa, P/Q/S, pf, frekuensi, kWh/kvarh.', tone: 'data' },
         { title: 'Rekap & anomali', who: 'Sistem', desc: 'Rekap harian MW & energi, profil dasar, deteksi data hilang/macet/lonjakan, beban lebih, frekuensi.', tone: 'app' },
         { title: 'Neraca energi', who: 'Sistem', desc: 'Trafo GI → Σ penyulang → Σ gardu per hari; susut distribusi & GI, cakupan meter.', tone: 'app' },
+        { title: 'kWh pelanggan', who: 'Analis susut', desc: 'Impor kWh tagihan bulanan (CSV/XLSX per IDPEL); susut gardu → pelanggan per bulan, pelanggan 0 kWh / jam nyala rendah.', tone: 'client' },
         { title: 'Analisa', who: 'Perencana', desc: 'Per UID/UP3/GI/trafo/penyulang/gardu: harian, bulanan, tahunan, prakiraan, N-1.', tone: 'client' },
         { title: 'Laporan', who: 'Manajemen', desc: 'Laporan beban & susut otomatis (harian/bulanan/tahunan) + ringkasan AI.', tone: 'data' },
       ]}
@@ -700,6 +701,26 @@ const guide: { group: string; items: GuideItem[] }[] = [
         ],
         tips: ['Bila tidak semua gardu bermeter, energi gardu diperkirakan dari cakupan kapasitas; hari dengan cakupan rendah tidak dihitung.', 'Susut negatif menandakan kesalahan meter atau gardu tercatat di penyulang lain.'],
         perm: 'load.view',
+      },
+      {
+        id: 'g-losses-customers',
+        title: 'Susut gardu → pelanggan (kWh tagihan bulanan)',
+        img: 'load-billing',
+        intro: 'Tab Susut › Gardu → pelanggan (bulanan): susut tiap gardu distribusi = energi keluar gardu dari meter AMR sebulan − Σ kWh pelanggan di bawahnya dari data tagihan. Mencakup susut JTR, SR, dan non-teknis. Data kWh pelanggan tidak berasal dari SCADA, tetapi diimpor per bulan.',
+        steps: [
+          'Tekan Impor kWh pelanggan, pilih berkas CSV atau XLSX (kolom wajib IDPEL dan kWh; opsional BLTH, nama, tarif, daya). Unduh template bila perlu.',
+          'Bila berkas tidak memiliki kolom BLTH, pilih periodenya. Tekan Pratinjau: periksa baris sah, galat, baris ganda (dijumlahkan), IDPEL yang cocok / tidak ditemukan, dan data lama pada periode itu.',
+          'Tekan Simpan. Centang Ganti seluruh data periode bila berkas adalah data lengkap pengganti.',
+          'Pilih periode tagihan, bulan energi gardu (sama dengan BLTH atau 1–2 bulan sebelumnya), UP3/ULP, dan filter status; urutkan tabel menurut susut %. Rekap per penyulang tampil di sampingnya.',
+          'Klik gardu untuk tren 12 bulan (energi gardu vs kWh terjual) dan daftar pelanggan dengan jam nyala; pelanggan bertanda tampil paling atas.',
+        ],
+        tips: [
+          'IDPEL dicocokkan ke atribut idpel pelanggan GIS, lalu kode SSOT, lalu kode objek. Unduh daftar IDPEL tak ditemukan untuk melengkapi data GIS.',
+          'Gardu dihitung bila data AMR mencakup ≥ 80% hari dan pelanggan bertagihan ≥ 90% pelanggan GIS (konfigurasi load.lv_*). Gardu tanpa meter AMR hanya menampilkan kWh terjual.',
+          'Tanda pelanggan: 0 kWh, jam nyala < 40 jam (indikasi P2TL), tanpa tagihan, atau melebihi daya (data daya / kWh keliru).',
+          'BLTH umumnya memuat pemakaian bulan sebelumnya; atur bawaan pergeseran di konfigurasi load.lv_billing_lag_months.',
+        ],
+        perm: 'load.view · impor / hapus: load.manage',
       },
       {
         id: 'g-load-anomalies',

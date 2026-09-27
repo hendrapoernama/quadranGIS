@@ -1206,11 +1206,8 @@ export default function SLD() {
                   <OperateBox feature={feature!} types={types} submit={operate} />
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  <Button size="sm" variant="secondary" icon="map" onClick={() => router.push(`/map?select=${selected.kind}:${selected.id}`)}>
+                  <Button size="sm" variant="secondary" icon="map" onClick={() => router.push(`/monitoring?select=${selected.kind}:${selected.id}`)}>
                     {t('sld.open_map')}
-                  </Button>
-                  <Button size="sm" variant="secondary" icon="activity" onClick={() => router.push(`/monitoring?select=${selected.kind}:${selected.id}`)}>
-                    {t('sld.open_monitoring')}
                   </Button>
                   {selected.kind === 'node' && (!diagram || !diagram.nodes.some((n) => n.id === selected.id)) && (
                     <Button

@@ -295,6 +295,16 @@ const ID = {
   pt_gd_feeders: 'penyulang massal',
   pt_energy_mode: 'Mode energi',
   pt_registered: 'terdaftar otomatis',
+  pt_name: 'Nama',
+  pt_code_hint: 'Kode yang sama dengan kode kubikel / trafo GI / gardu di GIS otomatis tertaut ke objeknya. Kode baru dari SCADA/AMR yang cocok dengan objek GIS didaftarkan otomatis (konfigurasi load.auto_register).',
+  pt_topic: 'Topik',
+  pt_c_msg: 'satu objek atau array per pesan',
+  pt_c_ts: '= awal periode 30 menit (tanpa zona = WIB)',
+  pt_c_v: 'antarfasa atau fasa-netral (kV)',
+  pt_c_energy: 'energi kWh/kvarh per periode (mode',
+  pt_c_cum: '= register meter) · besaran yang tidak ada boleh dikosongkan.',
+  pt_no_obj: 'tanpa objek GIS',
+  pt_inactive: 'nonaktif',
 };
 
 type Dict = typeof ID;
@@ -583,6 +593,16 @@ const EN: Dict = {
   pt_gd_feeders: 'bulk feeders',
   pt_energy_mode: 'Energy mode',
   pt_registered: 'auto-registered',
+  pt_name: 'Name',
+  pt_code_hint: 'A code equal to a feeder cubicle / GI transformer / substation code in GIS is linked to that object automatically. New codes from SCADA/AMR that match a GIS object are registered automatically (setting load.auto_register).',
+  pt_topic: 'Topic',
+  pt_c_msg: 'one object or an array per message',
+  pt_c_ts: '= start of the 30-minute period (no time zone = WIB)',
+  pt_c_v: 'line-to-line or line-to-neutral (kV)',
+  pt_c_energy: 'kWh/kvarh energy per period (mode',
+  pt_c_cum: '= meter register) · quantities that are not available may be left out.',
+  pt_no_obj: 'no GIS object',
+  pt_inactive: 'inactive',
 };
 
 export type LoadKey = keyof Dict;

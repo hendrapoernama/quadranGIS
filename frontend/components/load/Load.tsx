@@ -132,7 +132,7 @@ export default function Load() {
       </div>
       {tab === 'overview' && (ov ? <OverviewView ov={ov} onOpen={openAnalysis} onLosses={() => setTab('losses')} onPoints={() => router.push(POINTS_PATH)} /> : <Spinner size={20} />)}
       {tab === 'analysis' && <Analysis focus={focus} refresh={tick} />}
-      {tab === 'losses' && <Losses onOpen={openAnalysis} />}
+      {tab === 'losses' && <Losses onOpen={openAnalysis} canManage={canManage} />}
       {tab === 'anomalies' && <Anomalies canManage={canManage} refresh={tick} onOpen={openAnalysis} />}
       {tab === 'reports' && <LoadReports canManage={canManage} />}
       {tab === 'advanced' && <Advanced onOpen={openAnalysis} />}

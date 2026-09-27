@@ -270,6 +270,13 @@ func NewRouter(d *Deps) *gin.Engine {
 	ld.GET("/health", s.loadHealth)
 	ld.GET("/calibration", s.loadCalibrationList)
 	ld.GET("/losses", s.loadLosses)
+	ld.GET("/losses/customers", s.loadLVLosses)
+	ld.GET("/losses/customers/gd", s.loadLVGardu)
+	ld.GET("/customer-kwh", s.loadBillList)
+	ld.GET("/customer-kwh/template", s.loadBillTemplate)
+	ld.GET("/customer-kwh/unmatched", s.loadBillUnmatched)
+	ld.POST("/customer-kwh/import", middleware.RequirePermission("load.manage"), s.loadBillImport)
+	ld.DELETE("/customer-kwh/imports/:id", middleware.RequirePermission("load.manage"), s.loadBillDelete)
 	ld.GET("/losses/feeder", s.loadFeederLosses)
 
 	// notifikasi Web Push (semua pengguna yang login)

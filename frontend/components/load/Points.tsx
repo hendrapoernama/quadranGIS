@@ -98,7 +98,7 @@ export function Points({ canManage, overview, onChanged }: { canManage: boolean;
                 <option value="trafo_gi">{L('level_trafo_gi')}</option>
                 <option value="gd">{L('level_gd')}</option>
               </select>
-              <input className="input text-xs" placeholder="Nama" value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input className="input text-xs" placeholder={L('pt_name')} value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input
                 className="input text-xs"
                 placeholder={form.kind === 'feeder' ? `${L('pt_rating')} (A)` : form.kind === 'gd' ? L('pt_rating_kva') : `${L('pt_rating')} (MVA)`}
@@ -108,7 +108,7 @@ export function Points({ canManage, overview, onChanged }: { canManage: boolean;
               />
             </div>
             <p className="text-[11px] text-gray-500">
-              Kode yang sama dengan kode kubikel / trafo GI / gardu di GIS otomatis tertaut ke objeknya. Kode baru dari SCADA/AMR yang cocok dengan objek GIS didaftarkan otomatis (konfigurasi load.auto_register).
+              {L('pt_code_hint')}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" icon="check" loading={busy === 'save'} disabled={!form.code} onClick={save}>
@@ -157,9 +157,9 @@ export function Points({ canManage, overview, onChanged }: { canManage: boolean;
             )}
             <h3 className="pt-1 text-sm font-semibold text-gray-900">{L('pt_contract')}</h3>
             <p className="text-[11px] text-gray-500">
-              Topik <code className="rounded bg-gray-100 px-1">{overview?.topic || 'scada.load.30m'}</code> · satu objek atau array per pesan · <code>type</code> feeder / trafo_gi / gd · <code>ts</code> = awal periode 30 menit
-              (tanpa zona = WIB) · <code>v_r/v_s/v_t</code> antarfasa atau fasa-netral (kV) · energi kWh/kvarh per periode (mode{' '}
-              <code className="rounded bg-gray-100 px-1">{overview?.energy_mode || 'interval'}</code>; <code>cumulative</code> = register meter) · besaran yang tidak ada boleh dikosongkan.
+              {L('pt_topic')} <code className="rounded bg-gray-100 px-1">{overview?.topic || 'scada.load.30m'}</code> · {L('pt_c_msg')} · <code>type</code> feeder / trafo_gi / gd · <code>ts</code> {L('pt_c_ts')} ·{' '}
+              <code>v_r/v_s/v_t</code> {L('pt_c_v')} · {L('pt_c_energy')} <code className="rounded bg-gray-100 px-1">{overview?.energy_mode || 'interval'}</code>; <code>cumulative</code>{' '}
+              {L('pt_c_cum')}
             </p>
             <textarea className="input min-h-[80px] w-full font-mono text-[11px]" value={ingest} onChange={(e) => setIngest(e.target.value)} />
             <Button
@@ -246,7 +246,7 @@ export function Points({ canManage, overview, onChanged }: { canManage: boolean;
                   <tr key={p.id} className="border-b border-gray-100">
                     <td className="py-1">
                       <div className="font-medium text-gray-900">{p.code}</div>
-                      {p.node_id ? <div className="text-[10px] text-gray-500">#{p.node_id}</div> : <div className="text-[10px] text-amber-700">tanpa objek GIS</div>}
+                      {p.node_id ? <div className="text-[10px] text-gray-500">#{p.node_id}</div> : <div className="text-[10px] text-amber-700">{L('pt_no_obj')}</div>}
                     </td>
                     <td className="py-1">{L(`level_${p.kind}`)}</td>
                     <td className="py-1 text-gray-700">
@@ -261,7 +261,7 @@ export function Points({ canManage, overview, onChanged }: { canManage: boolean;
                       {p.kind === 'feeder' ? `${fmtNum(p.rating_a || 0)} A` : p.kind === 'gd' ? `${fmtNum((p.rating_mva || 0) * 1000)} kVA` : `${fmtNum(p.rating_mva || 0)} MVA`}
                     </td>
                     <td className="py-1">
-                      {!p.active ? <Badge tone="gray">nonaktif</Badge> : <span className={late ? 'text-amber-700' : 'text-gray-700'}>{fmtDT(p.last_ts)}</span>}
+                      {!p.active ? <Badge tone="gray">{L('pt_inactive')}</Badge> : <span className={late ? 'text-amber-700' : 'text-gray-700'}>{fmtDT(p.last_ts)}</span>}
                     </td>
                     <td className="py-1 text-right">
                       {canManage && (
