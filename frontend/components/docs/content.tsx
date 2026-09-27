@@ -160,6 +160,7 @@ const features = (
     <FeatureCard icon="🔋" title="Aliran Daya" items={['Backward/forward sweep per penyulang', 'Tegangan (pu), arus, pembebanan penghantar & trafo, susut', 'Skenario faktor beban, cos φ, tegangan kirim', 'Kalibrasi beban dari data SCADA']} />
     <FeatureCard icon="🔁" title="Pertukaran Data" items={['Ekspor/impor GeoJSON untuk diedit di QGIS', 'Pratinjau & rekap impor: baru/ubah/sama/galat per layer', 'Impor masuk paket perubahan (perlu persetujuan)', 'Ekspor File Geodatabase (GDB) per area']} />
     <FeatureCard icon="🏢" title="Master Data Unit" items={['PUSAT → REGION → UID/UP2B → UP3/UP2D → ULP', 'Alamat, koordinat, kontak, wilayah kerja', 'Kepemilikan aset (manual / otomatis dari lokasi)', 'Dipakai analisa pembebanan & susut per wilayah']} />
+    <FeatureCard icon="🌳" title="Master Data Aset" items={['Hirarki GI → trafo GI → penyulang → gardu → trafo → jurusan → pelanggan', 'Tampilan pohon (tree) & tabel data dengan jumlah pelanggan, beban, status', 'Cari objek lalu tampilkan posisinya di pohon', 'Filter tingkat, cakupan, status, unit pemilik; ekspor CSV']} />
     <FeatureCard icon="✨" title="AI Assistant" items={['Claude, ChatGPT, Kimi, OpenRouter', 'Menjawab dari data jaringan terkini (tool calling)', 'AI operasi: ringkasan gangguan, shift, laporan, beban']} />
     <FeatureCard icon="🛡️" title="Administrasi & Keamanan" items={['Pengguna, peran & izin granular, menu dinamis bertingkat', 'Identitas aplikasi: nama, deskripsi, logo', 'Login captcha, JWT HttpOnly, HTTPS, audit log', 'Tema terang/gelap (termasuk menu samping), Bahasa ID/EN']} />
   </div>
@@ -810,6 +811,24 @@ const guide: { group: string; items: GuideItem[] }[] = [
   {
     group: 'Master Data',
     items: [
+      {
+        id: 'g-assets',
+        title: 'Data aset (hirarki GI → pelanggan)',
+        img: 'master-assets',
+        intro: 'Master Data › Data Aset: seluruh aset jaringan dalam hirarki GI → trafo GI → penyulang → gardu distribusi → trafo distribusi → jurusan TR → pelanggan. Hirarki dihitung otomatis dari topologi (posisi normal switch), jadi selalu sesuai dengan data peta.',
+        steps: [
+          'Baris atas menampilkan jumlah aset per tingkat; klik salah satu untuk membuka tabelnya.',
+          'Tab Hirarki (tree): buka tingkat dengan panah; tiap baris memuat status, isi (jumlah anak), pelanggan (padam), beban tersambung, dan unit pemilik. Daftar panjang dimuat bertahap (Muat berikutnya).',
+          'Ketik kode / nama di kotak cari lalu pilih hasilnya: pohon dibuka sampai objek tersebut dan barisnya disorot. Objek pendukung (tiang, switch, saluran) diarahkan ke kelompok yang memuatnya.',
+          'Klik baris untuk melihat Rincian aset: rantai hulu, Lihat di peta, Buka SLD, dan tabel aset di bawahnya.',
+          'Tab Tabel data: pilih tingkat, cakupan, pencarian, status, dan unit pemilik (termasuk unit bawahannya); urutkan dengan klik judul kolom; Unduh CSV (maks. 100.000 baris).',
+        ],
+        tips: [
+          'Gardu tanpa trafo distribusi di data menampilkan jurusan langsung di bawah gardu; pelanggan TM tanpa jurusan tampil langsung di bawah gardu / penyulang.',
+          'Aset yang tidak tersambung ke GI dikelompokkan di “Tidak tersambung ke sumber” — periksa topologinya di Map Editor.',
+        ],
+        perm: 'master.view atau gis.view',
+      },
       {
         id: 'g-units',
         title: 'Unit & kepemilikan aset',

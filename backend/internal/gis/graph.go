@@ -63,6 +63,9 @@ type Graph struct {
 	sumGD    []GDStatus
 	sumSec   map[int64]SectionStat // kunci: id switch kepala zona / gardu / kepala penyulang
 	sumAt    time.Time
+
+	assetMu    sync.Mutex
+	assetCache *assetIndex // indeks hirarki aset (assets.go)
 }
 
 const (

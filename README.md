@@ -716,6 +716,33 @@ QuadranGIS dapat dipasang di ponsel sebagai **Progressive Web App** (`public/man
   Sertifikat self-signed pengembangan tidak diterima ponsel.
 - Push di iOS butuh iOS 16.4+ dan aplikasi yang sudah dipasang ke Layar Utama.
 
+## Master Data › Data Aset (hirarki GI → pelanggan)
+
+Menu **Data Aset** (`/master/assets`, migrasi `031_menu_asset_data.sql`, izin `master.view` atau
+`gis.view`) menampilkan seluruh aset dalam hirarki
+**GI → trafo GI → penyulang → gardu distribusi → trafo distribusi → jurusan TR → pelanggan**.
+
+- Hirarki diturunkan dari pengelompokan graf di memori (posisi normal switch) oleh
+  `internal/gis/assets.go`, dan disimpan sebagai indeks yang dibangun ulang malas. Indeks dibangun ulang
+  bila pengelompokan berubah; setelah manuver, paling cepat setiap 15 detik.
+- Pola data tanpa trafo distribusi (gardu → saluran TR → pelanggan) didukung: jurusan tampil langsung di
+  bawah gardu. Pelanggan tanpa jurusan tampil di bawah gardu / penyulang. Aset tanpa GI dikelompokkan di
+  "Tidak tersambung ke sumber".
+- **Tab Hirarki (tree)** dimuat bertahap (200 anak per permintaan). Isinya:
+  - status, jumlah anak, pelanggan (padam), beban tersambung, dan unit pemilik per aset;
+  - pencarian objek yang membuka jalur hirarki sampai objek tersebut;
+  - panel rincian (rantai hulu, peta, SLD, tabel di bawahnya).
+- **Tab Tabel data**:
+  - pilihan tingkat, cakupan (simpul pohon), pencarian kode/nama/SSOT, status, dan unit pemilik
+    (termasuk unit bawahannya, kepemilikan efektif);
+  - pengurutan kolom (hasil ≤ 60.000 baris), paging, dan ekspor CSV (≤ 100.000 baris).
+
+| Metode | Path | Keterangan |
+|---|---|---|
+| GET | `/api/assets/tree?kind=root\|gi\|trafo_gi\|feeder\|gd\|trafo\|route\|none&id=&offset=&limit=&around=` | anak langsung satu simpul hirarki (`counts` per tingkat pada root) |
+| GET | `/api/assets/table?level=&scope_kind=&scope_id=&q=&state=&unit=&sort=&dir=&offset=&limit=&format=csv` | tabel aset per tingkat |
+| GET | `/api/assets/locate?kind=node\|edge&id=` | jalur hirarki dari akar sampai objek |
+
 ## Analisa Beban & Energi (load profile) trafo GI, penyulang & gardu dari SCADA/AMR
 
 Menu **Analisa Beban & Energi** (`/load`, sebelumnya "Pembebanan"; migrasi `027_load_profile.sql` dan `028_load_energy_losses.sql`,

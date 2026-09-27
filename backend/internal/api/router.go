@@ -193,6 +193,13 @@ func NewRouter(d *Deps) *gin.Engine {
 	un.DELETE("/:id", middleware.RequirePermission("master.manage"), s.unitsDelete)
 	un.POST("/auto-assign", middleware.RequirePermission("master.manage"), s.unitsAutoAssign)
 
+	// master data aset: hirarki GI → trafo GI → penyulang → gardu → trafo → jurusan → pelanggan
+	as := authed.Group("/assets")
+	as.Use(middleware.RequireAnyPermission("master.view", "gis.view"))
+	as.GET("/tree", s.assetsTree)
+	as.GET("/table", s.assetsTable)
+	as.GET("/locate", s.assetsLocate)
+
 	gt := authed.Group("/gis")
 	gt.Use(middleware.RequirePermission("gis.trace"))
 	gt.POST("/trace", s.gisTrace)
