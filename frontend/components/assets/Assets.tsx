@@ -509,7 +509,7 @@ export default function Assets() {
                 )}
                 {sel.kind !== 'none' && (
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    <a className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-gray-800 hover:bg-gray-50" href={`/map?select=${featOf(sel)}`}>
+                    <a className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-gray-800 hover:bg-gray-50" href={`/monitoring?select=${featOf(sel)}`}>
                       <Icon name="map" size={12} /> {A('show_map')}
                     </a>
                     <a className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-gray-800 hover:bg-gray-50" href={`/sld?focus=${featOf(sel)}`}>
@@ -645,7 +645,7 @@ export default function Assets() {
                         <button className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-brand-700" title={A('show_tree')} aria-label={A('show_tree')} onClick={() => locate(r.kind === 'route' ? 'edge' : 'node', r.id)}>
                           <Icon name="diagram" size={13} />
                         </button>
-                        <a className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-brand-700" title={A('show_map')} aria-label={A('show_map')} href={`/map?select=${featOf(r)}`}>
+                        <a className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-brand-700" title={A('show_map')} aria-label={A('show_map')} href={`/monitoring?select=${featOf(r)}`}>
                           <Icon name="map" size={13} />
                         </a>
                         {childLevel(r.kind) && r.children > 0 && (

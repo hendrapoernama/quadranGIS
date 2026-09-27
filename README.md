@@ -731,7 +731,7 @@ Menu **Data Aset** (`/master/assets`, migrasi `031_menu_asset_data.sql`, izin `m
 - **Tab Hirarki (tree)** dimuat bertahap (200 anak per permintaan). Isinya:
   - status, jumlah anak, pelanggan (padam), beban tersambung, dan unit pemilik per aset;
   - pencarian objek yang membuka jalur hirarki sampai objek tersebut;
-  - panel rincian (rantai hulu, peta, SLD, tabel di bawahnya).
+  - panel rincian (rantai hulu, peta Pusat Operasi, SLD, tabel di bawahnya).
 - **Tab Tabel data**:
   - pilihan tingkat, cakupan (simpul pohon), pencarian kode/nama/SSOT, status, dan unit pemilik
     (termasuk unit bawahannya, kepemilikan efektif);

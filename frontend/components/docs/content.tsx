@@ -820,7 +820,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
           'Baris atas menampilkan jumlah aset per tingkat; klik salah satu untuk membuka tabelnya.',
           'Tab Hirarki (tree): buka tingkat dengan panah; tiap baris memuat status, isi (jumlah anak), pelanggan (padam), beban tersambung, dan unit pemilik. Daftar panjang dimuat bertahap (Muat berikutnya).',
           'Ketik kode / nama di kotak cari lalu pilih hasilnya: pohon dibuka sampai objek tersebut dan barisnya disorot. Objek pendukung (tiang, switch, saluran) diarahkan ke kelompok yang memuatnya.',
-          'Klik baris untuk melihat Rincian aset: rantai hulu, Lihat di peta, Buka SLD, dan tabel aset di bawahnya.',
+          'Klik baris untuk melihat Rincian aset: rantai hulu, Lihat di peta Pusat Operasi, Buka SLD, dan tabel aset di bawahnya.',
           'Tab Tabel data: pilih tingkat, cakupan, pencarian, status, dan unit pemilik (termasuk unit bawahannya); urutkan dengan klik judul kolom; Unduh CSV (maks. 100.000 baris).',
         ],
         tips: [
