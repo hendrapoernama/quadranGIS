@@ -7,6 +7,7 @@ import type { FeatureCollection, GeoFeature, Outage } from '@/lib/types';
 import { Badge, Button, Spinner, useToast } from '@/components/ui';
 import { useOpsT } from './i18n';
 import { SimView, codeOf } from './SimView';
+import { FaultLocate } from './FaultLocate';
 import type { Codes, FlisrResult, FlisrSection, SimAction } from './types';
 
 interface Props {
@@ -139,6 +140,16 @@ export function FlisrTab({ picked, canPlan, refreshKey, onOverlay, onSelect, onP
           {o('flisr_from_pick')}: {pickedLabel}
         </Button>
       )}
+
+      {/* estimasi lokasi gangguan dari arus relai */}
+      <FaultLocate
+        deviceId={outage && outage.cause_kind !== 'edge' ? outage.cause_node_id : null}
+        deviceCode={outage?.cause_node_code}
+        picked={picked}
+        onOverlay={onOverlay}
+        onSelect={onSelect}
+        onAnalyze={analyze}
+      />
 
       {/* kandidat seksi */}
       {outage && (

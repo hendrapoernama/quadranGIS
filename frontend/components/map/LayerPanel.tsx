@@ -7,7 +7,7 @@ import type { ComponentType } from '@/lib/types';
 import { Button, useToast } from '@/components/ui';
 import { fmtNum } from '@/lib/format';
 import type { BasemapPref, ColorMode } from './types';
-import { OFF_STATUS, ON_STATUS } from './mapStyle';
+import { INACTIVE_COLOR, OFF_STATUS, ON_STATUS } from './mapStyle';
 import { SymbolSwatch, isSymbol } from './symbols';
 
 interface Props {
@@ -122,6 +122,9 @@ export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labe
               </span>
               <span className="flex items-center gap-1">
                 <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600 bg-white" /> {t('layers.legend_open')}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: INACTIVE_COLOR }} /> {t('layers.legend_inactive')}
               </span>
             </div>
           </div>

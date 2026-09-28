@@ -335,7 +335,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       },
       center: [lng, lat],
       zoom,
-      maxZoom: 22,
+      maxZoom: 24, // di atas 22 tile vektor di-overzoom: garis rapat (jalur tiang bersama) dapat dipisahkan
       attributionControl: {},
       transformRequest: (url) => {
         if (url.includes('/api/gis/tiles/')) {

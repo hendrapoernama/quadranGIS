@@ -333,9 +333,51 @@ Migrasi `014_equipment_operate.sql`:
   menjadi satu jurusan. Popup switch jurusan menampilkan rekap pelanggan jurusan itu,
   rak TR menampilkan rekap seluruh jurusannya. Level kejadian: rak TR → trafo gardu
   distribusi, switch jurusan → jurusan TR.
+- **Objek pendukung wajib tidak terhubung** — migrasi `036_support_not_connected.sql`: tipe berkategori
+  *pendukung* (tiang TM, tiang TR) wajib `topology = false` (constraint `component_types_support_no_topology`).
+  Trigger basis data menolak saluran yang berujung di objek non-topologi dan menolak perubahan tipe objek yang
+  masih tersambung menjadi tipe pendukung, sehingga berlaku untuk semua jalur (editor, impor, rilis paket,
+  skrip). Editor dan Pengaturan Layer memberi pesan yang jelas; centang topologi tipe pendukung terkunci.
+- **Lokasi gangguan dari arus relai** — migrasi `039_fault_location.sql`, `internal/gis/faultloc.go`,
+  panel di Pusat Operasi › FLISR. Dari alat yang trip, arus hubung singkat dihitung menyusuri jaringan TM
+  hilirnya (topologi normal, berhenti di tie normally-open dan sisi TR):
+  - 3 fasa `I = Vf / |Z1s + Z1l + Rf|`, fasa-fasa `I = √3·Vf / |2(Z1s + Z1l) + Rf|`,
+    fasa-tanah `I = 3·Vf / |2(Z1s + Z1l) + (Z0s + Z0l) + 3(R_NGR + Rf)|`;
+  - Z1s dari daya hubung singkat busbar TM (atribut `daya_hs_mva` trafo GI / GI, atau `fault.source_mva`),
+    Z1l dari parameter penghantar aliran daya (per tipe / per saluran), Z0l = `fault.z0_ratio` × Z1l;
+  - jenis gangguan dapat dideteksi otomatis dari Ia/Ib/Ic/In; kandidat = titik tempat arus hitungan sama dengan
+    arus terukur (bisa beberapa pada jaringan bercabang), dengan rentang toleransi `fault.tol_pct`;
+  - `POST /api/ops/fault-locate` (hasil + GeoJSON overlay), `GET /api/ops/fault-locate/defaults?device_id=`.
+- **Pelanggan kolektif (bulk customer)** — migrasi `038_pelanggan_kolektif.sql`: tipe `pelanggan_bulk`
+  (kategori *pelanggan*, sink, simbol `sym_bulk`). Atribut `jumlah_pelanggan` (wajib) dan `daya_kva` (total daya
+  tersambung), tarif dominan, IDPEL induk, kawasan, alamat. Graf menandai node kolektif dengan `flagBulk` dan
+  menyimpan jumlahnya di peta kecil `Graph.bulkN` (tanpa menambah memori per node); `custLocked` memberi bobot
+  pelanggan pada rekap Pusat Operasi, ringkasan kejadian padam (SAIDI / SAIFI / ENS), trace, FLISR, simulasi
+  manuver, SLD, Data Aset, dan cakupan tagihan susut gardu → pelanggan. Beban memakai total daya. Data contoh:
+  `PLG-KOL-GMB-01-1` (Rusun Kemayoran Blok A, 120 pelanggan, 250 kVA).
+- **PMT, PMS & busbar gardu** — migrasi `037_pmt_pms_busbar_gardu.sql` untuk gardu beton / gardu hubung:
+  - `pmt_20kv` (PMT / pemutus tenaga, simbol `sym_pmt`) dan `pms_20kv` (PMS / pemisah, simbol `sym_pms`):
+    alat switching TM (izin `power.switch_tm`). Atribut **Pembatas zona** (Ya / Tidak) per objek: Ya = membentuk
+    zona seperti recloser / LBS, Tidak = hanya pemutus (tidak membentuk zona). Bawaan bila kosong: PMT = Ya,
+    PMS = Tidak (flag graf `flagNoZone`). PMT / PMS yang menempel ke gardu atau trafo dihitung milik gardu itu.
+  - Level kejadian PMT / PMS menurut dampak: zona (ada gardu terdampak) → trafo gardu → pelanggan.
+  - `busbar_gardu` (rel TM di dalam gardu, impedansi nol): **terpisah** dari `busbar` GI — tidak menandai kepala
+    penyulang dan tidak memberi level kejadian trafo GI; saluran busbar gardu tidak melepas penanda gardu.
+  - Pemodelan yang disarankan: titik gardu (GH / GD) bertindak sebagai busbar; PMT / PMS disisipkan pada kabel
+    masuk / keluar dekat gardu. Busbar gardu dipakai bila rel di dalam gardu digambar rinci.
+  - Data contoh: PMT (pembatas zona) pada kabel keluar GH-GMB-01, PMS (hanya pemutus) pada kabel keluar GH-GMB-03.
+- **FCO (Fuse Cut Out)** — migrasi `035_fco.sql`: tipe `fco` (kategori *pengaman*, 20 kV, alat
+  switching, simbol `sym_fco`: tabung fuse berengsel yang jatuh miring saat terbuka / putus). Atribut:
+  fungsi (Trafo / Percabangan), jenis & rating fuse link, merek, posisi normal, tahun. Data contoh: satu
+  FCO pada kabel gardu → trafo di setiap trafo distribusi (`FCO-<kode>`).
+  - **FCO trafo** (bertetangga langsung dengan trafo distribusi) termasuk gardu: tidak membentuk zona dan
+    tidak melepas penanda gardu, sehingga hirarki aset, SLD gardu, dan susut gardu tetap utuh. Level
+    kejadian saat dibuka: trafo gardu distribusi.
+  - **FCO percabangan** (di saluran cabang TM) membentuk zona seperti LBS; level kejadian: zona.
+  - Operasi memakai izin `power.switch_tm`; fuse putus dicatat sebagai *Buka* dengan kategori GANGGUAN.
 - **Simbol standar kelistrikan** (gaya diagram satu garis IEC 60617): sumber AC, gardu
   induk, gardu hubung, gardu distribusi, transformator (dua lingkaran), pemutus tenaga /
-  kubikel, recloser, LBS 2/3 arah, switch jurusan (NH fuse), rak TR (busbar), tiang,
+  kubikel, recloser, LBS 2/3 arah, FCO, switch jurusan (NH fuse), rak TR (busbar), tiang,
   dan pelanggan (rumah). Alat switching punya varian **terbuka** (kotak berongga / pisau
   miring). Simbol digambar sebagai ikon SDF sehingga tetap berwarna per tipe atau
   nyala/padam, dengan tepi merah bila padam / terbuka. Simbol per tipe dapat diganti di
@@ -370,7 +412,7 @@ Migrasi `014_equipment_operate.sql`:
 
   | Izin | Untuk |
   |---|---|
-  | `power.switch_tm` | buka / tutup alat switching TM (kubikel, recloser, LBS) |
+  | `power.switch_tm` | buka / tutup alat switching TM (kubikel, recloser, LBS, FCO, PMT, PMS) |
   | `power.switch_tr` | buka / tutup switch jurusan TR |
   | `power.energize_tm` | energize / deenergize objek & saluran TM (GI, GD, SUTM, SKTM, ...) |
   | `power.energize_tr` | energize / deenergize objek & saluran TR (trafo distribusi, rak TR, SKUTR, SR, pelanggan) |
@@ -463,6 +505,54 @@ manuver & kejadian padam yang sudah ada.
   berlaku setelah disetujui & dirilis.
 - API: `POST /api/exchange/export {format: geojson|gdb, dry, bbox|polygon, types, energized}`,
   `POST /api/exchange/import?apply=0|1` (badan GeoJSON).
+
+## Energize / de-energize dari sistem eksternal lewat Kafka
+
+- Sistem eksternal (SCADA, DMS, AMI, ...) mengirim JSON ke topik `scada.switch.events` (konfigurasi
+  `scada.switch_topic`, consumer group `scada.switch_group`; ubah = mulai ulang backend). Kunci pesan
+  sebaiknya kode objek agar urutan perintah satu objek terjaga.
+- Kolom (nama fleksibel ID / EN, diurai `internal/switchcmd`): `code` / `kode` / `name` / `nama` (atau `id`),
+  `type` / `jenis` (kode / nama tipe), `status` open | close (juga buka / tutup, off / on, trip,
+  deenergize / energize), `outage_category` / `kategori` (wajib untuk open), `timestamp` / `tanggal`
+  (ISO 8601, "YYYY-MM-DD HH:MM:SS" WIB, epoch), `event_id` (anti duplikat), `note`, `source`.
+- Objek dicari dari kode / nama / kode SSOT / IDPEL (+ jenis); dijalankan lewat `execManeuver` — jalur
+  yang sama dengan operator (kejadian padam, SAIDI / SAIFI, SOE kanal `kafka`, notifikasi, audit);
+  tanggal dipakai sebagai waktu manuver / mulai / selesai padam / SOE. Status yang sudah sama diabaikan.
+- Log di tabel `switch_events` (applied | skipped | duplicate | error); halaman **Administrasi → Integrasi
+  Kafka**: status, format, uji kirim (Kafka / langsung), log. API: `GET /api/admin/switch-events`,
+  `POST /api/admin/switch-events/test?mode=kafka|direct`.
+
+## Impor Esri File Geodatabase PLN (GDB)
+
+- **Administrasi → Impor GDB** (izin `admin.config`): unggah ZIP berisi folder `*.gdb`
+  (maks. 1 GB) + tag batch. Job latar belakang: ekstrak → cek 18 layer wajib → `ogr2ogr`
+  PGDump → `psql` ke skema `stg_<tag>` → `backend/internal/gdbimport/import_staging.sql`
+  (satu transaksi) → unit pemilik dari lokasi (opsional) → hapus staging (opsional simpan)
+  → muat ulang graf.
+- Pemetaan tipe, pemotongan garis di simpul (grid 1 cm), tiang sebagai objek pendukung,
+  dan kepala penyulang sintesis di GI dijelaskan di kepala skrip SQL.
+- Objek bertanda `properties.import = <tag>`; tag sama = ganti batch. Riwayat di tabel
+  `gdb_imports`; indeks parsial `gis_nodes_import_idx` / `gis_edges_import_idx`.
+- Impor langsung, **tidak** melalui alur persetujuan.
+- Denah gardu miniatur (skematik GDB, median ±1,6 m; komponen berjarak cm) diperbesar dengan
+  `SELECT * FROM qgis_expand_gardu_layout('<tag>', 10, 25)` (migrasi 044; target 10 m dibatasi 90% jarak ke
+  gardu terdekat, skala maks. 25×) agar simbol tidak menumpuk di zoom 24. Posisi asli node / saluran di
+  `gis_layout_backup` (kind, id, geom, footprint, length_m, tag); gardu bertanda `properties.denah_skala`.
+  Mengembalikan: `UPDATE gis_nodes n SET geom = b.geom, footprint = COALESCE(b.footprint, n.footprint),
+  properties = n.properties - 'denah_skala' FROM gis_layout_backup b WHERE b.kind = 'node' AND b.id = n.id AND b.tag = '<tag>'`
+  (dan serupa untuk `gis_edges` dengan `geom`, `length_m`), lalu naikkan versi tile.
+- Status GDB `INACTIVE` → `status_operasi = "Non aktif"`, `DECOMMISSIONED` → `"Bongkar"` (gardu, trafo,
+  PHB-TR, pelanggan; nilai asli di `gdb_status`); pelanggan tanpa SR → `"Tidak operasi"`; gardu berkode /
+  bernomor mengandung kata `REN` / `RENCANA` → `"Rencana"`. Atribut `status_operasi` (Operasi / Rencana /
+  Non aktif / Tidak operasi / Bongkar, semua objek titik bertopologi) mengecualikan objek dari rekap graf (dilewati di rekap nyala /
+  padam & dampak kejadian; pelanggan bukan sink), rekap wilayah, dan daftar pelanggan; di tile peta
+  properti `nonaktif` → abu-abu. Kondisi SQL bersama: `gis.SQLNonOperating`.
+- API: `POST /api/admin/gdb-import?tag=&name=&assign_units=1&keep_staging=0` (badan ZIP),
+  `GET /api/admin/gdb-import/status`, `GET /api/admin/gdb-import/batches`,
+  `DELETE /api/admin/gdb-import/batches/:tag?apply=0|1`.
+- `POST /api/units/auto-assign` menerima `import_tag` untuk membatasi penetapan unit ke satu batch.
+- Manual (tanpa UI): muat layer ke skema staging lalu
+  `psql -v src=stg_x -v tag=X -f backend/internal/gdbimport/import_staging.sql`.
 
 ## Single Line Diagram (SLD) otomatis
 

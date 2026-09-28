@@ -46,7 +46,7 @@ func (b *Boundaries) Regions(ctx context.Context, totalCustomers int) ([]Region,
 	defer regCache.mu.Unlock()
 	if regCache.list == nil || time.Since(regCache.at) > 10*time.Minute {
 		rows, err := b.pool.Query(ctx, `SELECT b.id, b.level, b.code, b.name, b.parent, ST_Area(b.geom::geography) / 1e6,
-			CASE WHEN b.level = 'ulp' THEN (SELECT count(*) FROM gis_nodes n WHERE n.type_code LIKE 'pelanggan%' AND ST_Intersects(b.geom, n.geom)) ELSE 0 END
+			CASE WHEN b.level = 'ulp' THEN (SELECT count(*) FROM gis_nodes n WHERE n.type_code LIKE 'pelanggan%' AND NOT `+SQLNonOperating+` AND ST_Intersects(b.geom, n.geom)) ELSE 0 END
 			FROM gis_boundaries b ORDER BY b.level DESC, b.parent, b.name`)
 		if err != nil {
 			return nil, err
@@ -89,7 +89,7 @@ func (b *Boundaries) Regions(ctx context.Context, totalCustomers int) ([]Region,
 	totalOff := 0
 	rows, err := b.pool.Query(ctx, `SELECT COALESCE(b.id, 0), count(*) FROM gis_nodes n
 		LEFT JOIN gis_boundaries b ON b.level = 'ulp' AND ST_Intersects(b.geom, n.geom)
-		WHERE NOT n.energized AND n.type_code LIKE 'pelanggan%' GROUP BY 1`)
+		WHERE NOT n.energized AND n.type_code LIKE 'pelanggan%' AND NOT `+SQLNonOperating+` GROUP BY 1`)
 	if err == nil {
 		for rows.Next() {
 			var id int64

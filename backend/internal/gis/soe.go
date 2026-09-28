@@ -41,7 +41,8 @@ type SOEEvent struct {
 const soeCols = `id, ts, category, event, severity, target_kind, target_id, target_code, target_type, way_edge_id, kind, level,
 	feeder_code, customers, load_va, nodes, duration_sec, maneuver_id, outage_id, username, note, user_id::text, full_name, role, client_ip, channel`
 
-// InsertSOE menyimpan event; ID dan cap waktu (clock_timestamp, presisi mikrodetik) diisi ke e.
+// InsertSOE menyimpan event; ID dan cap waktu (clock_timestamp, presisi mikrodetik) diisi ke e. e.TS yang sudah diisi
+// (waktu kejadian dari sistem eksternal) dipakai apa adanya.
 func (p *Power) InsertSOE(ctx context.Context, e *SOEEvent) error {
 	if e.Severity == "" {
 		e.Severity = "info"
@@ -54,11 +55,11 @@ func (p *Power) InsertSOE(ctx context.Context, e *SOEEvent) error {
 	}
 	return p.pool.QueryRow(ctx, `INSERT INTO soe_events (category, event, severity, target_kind, target_id, target_code, target_type,
 		way_edge_id, kind, level, feeder_code, customers, load_va, nodes, duration_sec, maneuver_id, outage_id, username, note,
-		user_id, full_name, role, client_ip, channel)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::uuid,$21,$22,$23,$24) RETURNING id, ts`,
+		user_id, full_name, role, client_ip, channel, ts)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::uuid,$21,$22,$23,$24, COALESCE($25, clock_timestamp())) RETURNING id, ts`,
 		e.Category, e.Event, e.Severity, e.TargetKind, e.TargetID, e.TargetCode, e.TargetType, e.WayEdgeID, e.Kind, e.Level,
 		e.FeederCode, e.Customers, e.LoadVA, e.Nodes, e.DurationSec, e.ManeuverID, e.OutageID, e.Username, e.Note,
-		e.UserID, e.FullName, e.Role, e.ClientIP, e.Channel).Scan(&e.ID, &e.TS)
+		e.UserID, e.FullName, e.Role, e.ClientIP, e.Channel, timeOrNil(e.TS)).Scan(&e.ID, &e.TS)
 }
 
 // SOEFilter menyaring daftar SOE.

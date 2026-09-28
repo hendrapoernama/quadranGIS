@@ -387,6 +387,11 @@ export const en: Dict = {
   'feature.energized': 'Power state',
   'feature.on': 'ENERGIZED',
   'feature.off': 'DE-ENERGIZED',
+  'feature.op_rencana': 'PLANNED',
+  'feature.op_non_aktif': 'INACTIVE',
+  'feature.op_tidak_operasi': 'NOT OPERATING',
+  'feature.op_bongkar': 'DISMANTLED',
+  'feature.op_hint': 'Operating status — not counted in the energized / outage recap',
   'feature.device_open': 'DEVICE OPEN',
   'feature.not_in_graph': 'Not part of the network topology (supporting object)',
   'feature.feeder': 'Feeder',
@@ -411,7 +416,7 @@ export const en: Dict = {
   'feature.status_switch_hint': 'Switching devices are operated through the maneuver box below so outage state and events are recorded.',
   'map.maneuver_event': 'Maneuver: {msg}',
   'map.energized_event': 'Energized state updated',
-  'help.step_maneuver': 'Maneuvers: select a recloser / LBS / cubicle → in the Feature panel pick the kind (GANGGUAN, PEMELIHARAAN, MLS) and Open or Close; downstream objects are de-energized/energized automatically and recorded in the Operations Center. A 3-way LBS can be opened per way.',
+  'help.step_maneuver': 'Maneuvers: in the Operations Center or SLD select a recloser / LBS / FCO / circuit breaker / disconnector / cubicle → pick the kind (GANGGUAN, PEMELIHARAAN, MLS) and Open or Close; downstream objects are de-energized/energized automatically and recorded in the Operations Center. A 3-way LBS can be opened per way.',
 
   // ---- layer coloring
   'layers.color_mode': 'Coloring',
@@ -420,6 +425,7 @@ export const en: Dict = {
   'layers.legend_on': 'energized',
   'layers.legend_off': 'de-energized',
   'layers.legend_open': 'open switch',
+  'layers.legend_inactive': 'planned / inactive / dismantled',
 
   // ---- layer settings (additions)
   'layerspage.topology': 'Topology',
@@ -431,6 +437,7 @@ export const en: Dict = {
   'layerspage.attributes_invalid': 'Invalid JSON (must be an array)',
   'layerspage.apply': 'Apply',
   'layerspage.support': 'support',
+  'layerspage.support_locked': 'Support objects (poles etc.) must not be connected to the electrical network: topology is always off',
 
   // ---- power monitoring
   'power.title': 'Operations Center',
@@ -446,6 +453,7 @@ export const en: Dict = {
   'power.trafo_gd': 'Distribution transformers',
   'power.customers': 'Customers',
   'power.load': 'Load',
+  'power.bulk_customers': 'bulk {n} customers',
   'power.on': 'on',
   'power.off': 'off',
   'power.partial': 'partial',
@@ -749,7 +757,7 @@ export const en: Dict = {
   'sld.search_feeder': 'Search feeder...',
   'sld.search_gi': 'Search substation...',
   'sld.search_gd': 'Search distribution substation...',
-  'sld.search_node': 'Search object (recloser, LBS, substation, ...)...',
+  'sld.search_node': 'Search object (recloser, LBS, FCO, CB, substation, ...)...',
   'sld.area_hint': 'Draw a polygon on the map: objects inside are drawn in full, the upstream path to the source is condensed, and network leaving the area becomes off-page connectors.',
   'sld.area_draw': 'Draw polygon',
   'sld.area_drawing': 'Click points, double-click to finish',
@@ -807,7 +815,6 @@ export const en: Dict = {
   'sld.warn_graph_loading': 'The network graph is still loading / grouping after a server restart; the diagram may be incomplete and will be rebuilt automatically.',
   'power.filter_all': 'All',
   'power.updated': 'Updated {time}',
-  'power.open_in_map': 'Open in Network Map',
   'power.graph_loading': 'Network graph is loading; the summary is not available yet.',
   'cs.op_create': 'New object (proposed)',
   'cs.op_update': 'Proposed change',
@@ -859,6 +866,7 @@ export const en: Dict = {
   'soe.channel_sld': 'SLD',
   'soe.channel_rencana': 'switching plan',
   'soe.channel_api': 'API',
+  'soe.channel_kafka': 'Kafka (external system)',
   'soe.channel_sistem': 'system',
   'soe.filter_user': 'Operator (username)',
   'xchg.preview_title': 'Import preview',

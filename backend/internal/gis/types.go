@@ -149,6 +149,21 @@ func (t *Types) Update(ctx context.Context, lang i18n.Lang, ct models.ComponentT
 	if ct.Ways < 0 || ct.Ways > 8 {
 		ct.Ways = 0
 	}
+	// objek pendukung (tiang dsb.) wajib tidak terhubung ke jaringan listrik
+	cur, _ := t.Get(ct.Code)
+	if cur.Category == "pendukung" && ct.Topology {
+		return errors.New(i18n.T(lang, "admin.support_topology"))
+	}
+	if cur.Topology && !ct.Topology {
+		var n int
+		if err := t.pool.QueryRow(ctx, `SELECT count(*) FROM gis_nodes n WHERE n.type_code = $1
+			AND EXISTS (SELECT 1 FROM gis_edges e WHERE e.from_node_id = n.id OR e.to_node_id = n.id)`, ct.Code).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			return errors.New(i18n.T(lang, "admin.topology_in_use", n))
+		}
+	}
 	_, err := t.pool.Exec(ctx, `UPDATE component_types SET name=$2, name_en=$3, color=$4, icon=$5, min_zoom=$6, label_zoom=$7, size=$8,
 		sort_order=$9, is_active=$10, voltage_kv=$11, footprint_size_m=$12, topology=$13, ways=$14, attributes=$15 WHERE code=$1`,
 		ct.Code, ct.Name, ct.NameEN, ct.Color, ct.Icon, ct.MinZoom, ct.LabelZoom, ct.Size, ct.SortOrder, ct.IsActive, ct.VoltageKV, ct.FootprintSizeM,

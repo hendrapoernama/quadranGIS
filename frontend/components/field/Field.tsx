@@ -33,7 +33,7 @@ interface NearbyItem {
 
 const TYPE_GROUPS: Record<string, string[]> = {
   gd: ['gd', 'gh', 'trafo_distribusi', 'rak_tr', 'gi', 'trafo_gi'],
-  switch: ['recloser', 'lbs_2way', 'lbs_3way', 'kubikel_20kv', 'switch_jurusan_tr'],
+  switch: ['recloser', 'lbs_2way', 'lbs_3way', 'fco', 'pmt_20kv', 'pms_20kv', 'kubikel_20kv', 'switch_jurusan_tr'],
   pole: ['tiang_tm', 'tiang_tr'],
   customer: ['pelanggan_tr', 'pelanggan_tm', 'pelanggan_tt'],
 };

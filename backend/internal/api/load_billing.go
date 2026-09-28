@@ -141,6 +141,7 @@ func (s *Server) evalLV(ctx context.Context, period time.Time, lag int) (*lvResu
 		nodes = append(nodes, id)
 	}
 	gds, feeders := s.d.Graph.SinkGroups(nodes)
+	cnts := s.d.Graph.SinkCounts(nodes) // pelanggan kolektif mewakili banyak pelanggan
 	rows := map[int64]*lvRow{}
 	get := func(gd int64) *lvRow {
 		r := rows[gd]
@@ -158,9 +159,13 @@ func (s *Server) evalLV(ctx context.Context, period time.Time, lag int) (*lvResu
 		}
 		r := get(gds[i])
 		r.SoldKWh += byNode[id]
-		r.Billed++
+		c := cnts[i]
+		if c < 1 {
+			c = 1
+		}
+		r.Billed += c
 		if byNode[id] <= 0 {
-			r.ZeroKWh++
+			r.ZeroKWh += c
 		}
 		if r.Feeder == 0 {
 			r.Feeder = feeders[i]

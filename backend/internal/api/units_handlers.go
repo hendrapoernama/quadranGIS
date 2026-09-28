@@ -96,21 +96,22 @@ func (s *Server) unitsOwner(c *gin.Context) {
 	ok(c, o)
 }
 
-// POST /api/units/auto-assign {apply, overwrite} — tetapkan pemilik aset dari lokasi (pratinjau bila apply=false)
+// POST /api/units/auto-assign {apply, overwrite, import_tag} — tetapkan pemilik aset dari lokasi (pratinjau bila apply=false)
 func (s *Server) unitsAutoAssign(c *gin.Context) {
 	var req struct {
-		Apply     bool `json:"apply"`
-		Overwrite bool `json:"overwrite"`
+		Apply     bool   `json:"apply"`
+		Overwrite bool   `json:"overwrite"`
+		ImportTag string `json:"import_tag"`
 	}
 	_ = c.ShouldBindJSON(&req)
-	res, err := s.d.Units.AutoAssign(c.Request.Context(), req.Apply, req.Overwrite)
+	res, err := s.d.Units.AutoAssign(c.Request.Context(), req.Apply, req.Overwrite, req.ImportTag)
 	if err != nil {
 		handleErr(c, err)
 		return
 	}
 	if req.Apply {
 		p := s.person(c)
-		s.d.Audit.Log(&p.UserID, p.Username, "unit.auto_assign", "unit", "", gin.H{"total": res.Total, "overwrite": req.Overwrite}, clientIP(c))
+		s.d.Audit.Log(&p.UserID, p.Username, "unit.auto_assign", "unit", "", gin.H{"total": res.Total, "overwrite": req.Overwrite, "import_tag": req.ImportTag}, clientIP(c))
 		s.afterUnitsChanged()
 	}
 	ok(c, res)

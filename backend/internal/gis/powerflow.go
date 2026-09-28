@@ -37,12 +37,13 @@ type LineParam struct {
 
 // DefaultLineParams adalah nilai tipikal penghantar PLN (dapat diubah lewat konfigurasi).
 var DefaultLineParams = map[string]LineParam{
-	"sktm":   {R: 0.125, X: 0.097, Ampacity: 400},   // XLPE 3x240 mm2 Al
-	"sutm":   {R: 0.2162, X: 0.3305, Ampacity: 425}, // AAAC 150 mm2
-	"skutr":  {R: 0.443, X: 0.100, Ampacity: 196},   // LVTC 3x70+50 mm2
-	"sktr":   {R: 0.268, X: 0.080, Ampacity: 206},   // NYFGbY 4x70 mm2
-	"sr":     {R: 3.08, X: 0.100, Ampacity: 54},     // NFA2X 2x10 mm2
-	"busbar": {R: 0, X: 0, Ampacity: 2000},
+	"sktm":         {R: 0.125, X: 0.097, Ampacity: 400},   // XLPE 3x240 mm2 Al
+	"sutm":         {R: 0.2162, X: 0.3305, Ampacity: 425}, // AAAC 150 mm2
+	"skutr":        {R: 0.443, X: 0.100, Ampacity: 196},   // LVTC 3x70+50 mm2
+	"sktr":         {R: 0.268, X: 0.080, Ampacity: 206},   // NYFGbY 4x70 mm2
+	"sr":           {R: 3.08, X: 0.100, Ampacity: 54},     // NFA2X 2x10 mm2
+	"busbar":       {R: 0, X: 0, Ampacity: 2000},
+	"busbar_gardu": {R: 0, X: 0, Ampacity: 1250},
 }
 
 // PFParams adalah parameter perhitungan.
@@ -784,4 +785,15 @@ func (pf *PowerFlow) GeoJSON(ctx context.Context, r PFResult) (map[string]any, e
 	}
 	rows.Close()
 	return map[string]any{"type": "FeatureCollection", "features": features}, rows.Err()
+}
+
+// LineModel mengembalikan parameter penghantar per tipe dan parameter khusus per saluran
+// (dipakai juga untuk estimasi lokasi gangguan).
+func (pf *PowerFlow) LineModel(ctx context.Context) (map[string]LineParam, map[int64]LineParam, error) {
+	p := pf.Params()
+	ov, err := pf.overrides(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return p.Lines, ov.Lines, nil
 }

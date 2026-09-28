@@ -158,7 +158,8 @@ func main() {
 		Types: types, Tiles: tiles, Features: features, Graph: graph, Power: power, PowerFlow: powerFlow, Boundaries: boundaries, SLD: sld, Ops: gis.NewOps(pool),
 		Exec: gis.NewExec(pool), Field: gis.NewField(pool), Units: gis.NewUnits(pool, configs), Changes: gis.NewChanges(pool, configs, features), Hub: hub, Producer: producer, Collector: collector, HTTPMetrics: httpMetrics,
 	}
-	api.StartLoad(ctx, deps) // pembebanan SCADA: konsumer Kafka, simulator, pekerjaan terjadwal
+	api.StartLoad(ctx, deps)         // pembebanan SCADA: konsumer Kafka, simulator, pekerjaan terjadwal
+	api.StartSwitchEvents(ctx, deps) // energize / de-energize dari sistem eksternal (Kafka)
 	router := api.NewRouter(deps)
 	api.StartExecScheduler(ctx, deps)
 	go func() { // wilayah UP3/ULP untuk kejadian padam lama (sesudah migrasi 023)

@@ -146,6 +146,51 @@ export const SYMBOLS: Record<string, { draw: Draw; switchable?: boolean; label: 
       line(g, [[17, 11], [31, 11]]);
     },
   },
+  sym_pmt: {
+    label: 'PMT / pemutus tenaga gardu (× di kontak; isi = tertutup)',
+    labelEN: 'Substation circuit breaker (× at contact; filled = closed)',
+    switchable: true,
+    draw: (g, open) => {
+      // IEC 60617-07-13-05: pisau + tanda silang pada kontak tetap
+      line(g, [[24, 2], [24, 12]]);
+      line(g, [[24, 36], [24, 46]]);
+      line(g, [[18, 6], [30, 18]]);
+      line(g, [[30, 6], [18, 18]]);
+      circle(g, 24, 36, 3.4, !open);
+      blade(g, 24, 36, 24, open);
+    },
+  },
+  sym_pms: {
+    label: 'PMS / pemisah (palang di kontak; isi = tertutup)',
+    labelEN: 'Disconnector (bar at contact; filled = closed)',
+    switchable: true,
+    draw: (g, open) => {
+      // IEC 60617-07-13-06: pisau + palang tegak lurus pada kontak tetap
+      line(g, [[24, 2], [24, 12]]);
+      line(g, [[24, 36], [24, 46]]);
+      line(g, [[16, 12], [32, 12]]);
+      circle(g, 24, 36, 3.4, !open);
+      blade(g, 24, 36, 24, open);
+    },
+  },
+  sym_fco: {
+    label: 'FCO / fuse cut out (tabung isi = tertutup, jatuh = terbuka / putus)',
+    labelEN: 'Fuse cut-out (filled tube = closed, dropped = open / blown)',
+    switchable: true,
+    draw: (g, open) => {
+      // kontak atas berkait, engsel di bawah; tabung fuse jatuh miring saat terbuka / putus
+      line(g, [[24, 2], [24, 9]]);
+      line(g, [[17, 9], [31, 9]]);
+      line(g, [[24, 40], [24, 46]]);
+      circle(g, 24, 40, 3.2, true);
+      g.save();
+      g.translate(24, 40);
+      if (open) g.rotate((-40 * Math.PI) / 180);
+      if (open) g.strokeRect(-5.5, -29, 11, 25);
+      else g.fillRect(-6, -30, 12, 27);
+      g.restore();
+    },
+  },
   sym_fuse: {
     label: 'Switch jurusan TR (NH fuse)',
     labelEN: 'LV route switch (NH fuse)',
@@ -185,6 +230,26 @@ export const SYMBOLS: Record<string, { draw: Draw; switchable?: boolean; label: 
       g.fill();
       g.fillRect(11, 21, 26, 20);
       g.clearRect(21, 29, 7, 12);
+    },
+  },
+  sym_bulk: {
+    label: 'Pelanggan kolektif (bulk)',
+    labelEN: 'Bulk customer',
+    draw: (g) => {
+      // dua rumah bertumpuk: satu objek mewakili banyak pelanggan
+      const house = (x: number, y: number, w: number) => {
+        g.beginPath();
+        g.moveTo(x, y + w * 0.45);
+        g.lineTo(x + w / 2, y);
+        g.lineTo(x + w, y + w * 0.45);
+        g.closePath();
+        g.fill();
+        g.fillRect(x + w * 0.15, y + w * 0.4, w * 0.7, w * 0.5);
+      };
+      house(18, 3, 27);
+      g.clearRect(8, 18, 26, 26);
+      house(3, 15, 29);
+      g.clearRect(14.5, 33, 6, 9);
     },
   },
   sym_pole: {

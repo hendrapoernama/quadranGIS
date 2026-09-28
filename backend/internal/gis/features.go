@@ -740,6 +740,16 @@ func (f *Features) Update(ctx context.Context, kind string, id int64, in Feature
 		if err := f.validateType(lang, &in, "point"); err != nil {
 			return nil, err
 		}
+		// objek pendukung wajib tidak terhubung: objek yang masih tersambung tidak boleh diubah menjadi pendukung
+		if nct, _ := f.types.Get(in.TypeCode); in.TypeCode != curType && !nct.Topology {
+			var n int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM gis_edges WHERE from_node_id=$1 OR to_node_id=$1`, id).Scan(&n); err != nil {
+				return nil, err
+			}
+			if n > 0 {
+				return nil, errT(ErrConflict, lang, "gis.support_connected", nct.Name, id, n)
+			}
+		}
 		if in.Properties == nil {
 			_ = json.Unmarshal(curProps, &in.Properties)
 		}
@@ -1379,7 +1389,8 @@ type SearchHit struct {
 	Lat      float64 `json:"lat"`
 }
 
-// Search mencari fitur berdasarkan kode/nama.
+// Search mencari fitur berdasarkan kode/nama. Kecocokan persis (id, kode, IDPEL, kode SSOT) tampil lebih dulu,
+// lalu kecocokan sebagian (ILIKE memakai index GIN trigram pada code/name; tetap cepat pada jutaan baris).
 func (f *Features) Search(ctx context.Context, q string, limit int) ([]SearchHit, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
@@ -1389,30 +1400,51 @@ func (f *Features) Search(ctx context.Context, q string, limit int) ([]SearchHit
 		limit = 20
 	}
 	pat := "%" + q + "%"
-	// ILIKE memakai index GIN trigram (pg_trgm) pada code/name sehingga tetap cepat pada jutaan baris
-	// kode SSOT dicari lewat index parsial (hanya baris yang punya properti kode_ssot)
+	// $3 bigint: IDPEL / nomor meter 12 digit melebihi int4
 	rows, err := f.pool.Query(ctx, `
-		(SELECT 'node', id, type_code, code, name, ST_X(geom), ST_Y(geom) FROM gis_nodes
-		   WHERE code ILIKE $1 OR name ILIKE $1 OR ($3 <> 0 AND id=$3)
+		(SELECT 0, 'node', id, type_code, code, name, ST_X(geom), ST_Y(geom) FROM gis_nodes
+		   WHERE id = $3::bigint OR code = $4 OR (properties ? 'idpel' AND properties->>'idpel' = $4)
+		      OR (properties ? 'kode_ssot' AND properties->>'kode_ssot' = $4) LIMIT $2)
+		UNION ALL
+		(SELECT 0, 'edge', id, type_code, code, name, ST_X(ST_Centroid(geom)), ST_Y(ST_Centroid(geom)) FROM gis_edges
+		   WHERE id = $3::bigint OR code = $4 OR (properties ? 'kode_ssot' AND properties->>'kode_ssot' = $4) LIMIT $2)
+		UNION ALL
+		(SELECT 1, 'node', id, type_code, code, name, ST_X(geom), ST_Y(geom) FROM gis_nodes
+		   WHERE code ILIKE $1 OR name ILIKE $1
 		      OR (properties ? 'kode_ssot' AND properties->>'kode_ssot' ILIKE $1) LIMIT $2)
 		UNION ALL
-		(SELECT 'edge', id, type_code, code, name, ST_X(ST_Centroid(geom)), ST_Y(ST_Centroid(geom)) FROM gis_edges
-		   WHERE code ILIKE $1 OR name ILIKE $1 OR ($3 <> 0 AND id=$3)
-		      OR (properties ? 'kode_ssot' AND properties->>'kode_ssot' ILIKE $1) LIMIT $2)
-		LIMIT $2`, pat, limit, parseInt64(q))
+		(SELECT 1, 'edge', id, type_code, code, name, ST_X(ST_Centroid(geom)), ST_Y(ST_Centroid(geom)) FROM gis_edges
+		   WHERE code ILIKE $1 OR name ILIKE $1
+		      OR (properties ? 'kode_ssot' AND properties->>'kode_ssot' ILIKE $1) LIMIT $2)`, pat, limit, parseInt64(q), q)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []SearchHit{}
+	// urutan baris UNION ALL tidak dijamin (paralel): kelompokkan per peringkat, buang duplikat
+	var byRank [2][]SearchHit
 	for rows.Next() {
+		var rank int
 		var h SearchHit
-		if err := rows.Scan(&h.Kind, &h.ID, &h.TypeCode, &h.Code, &h.Name, &h.Lng, &h.Lat); err != nil {
+		if err := rows.Scan(&rank, &h.Kind, &h.ID, &h.TypeCode, &h.Code, &h.Name, &h.Lng, &h.Lat); err != nil {
 			return nil, err
 		}
-		out = append(out, h)
+		byRank[min(max(rank, 0), 1)] = append(byRank[min(max(rank, 0), 1)], h)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := []SearchHit{}
+	seen := map[string]bool{}
+	for _, list := range byRank {
+		for _, h := range list {
+			k := fmt.Sprintf("%s:%d", h.Kind, h.ID)
+			if !seen[k] && len(out) < limit {
+				seen[k] = true
+				out = append(out, h)
+			}
+		}
+	}
+	return out, nil
 }
 
 func parseInt64(s string) int64 {

@@ -28,7 +28,7 @@ var AllPermissions = []Permission{
 	{Key: "gis.release", Label: "Merilis paket perubahan yang disetujui ke jaringan aktif", LabelEN: "Release approved change sets to the live network", Group: "GIS", GroupEN: "GIS"},
 	{Key: "master.view", Label: "Melihat master data unit", LabelEN: "View unit master data", Group: "Master data", GroupEN: "Master data"},
 	{Key: "master.manage", Label: "Mengelola master data unit & kepemilikan aset", LabelEN: "Manage unit master data & asset ownership", Group: "Master data", GroupEN: "Master data"},
-	{Key: "power.switch_tm", Label: "Buka / tutup alat switching TM (kubikel, recloser, LBS)", LabelEN: "Open / close MV switching devices (cubicle, recloser, LBS)", Group: "Operasi jaringan", GroupEN: "Network operation"},
+	{Key: "power.switch_tm", Label: "Buka / tutup alat switching TM (kubikel, recloser, LBS, FCO, PMT, PMS)", LabelEN: "Open / close MV switching devices (cubicle, recloser, LBS, FCO, CB, disconnector)", Group: "Operasi jaringan", GroupEN: "Network operation"},
 	{Key: "power.switch_tr", Label: "Buka / tutup switch jurusan TR", LabelEN: "Open / close LV route switches", Group: "Operasi jaringan", GroupEN: "Network operation"},
 	{Key: "power.energize_tm", Label: "Energize / deenergize objek & saluran TM (gardu, SUTM, SKTM, ...)", LabelEN: "Energize / de-energize MV objects & lines (substations, MV lines, ...)", Group: "Operasi jaringan", GroupEN: "Network operation"},
 	{Key: "power.plan", Label: "Menyusun, menyimulasikan & menjalankan rencana manuver / FLISR", LabelEN: "Create, simulate & execute switching plans / FLISR", Group: "Operasi jaringan", GroupEN: "Network operation"},

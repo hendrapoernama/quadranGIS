@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"quadrangis/internal/gis"
 	"quadrangis/internal/i18n"
@@ -51,6 +52,8 @@ func handleErr(c *gin.Context, err error) {
 		fail(c, http.StatusForbidden, domainMsg(c, err, "common.forbidden"))
 	case errors.Is(err, gis.ErrBadRequest):
 		fail(c, http.StatusBadRequest, domainMsg(c, err, "common.bad_payload"))
+	case isSupportViolation(err):
+		failT(c, http.StatusConflict, "common.support_connected")
 	case errors.Is(err, repo.ErrSystemRole):
 		failT(c, http.StatusBadRequest, "admin.system_role")
 	default:
@@ -92,3 +95,9 @@ func validKind(c *gin.Context) bool {
 }
 
 func clientIP(c *gin.Context) string { return c.ClientIP() }
+
+// isSupportViolation: pelanggaran aturan basis data "objek pendukung tidak terhubung ke jaringan" (migrasi 036).
+func isSupportViolation(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && pe.Code == "23514" && pe.Hint == "support_connected"
+}

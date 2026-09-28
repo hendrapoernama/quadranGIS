@@ -194,7 +194,9 @@ func buildTileSQL(p tileQuery) string {
 	}
 	return `
 WITH n AS (
-  SELECT n.id, n.type_code, n.code, n.name, n.status, n.energized,
+  SELECT n.id, n.type_code, n.code, n.name, n.status,
+         CASE WHEN ` + SQLNonOperating + ` THEN NULL ELSE n.energized END AS energized,
+         CASE WHEN ` + SQLNonOperating + ` THEN true END AS nonaktif,
          ST_AsMVTGeom(ST_Transform(n.geom, 3857), ` + env + `, ` + ext + `, ` + buf + `, true) AS geom
   FROM gis_nodes n
   WHERE ` + sqlTypeCond("n.type_code", p.pointTypes) + ` AND n.geom && ` + box + `

@@ -67,24 +67,25 @@ type AssetRef struct {
 
 // AssetItem adalah satu baris hirarki / tabel aset. Kode, nama, dan unit diisi pemanggil.
 type AssetItem struct {
-	Kind         string  `json:"kind"`
-	ID           int64   `json:"id"`
-	TypeCode     string  `json:"type_code"`
-	Code         string  `json:"code"`
-	Name         string  `json:"name"`
-	State        string  `json:"state"` // on | partial | off
-	Energized    bool    `json:"energized"`
-	Children     int     `json:"children"`
-	Pelanggan    int     `json:"pelanggan"`
-	PelangganOff int     `json:"pelanggan_off"`
-	BebanVA      float64 `json:"beban_va"`
-	BebanOffVA   float64 `json:"beban_off_va"`
-	GI           int64   `json:"gi_id,omitempty"`
-	TrafoGI      int64   `json:"trafo_gi_id,omitempty"`
-	Feeder       int64   `json:"feeder_id,omitempty"`
-	GD           int64   `json:"gd_id,omitempty"`
-	Trafo        int64   `json:"trafo_id,omitempty"`
-	Route        int64   `json:"route_id,omitempty"`
+	Kind         string         `json:"kind"`
+	ID           int64          `json:"id"`
+	TypeCode     string         `json:"type_code"`
+	Code         string         `json:"code"`
+	Name         string         `json:"name"`
+	State        string         `json:"state"` // on | partial | off
+	Energized    bool           `json:"energized"`
+	Children     int            `json:"children"`
+	ChildrenBy   map[string]int `json:"children_by,omitempty"` // rincian isi per jenis (trafo / jurusan / pelanggan, ...)
+	Pelanggan    int            `json:"pelanggan"`
+	PelangganOff int            `json:"pelanggan_off"`
+	BebanVA      float64        `json:"beban_va"`
+	BebanOffVA   float64        `json:"beban_off_va"`
+	GI           int64          `json:"gi_id,omitempty"`
+	TrafoGI      int64          `json:"trafo_gi_id,omitempty"`
+	Feeder       int64          `json:"feeder_id,omitempty"`
+	GD           int64          `json:"gd_id,omitempty"`
+	Trafo        int64          `json:"trafo_id,omitempty"`
+	Route        int64          `json:"route_id,omitempty"`
 }
 
 // AssetCounts adalah jumlah aset per tingkat.
@@ -203,7 +204,7 @@ func (g *Graph) buildAssetIndex() *assetIndex {
 		}
 	}
 	// pelanggan + agregasi beban ke semua tingkat hulu
-	add := func(m map[int64]*assetAgg, id int64, n nodeRec) {
+	add := func(m map[int64]*assetAgg, id int64, n nodeRec, c int) {
 		if id == 0 {
 			return
 		}
@@ -212,10 +213,10 @@ func (g *Graph) buildAssetIndex() *assetIndex {
 			a = &assetAgg{}
 			m[id] = a
 		}
-		a.pel++
+		a.pel += c
 		a.beban += float64(n.loadVA)
 		if !n.energized() {
-			a.pelOff++
+			a.pelOff += c
 			a.bebanO += float64(n.loadVA)
 		}
 	}
@@ -224,6 +225,7 @@ func (g *Graph) buildAssetIndex() *assetIndex {
 			continue
 		}
 		x.sinks = append(x.sinks, id)
+		c := g.custLocked(id, n)
 		switch {
 		case n.route != 0:
 			x.routeSink[n.route] = append(x.routeSink[n.route], id)
@@ -234,13 +236,13 @@ func (g *Graph) buildAssetIndex() *assetIndex {
 		default:
 			x.orphanSink = append(x.orphanSink, id)
 		}
-		add(x.routeStat, n.route, n)
-		add(x.stat, x.routeTD[n.route], n)
-		add(x.stat, n.gd, n)
+		add(x.routeStat, n.route, n, c)
+		add(x.stat, x.routeTD[n.route], n, c)
+		add(x.stat, n.gd, n, c)
 		if fi, ok := g.feeders[n.feeder]; ok {
-			add(x.stat, n.feeder, n)
-			add(x.stat, fi.TrafoGI, n)
-			add(x.stat, fi.GI, n)
+			add(x.stat, n.feeder, n, c)
+			add(x.stat, fi.TrafoGI, n, c)
+			add(x.stat, fi.GI, n, c)
 		}
 	}
 	sortIDs := func(s []int64) {
@@ -335,6 +337,44 @@ func (g *Graph) AssetChildren(kind string, id int64) []AssetRef {
 	return out
 }
 
+// childBreakdown merinci isi satu simpul per jenis anak (hanya jenis yang ada).
+func (x *assetIndex) childBreakdown(kind string, id int64) map[string]int {
+	m := map[string]int{}
+	put := func(k string, n int) {
+		if n > 0 {
+			m[k] = n
+		}
+	}
+	switch kind {
+	case AssetGI:
+		put(AssetTrafoGI, len(x.giTrafo[id]))
+		put(AssetFeeder, len(x.giFeed[id]))
+	case AssetTrafoGI:
+		put(AssetFeeder, len(x.trafoFeed[id]))
+	case AssetFeeder:
+		put(AssetGD, len(x.feedGD[id]))
+		put(AssetPelanggan, len(x.feedSink[id]))
+	case AssetGD:
+		put(AssetTrafo, len(x.gdTD[id]))
+		put(AssetRoute, len(x.gdRoute[id]))
+		put(AssetPelanggan, len(x.gdSink[id]))
+	case AssetTrafo:
+		put(AssetRoute, len(x.tdRoute[id]))
+	case AssetRoute:
+		put(AssetPelanggan, len(x.routeSink[id]))
+	case AssetNone:
+		put(AssetFeeder, len(x.orphanFeed))
+		put(AssetGD, len(x.orphanGD))
+		put(AssetTrafo, len(x.orphanTD))
+		put(AssetRoute, len(x.orphanRoute))
+		put(AssetPelanggan, len(x.orphanSink))
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
 func (x *assetIndex) childCount(kind string, id int64) int {
 	switch kind {
 	case AssetGI:
@@ -414,7 +454,7 @@ func (g *Graph) AssetItems(refs []AssetRef) []AssetItem {
 	defer g.mu.RUnlock()
 	out := make([]AssetItem, 0, len(refs))
 	for _, r := range refs {
-		it := AssetItem{Kind: r.Kind, ID: r.ID, Children: x.childCount(r.Kind, r.ID)}
+		it := AssetItem{Kind: r.Kind, ID: r.ID, Children: x.childCount(r.Kind, r.ID), ChildrenBy: x.childBreakdown(r.Kind, r.ID)}
 		var a *assetAgg
 		feeder := int64(0)
 		switch r.Kind {
@@ -423,10 +463,11 @@ func (g *Graph) AssetItems(refs []AssetRef) []AssetItem {
 			a = &assetAgg{}
 			for _, s := range x.orphanSink {
 				n := g.nodes[s]
-				a.pel++
+				c := g.custLocked(s, n)
+				a.pel += c
 				a.beban += float64(n.loadVA)
 				if !n.energized() {
-					a.pelOff++
+					a.pelOff += c
 					a.bebanO += float64(n.loadVA)
 				}
 			}
@@ -448,9 +489,10 @@ func (g *Graph) AssetItems(refs []AssetRef) []AssetItem {
 			feeder = n.feeder
 			switch r.Kind {
 			case AssetPelanggan:
-				a = &assetAgg{pel: 1, beban: float64(n.loadVA)}
+				c := g.custLocked(r.ID, n)
+				a = &assetAgg{pel: c, beban: float64(n.loadVA)}
 				if !n.energized() {
-					a.pelOff, a.bebanO = 1, float64(n.loadVA)
+					a.pelOff, a.bebanO = c, float64(n.loadVA)
 				}
 				it.Route, it.GD, it.Trafo = n.route, n.gd, x.routeTD[n.route]
 			case AssetTrafo:
@@ -660,4 +702,18 @@ func (g *Graph) SinkGroups(ids []int64) (gd, feeder []int64) {
 		}
 	}
 	return gd, feeder
+}
+
+// SinkCounts mengembalikan jumlah pelanggan yang diwakili tiap node (sejajar dengan ids; 1 untuk pelanggan
+// biasa, jumlah_pelanggan untuk pelanggan kolektif, 0 bila bukan pelanggan).
+func (g *Graph) SinkCounts(ids []int64) []int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]int, len(ids))
+	for i, id := range ids {
+		if n, ok := g.nodes[id]; ok && n.sink() {
+			out[i] = g.custLocked(id, n)
+		}
+	}
+	return out
 }

@@ -55,7 +55,7 @@ var unitParentKinds = map[string][]string{
 var AssetUnitLevel = map[string]string{
 	"gi": "UP3", "trafo_gi": "UP3", "power_grid": "UP3", "kubikel_20kv": "UP3", "gh": "UP3", "recloser": "UP3",
 	"lbs_2way": "ULP", "lbs_3way": "ULP", "gd": "ULP", "trafo_distribusi": "ULP", "rak_tr": "ULP",
-	"switch_jurusan_tr": "ULP", "tiang_tm": "ULP", "tiang_tr": "ULP", "pelanggan_tm": "ULP", "pelanggan_tt": "UP3",
+	"switch_jurusan_tr": "ULP", "fco": "ULP", "pmt_20kv": "ULP", "pms_20kv": "ULP", "tiang_tm": "ULP", "tiang_tr": "ULP", "pelanggan_tm": "ULP", "pelanggan_tt": "UP3",
 }
 
 // Units adalah layanan master data unit.
@@ -411,7 +411,8 @@ type AutoAssignResult struct {
 
 // AutoAssign menetapkan unit pemilik aset yang belum punya pemilik (overwrite=true: semua aset) dari lokasinya:
 // ULP terdekat (≤ unit.auto_max_km) → ULP atau induk UP3 sesuai jenis aset; di luar semua wilayah → unit bawaan.
-func (s *Units) AutoAssign(ctx context.Context, apply, overwrite bool) (*AutoAssignResult, error) {
+// importTag ≠ "" membatasi ke aset satu batch impor (properties.import).
+func (s *Units) AutoAssign(ctx context.Context, apply, overwrite bool, importTag string) (*AutoAssignResult, error) {
 	all, err := s.All(ctx)
 	if err != nil {
 		return nil, err
@@ -425,7 +426,7 @@ func (s *Units) AutoAssign(ctx context.Context, apply, overwrite bool) (*AutoAss
 	rows, err := s.pool.Query(ctx, `SELECT n.id, n.type_code, COALESCE(b.name, '') FROM gis_nodes n
 		LEFT JOIN LATERAL (SELECT name FROM gis_boundaries b WHERE b.level='ulp' AND ST_DWithin(b.geom, n.geom, $2)
 			ORDER BY b.geom <-> n.geom LIMIT 1) b ON true
-		WHERE n.type_code = ANY($1) AND ($3 OR n.unit_id IS NULL)`, types, maxDeg, overwrite)
+		WHERE n.type_code = ANY($1) AND ($3 OR n.unit_id IS NULL) AND ($4 = '' OR n.properties->>'import' = $4)`, types, maxDeg, overwrite, importTag)
 	if err != nil {
 		return nil, err
 	}

@@ -160,7 +160,7 @@ func (s *Server) aiChat(c *gin.Context) {
 
 	lang := middleware.GetLang(c)
 	system := "Anda adalah asisten AI untuk QuadranGIS, aplikasi GIS jaringan distribusi listrik (PLN): GI, trafo GI, penyulang 20 kV (SKTM/SUTM), " +
-		"gardu distribusi, trafo distribusi, JTR (SKUTR/SKTR), SR, pelanggan TT/TM/TR, recloser, LBS, kubikel, tiang TM/TR. " +
+		"gardu distribusi, trafo distribusi, JTR (SKUTR/SKTR), SR, pelanggan TT/TM/TR, recloser, LBS, FCO (fuse cut out), PMT & PMS gardu, busbar gardu, kubikel, tiang TM/TR. " +
 		"Manuver jaringan (GANGGUAN, PEMELIHARAAN, MLS) membuka/menutup alat switching dan menentukan objek padam/nyala. " +
 		"Jawab ringkas, akurat, dan hanya berdasarkan data yang diberikan; katakan terus terang bila data tidak cukup. Jangan mengarang kode objek atau angka."
 	if lang == "en" {

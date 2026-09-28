@@ -19,6 +19,7 @@ import { OperateBox, type ManeuverBody } from '@/components/power/OperateBox';
 import { SectionRecap } from '@/components/power/SectionRecap';
 import { useIsMobile } from '@/lib/mobile';
 import { COL_W, ROW_H, layoutDiagram, type Layout, type Offsets, type Orientation, type PlacedNode, type SLDDiagramData, type SLDNodeData, type SLDSectionData, type SLDTieData } from './layout';
+import { PowerStateBadge } from '@/components/map/PowerStateBadge';
 
 type ScopeMode = 'feeder' | 'gi' | 'gd' | 'node' | 'area';
 type Level = 'tm' | 'gd' | 'jurusan' | 'pelanggan';
@@ -35,6 +36,8 @@ interface Sel {
 interface PFOverlay {
   vpu: Map<number, number>;
   loading: Map<number, number>;
+  amps: Map<number, number>; // arus saluran (A)
+  trafo: Map<number, { s: number; kva: number; pct: number }>; // beban trafo distribusi
   feeders: number;
   at: Date;
 }
@@ -341,6 +344,8 @@ export default function SLD() {
         if (!alive) return;
         const vpu = new Map<number, number>();
         const loading = new Map<number, number>();
+        const amps = new Map<number, number>();
+        const trafo = new Map<number, { s: number; kva: number; pct: number }>();
         let n = 0;
         for (const r of rs) {
           if (!r) continue;
@@ -349,9 +354,11 @@ export default function SLD() {
             const p = f.properties || {};
             if (p.kind === 'node' && typeof p.v_pu === 'number') vpu.set(Number(f.id), p.v_pu);
             if (p.kind === 'edge' && typeof p.loading_pct === 'number') loading.set(Number(f.id), p.loading_pct);
+            if (p.kind === 'edge' && typeof p.i_a === 'number') amps.set(Number(f.id), p.i_a);
+            if (p.kind === 'node' && typeof p.trafo_s_kva === 'number') trafo.set(Number(f.id), { s: p.trafo_s_kva, kva: p.trafo_kva || 0, pct: p.trafo_loading_pct || 0 });
           }
         }
-        setPf({ vpu, loading, feeders: n, at: new Date() });
+        setPf({ vpu, loading, amps, trafo, feeders: n, at: new Date() });
         if (n < heads.length) toast.push(t('sld.pf_partial', { n, total: heads.length }), 'warning');
       })
       .finally(() => alive && setPfBusy(false));
@@ -591,7 +598,7 @@ export default function SLD() {
   const sectionColor = (s: SLDSectionData) => {
     if (pf) {
       let mx: number | undefined;
-      for (const id of s.edge_ids) {
+      for (const id of s.edge_ids || []) {
         const v = pf.loading.get(id);
         if (v !== undefined) mx = mx === undefined ? v : Math.max(mx, v);
       }
@@ -611,10 +618,29 @@ export default function SLD() {
     if (n.customers > 0 && !n.sink) parts.push(`${fmtNum(n.customers)} ${t('sld.cust')}${n.customers_off > 0 ? ` (${fmtNum(n.customers_off)} ${t('power.off').toLowerCase()})` : ''}`);
     if (n.sink && n.load_va > 0 && !n.kva) parts.push(fmtVA(n.load_va));
     if (pf) {
+      const tr = pf.trafo.get(n.id);
+      if (tr) parts.push(`${fmtNum(tr.s, tr.s < 10 ? 1 : 0)}/${fmtNum(tr.kva)} kVA (${fmtNum(tr.pct, tr.pct < 10 ? 1 : 0)}%)`);
       const v = pf.vpu.get(n.id);
       if (v !== undefined) parts.push(`${v.toFixed(3)} pu`);
     }
     return parts.join(' · ');
+  };
+  // hasil aliran daya pada ruas: arus terbesar & pembebanan terbesar dari saluran-salurannya
+  const secPF = (sec: SLDSectionData): string => {
+    if (!pf) return '';
+    let a: number | undefined;
+    let l: number | undefined;
+    for (const id of sec.edge_ids || []) {
+      const ai = pf.amps.get(id);
+      const li = pf.loading.get(id);
+      if (ai !== undefined) a = a === undefined ? ai : Math.max(a, ai);
+      if (li !== undefined) l = l === undefined ? li : Math.max(l, li);
+    }
+    if (a === undefined && l === undefined) return '';
+    const parts: string[] = [];
+    if (a !== undefined) parts.push(`${fmtNum(a, a < 10 ? 1 : 0)} A`);
+    if (l !== undefined) parts.push(`${fmtNum(l, l < 10 ? 1 : 0)}%`);
+    return ` · ${parts.join(' · ')}`;
   };
   const tieLabel = (tie: SLDTieData) => {
     const target = tie.to_code || `#${tie.to}`;
@@ -665,6 +691,7 @@ export default function SLD() {
                   <text x={(c.head[0].x + he.x) / 2} y={c.head[0].y - 6} fontSize={9.5} fill={mutedC} data-ink="muted" textAnchor="middle">
                     {fmtLength(s.length_m)}
                     {s.conductor ? ` · ${s.conductor}` : ''}
+                    {secPF(s)}
                   </text>
                 )}
               </g>
@@ -694,6 +721,7 @@ export default function SLD() {
                 >
                   {fmtLength(s.length_m)}
                   {s.conductor ? ` · ${s.conductor}` : ''}
+                  {secPF(s)}
                   {s.skipped > 0 ? ` · +${s.skipped}` : ''}
                 </text>
               )}
@@ -703,7 +731,7 @@ export default function SLD() {
         {showTies &&
           L.ties.map((pt, i) => {
             const tie = pt.tie;
-            const color = tie.kind === 'offpage' ? '#0ea5e9' : tie.open ? mutedC : sectionColor({ energized: tie.energized } as SLDSectionData);
+            const color = tie.kind === 'offpage' ? '#0ea5e9' : tie.open ? mutedC : sectionColor({ energized: tie.energized, edge_ids: [tie.id] } as SLDSectionData);
             return (
               <g key={`t${tie.id}-${i}`} className="cursor-pointer" onPointerDown={(e) => onDown(e)} onClick={() => clickTie(tie)}>
                 <line x1={pt.from.x} y1={pt.from.y} x2={pt.to.x} y2={pt.to.y} stroke="transparent" strokeWidth={12} />
@@ -1150,7 +1178,7 @@ export default function SLD() {
                   {p.code || `#${feature!.id}`} {p.name && <span className="font-sans text-gray-700">· {p.name}</span>}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1">
-                  {p.graph?.in_graph ? p.energized ? <Badge tone="green">{t('feature.on')}</Badge> : <Badge tone="red">{t('feature.off')}</Badge> : <span className="text-gray-500">{t('feature.not_in_graph')}</span>}
+                  {p.graph?.in_graph ? <PowerStateBadge energized={!!p.energized} attrs={p.properties} /> : <span className="text-gray-500">{t('feature.not_in_graph')}</span>}
                   {p.graph?.open && <Badge tone="amber">{t('feature.device_open')}</Badge>}
                 </div>
                 <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5">

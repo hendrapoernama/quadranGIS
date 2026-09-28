@@ -603,10 +603,11 @@ func (s *SLD) build(req SLDRequest, lv int, members map[int64]struct{}) (*SLDDia
 		w := inTree[order[i]]
 		n := g.nodes[w.id]
 		if n.sink() {
-			w.cust++
+			c := g.custLocked(w.id, n)
+			w.cust += c
 			w.loadVA += float64(n.loadVA)
 			if !n.energized() {
-				w.custOff++
+				w.custOff += c
 			}
 		}
 		if p := inTree[w.parent]; p != nil {
@@ -852,7 +853,7 @@ func (s *SLD) downstreamCustomersLocked(start, exclude int64, limit int) int {
 		cur := queue[head]
 		n := g.nodes[cur]
 		if n.sink() {
-			cnt++
+			cnt += g.custLocked(cur, n)
 		}
 		d0, ok := g.dist[cur]
 		if !ok {

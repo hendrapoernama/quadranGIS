@@ -131,12 +131,21 @@ func (p *Power) InsertManeuver(ctx context.Context, m ManeuverRecord) (int64, er
 	if m.TargetKind == "" {
 		m.TargetKind = "node"
 	}
+	// CreatedAt diisi = waktu kejadian dari sistem eksternal; kosong = sekarang
 	err := p.pool.QueryRow(ctx, `INSERT INTO maneuvers (node_id, node_code, node_type, action, way_edge_id, kind, note, user_id, username, affected, outage_id, target_kind,
-			full_name, role, client_ip, channel)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+			full_name, role, client_ip, channel, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, COALESCE($17, now())) RETURNING id`,
 		m.NodeID, m.NodeCode, m.NodeType, m.Action, m.WayEdgeID, m.Kind, m.Note, m.UserID, m.Username, []byte(m.Affected), m.OutageID, m.TargetKind,
-		m.FullName, m.Role, m.ClientIP, m.Channel).Scan(&id)
+		m.FullName, m.Role, m.ClientIP, m.Channel, timeOrNil(m.CreatedAt)).Scan(&id)
 	return id, err
+}
+
+// timeOrNil: waktu kosong → NULL (kolom memakai nilai bawaan / now()).
+func timeOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 // LinkManeuverOutage mengaitkan manuver dengan kejadian padam.
@@ -157,9 +166,10 @@ func (p *Power) OpenOutage(ctx context.Context, o OutageRecord, affected []int64
 	if o.CauseKind == "" {
 		o.CauseKind = "node"
 	}
-	err := p.pool.QueryRow(ctx, `INSERT INTO outages (kind, level, group_code, cause_node_id, cause_node_code, cause_node_type, way_edge_id, open_maneuver_id, summary, affected_nodes, cause_kind, parent_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-		o.Kind, o.Level, o.GroupCode, o.CauseNodeID, o.CauseNodeCode, o.CauseNodeType, o.WayEdgeID, o.OpenManeuverID, []byte(o.Summary), affected, o.CauseKind, o.ParentID).Scan(&id)
+	err := p.pool.QueryRow(ctx, `INSERT INTO outages (kind, level, group_code, cause_node_id, cause_node_code, cause_node_type, way_edge_id, open_maneuver_id, summary, affected_nodes, cause_kind, parent_id, started_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE($13, now())) RETURNING id`,
+		o.Kind, o.Level, o.GroupCode, o.CauseNodeID, o.CauseNodeCode, o.CauseNodeType, o.WayEdgeID, o.OpenManeuverID, []byte(o.Summary), affected, o.CauseKind, o.ParentID,
+		timeOrNil(o.StartedAt)).Scan(&id)
 	if err == nil {
 		if rerr := p.AssignOutageRegions(ctx, id); rerr != nil {
 			log.Printf("[power] wilayah kejadian #%d: %v", id, rerr)
@@ -173,7 +183,7 @@ const regionsSQL = `UPDATE outages o SET regions = COALESCE((
 	SELECT jsonb_object_agg(x.id::text, x.cnt) FROM (
 		SELECT b.id, count(*) AS cnt FROM gis_nodes n
 		JOIN gis_boundaries b ON b.level = 'ulp' AND ST_Intersects(b.geom, n.geom)
-		WHERE n.id = ANY(o.affected_nodes) AND n.type_code LIKE 'pelanggan%' GROUP BY b.id) x), '{}'::jsonb)`
+		WHERE n.id = ANY(o.affected_nodes) AND n.type_code LIKE 'pelanggan%' AND NOT ` + SQLNonOperating + ` GROUP BY b.id) x), '{}'::jsonb)`
 
 // AssignOutageRegions mengisi pelanggan terdampak per ULP untuk satu kejadian.
 func (p *Power) AssignOutageRegions(ctx context.Context, id int64) error {
@@ -193,13 +203,14 @@ func (p *Power) RecomputeOutageRegions(ctx context.Context) (int64, error) {
 	return tag.RowsAffected(), err
 }
 
-// CloseOutages menutup kejadian padam aktif yang disebabkan alat (dan arah) yang sama.
-func (p *Power) CloseOutages(ctx context.Context, causeKind string, causeNodeID int64, wayEdge *int64, closeManeuverID int64, restored json.RawMessage) ([]int64, error) {
+// CloseOutages menutup kejadian padam aktif yang disebabkan alat (dan arah) yang sama. at = waktu pulih dari
+// sistem eksternal (nil = sekarang); tidak pernah lebih awal dari mulai padam.
+func (p *Power) CloseOutages(ctx context.Context, causeKind string, causeNodeID int64, wayEdge *int64, closeManeuverID int64, restored json.RawMessage, at *time.Time) ([]int64, error) {
 	if len(restored) == 0 {
 		restored = json.RawMessage("{}")
 	}
-	rows, err := p.pool.Query(ctx, `UPDATE outages SET ended_at=now(), close_maneuver_id=$2, restored=$3
-		WHERE cause_node_id=$1 AND cause_kind=$5 AND ended_at IS NULL AND way_edge_id IS NOT DISTINCT FROM $4 RETURNING id`, causeNodeID, closeManeuverID, []byte(restored), wayEdge, causeKind)
+	rows, err := p.pool.Query(ctx, `UPDATE outages SET ended_at=GREATEST(started_at, COALESCE($6, now())), close_maneuver_id=$2, restored=$3
+		WHERE cause_node_id=$1 AND cause_kind=$5 AND ended_at IS NULL AND way_edge_id IS NOT DISTINCT FROM $4 RETURNING id`, causeNodeID, closeManeuverID, []byte(restored), wayEdge, causeKind, at)
 	if err != nil {
 		return nil, err
 	}

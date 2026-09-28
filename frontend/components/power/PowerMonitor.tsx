@@ -33,6 +33,7 @@ import { BottomSheet, type Snap } from '@/components/pwa/BottomSheet';
 import { useFieldT } from '@/components/field/i18n';
 import { AssetPhotos } from '@/components/field/AssetPhotos';
 import { OfflineAreaButton } from '@/components/field/OfflineAreaButton';
+import { PowerStateBadge } from '@/components/map/PowerStateBadge';
 
 type MonTab = 'outages' | 'soe' | 'trace' | 'gi' | 'feeders' | 'gardu' | 'customers' | 'export';
 type OpsTab = 'flisr' | 'plans' | 'reports' | 'ai';
@@ -674,7 +675,7 @@ export default function PowerMonitor() {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {selected.properties.graph?.in_graph ? (
-              selected.properties.energized ? <Badge tone="green">{t('feature.on')}</Badge> : <Badge tone="red">{t('feature.off')}</Badge>
+              <PowerStateBadge energized={!!selected.properties.energized} attrs={selected.properties.properties} />
             ) : (
               <span className="text-gray-500">{t('feature.not_in_graph')}</span>
             )}
@@ -749,9 +750,6 @@ export default function PowerMonitor() {
             {selected.properties.kind === 'node' || selected.properties.kind === 'edge' ? (
               <AssetPhotos kind={selected.properties.kind} id={selected.id as number} pos={geo.fix} />
             ) : null}
-            <Button size="sm" variant="secondary" icon="map" onClick={() => router.push(`/map?select=${selected.properties.kind}:${selected.id}`)}>
-              {t('power.open_in_map')}
-            </Button>
             <Button size="sm" variant="secondary" icon="diagram" onClick={() => router.push(`/sld?focus=${selected.properties.kind}:${selected.id}`)}>
               {t('sld.open_sld')}
             </Button>

@@ -401,6 +401,11 @@ export const id = {
   'feature.energized': 'Kondisi kelistrikan',
   'feature.on': 'NYALA',
   'feature.off': 'PADAM',
+  'feature.op_rencana': 'RENCANA',
+  'feature.op_non_aktif': 'NON AKTIF',
+  'feature.op_tidak_operasi': 'TIDAK OPERASI',
+  'feature.op_bongkar': 'BONGKAR',
+  'feature.op_hint': 'Status operasi objek — tidak dihitung di rekap nyala / padam',
   'feature.device_open': 'ALAT TERBUKA',
   'feature.not_in_graph': 'Bukan bagian topologi jaringan (objek pendukung)',
   'feature.feeder': 'Penyulang',
@@ -425,7 +430,7 @@ export const id = {
   'feature.status_switch_hint': 'Posisi alat switching diubah lewat manuver di bawah agar status padam/nyala dan kejadian tercatat.',
   'map.maneuver_event': 'Manuver: {msg}',
   'map.energized_event': 'Status nyala/padam diperbarui',
-  'help.step_maneuver': 'Manuver: pilih recloser / LBS / kubikel → di panel Fitur pilih jenis (GANGGUAN, PEMELIHARAAN, MLS) lalu Buka atau Tutup; objek hilir otomatis padam/nyala dan tercatat di menu Pusat Operasi. LBS 3 way dapat dibuka per arah.',
+  'help.step_maneuver': 'Manuver: di Pusat Operasi atau SLD pilih recloser / LBS / FCO / PMT / PMS / kubikel → pilih jenis (GANGGUAN, PEMELIHARAAN, MLS) lalu Buka atau Tutup; objek hilir otomatis padam/nyala dan tercatat di menu Pusat Operasi. LBS 3 way dapat dibuka per arah.',
 
   // ---- pewarnaan layer
   'layers.color_mode': 'Pewarnaan',
@@ -434,6 +439,7 @@ export const id = {
   'layers.legend_on': 'nyala',
   'layers.legend_off': 'padam',
   'layers.legend_open': 'switch terbuka',
+  'layers.legend_inactive': 'rencana / non aktif / bongkar',
 
   // ---- pengaturan layer (tambahan)
   'layerspage.topology': 'Topologi',
@@ -445,6 +451,7 @@ export const id = {
   'layerspage.attributes_invalid': 'JSON tidak valid (harus array)',
   'layerspage.apply': 'Terapkan',
   'layerspage.support': 'pendukung',
+  'layerspage.support_locked': 'Objek pendukung (tiang dsb.) wajib tidak terhubung ke jaringan listrik: topologi selalu nonaktif',
 
   // ---- monitoring kelistrikan
   'power.title': 'Pusat Operasi',
@@ -460,6 +467,7 @@ export const id = {
   'power.trafo_gd': 'Trafo distribusi',
   'power.customers': 'Pelanggan',
   'power.load': 'Beban',
+  'power.bulk_customers': 'kolektif {n} pelanggan',
   'power.on': 'nyala',
   'power.off': 'padam',
   'power.partial': 'sebagian',
@@ -763,7 +771,7 @@ export const id = {
   'sld.search_feeder': 'Cari penyulang...',
   'sld.search_gi': 'Cari gardu induk...',
   'sld.search_gd': 'Cari gardu distribusi...',
-  'sld.search_node': 'Cari objek (recloser, LBS, gardu, ...)...',
+  'sld.search_node': 'Cari objek (recloser, LBS, FCO, PMT, gardu, ...)...',
   'sld.area_hint': 'Gambar poligon di peta: objek di dalam area digambar lengkap, jalur hulu ke sumber diringkas, jaringan yang keluar area menjadi penghubung antar-halaman.',
   'sld.area_draw': 'Gambar poligon',
   'sld.area_drawing': 'Klik titik-titik, klik ganda untuk selesai',
@@ -821,7 +829,6 @@ export const id = {
   'sld.warn_graph_loading': 'Graf jaringan sedang dimuat / dikelompokkan setelah server dimulai ulang; diagram mungkin belum lengkap dan akan disusun ulang otomatis.',
   'power.filter_all': 'Semua',
   'power.updated': 'Diperbarui {time}',
-  'power.open_in_map': 'Buka di Peta Jaringan',
   'power.graph_loading': 'Graf jaringan sedang dimuat; rekap belum tersedia.',
   'cs.op_create': 'Objek baru (usulan)',
   'cs.op_update': 'Diusulkan diubah',
@@ -873,6 +880,7 @@ export const id = {
   'soe.channel_sld': 'SLD',
   'soe.channel_rencana': 'rencana manuver',
   'soe.channel_api': 'API',
+  'soe.channel_kafka': 'Kafka (sistem eksternal)',
   'soe.channel_sistem': 'sistem',
   'soe.filter_user': 'Operator (username)',
   'xchg.preview_title': 'Pratinjau impor',

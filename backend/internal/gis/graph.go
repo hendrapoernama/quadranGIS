@@ -7,6 +7,7 @@ import (
 	"log"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,6 +65,9 @@ type Graph struct {
 	sumSec   map[int64]SectionStat // kunci: id switch kepala zona / gardu / kepala penyulang
 	sumAt    time.Time
 
+	bulkN map[int64]uint32   // jumlah pelanggan node pelanggan kolektif (hanya node ber-flagBulk)
+	nonOp map[int64]struct{} // objek status_operasi rencana / tidak operasi / bongkar (dilewati rekap)
+
 	assetMu    sync.Mutex
 	assetCache *assetIndex // indeks hirarki aset (assets.go)
 }
@@ -73,8 +77,10 @@ const (
 	flagSource     uint8 = 2
 	flagSink       uint8 = 4
 	flagSwitch     uint8 = 8
-	flagNormalOpen uint8 = 16 // posisi normal switch (untuk pengelompokan penyulang/zona)
-	flagEnergized  uint8 = 32 // status energisasi yang tersimpan di DB
+	flagNormalOpen uint8 = 16  // posisi normal switch (untuk pengelompokan penyulang/zona)
+	flagEnergized  uint8 = 32  // status energisasi yang tersimpan di DB
+	flagBulk       uint8 = 128 // pelanggan kolektif (bulk): jumlah pelanggan di Graph.bulkN
+	flagNoZone     uint8 = 64  // alat switching TM yang diatur "bukan pembatas zona" (atribut pembatas_zona = Tidak)
 )
 
 type nodeRec struct {
@@ -92,6 +98,7 @@ func (n nodeRec) source() bool    { return n.flags&flagSource != 0 }
 func (n nodeRec) sink() bool      { return n.flags&flagSink != 0 }
 func (n nodeRec) isSwitch() bool  { return n.flags&flagSwitch != 0 }
 func (n nodeRec) energized() bool { return n.flags&flagEnergized != 0 }
+func (n nodeRec) noZone() bool    { return n.flags&flagNoZone != 0 }
 
 type edgeRec struct {
 	from, to  int64
@@ -209,6 +216,9 @@ type nodeRow struct {
 	loadVA      float64
 	openWays    []int64
 	normal      *string
+	zone        *string  // atribut pembatas_zona (alat switching)
+	cust        *float64 // atribut jumlah_pelanggan (pelanggan kolektif)
+	nonOp       bool     // status_operasi rencana / tidak operasi / bongkar: bukan sink, dilewati rekap
 }
 
 func (g *Graph) makeNodeRecLocked(r nodeRow, old *nodeRec) nodeRec {
@@ -220,7 +230,7 @@ func (g *Graph) makeNodeRecLocked(r nodeRow, old *nodeRec) nodeRec {
 	if ct.IsSource {
 		flags |= flagSource
 	}
-	if ct.IsSink {
+	if ct.IsSink && !r.nonOp {
 		flags |= flagSink
 	}
 	if ct.IsSwitch {
@@ -228,6 +238,17 @@ func (g *Graph) makeNodeRecLocked(r nodeRow, old *nodeRec) nodeRec {
 	}
 	if r.energized {
 		flags |= flagEnergized
+	}
+	if ct.IsSink && !r.nonOp && r.cust != nil && *r.cust > 1 {
+		flags |= flagBulk
+	}
+	if ct.IsSwitch && r.zone != nil {
+		switch strings.ToLower(strings.TrimSpace(*r.zone)) {
+		case "tidak", "no", "false", "0", "n":
+			flags |= flagNoZone
+		}
+	} else if ct.IsSwitch && r.typ == "pms_20kv" {
+		flags |= flagNoZone // PMS bawaan: hanya pemisah, bukan pembatas zona
 	}
 	// posisi normal: atribut SSOT "normal" bila ada; bila tidak, pertahankan yang lama
 	// (node yang sudah ada) atau ikuti status saat dimuat (node baru).
@@ -258,11 +279,20 @@ func (g *Graph) typeName(i uint16) string {
 	return "?"
 }
 
+// objek non-operasi (atribut status_operasi: rencana / tidak operasi / bongkar) bukan beban: tanpa daya & jumlah pelanggan.
 const nodeLoadSQL = `SELECT n.id, n.type_code, n.status, n.energized,
-	CASE WHEN t.is_sink THEN COALESCE(qgis_num(n.properties->>'daya_va'), qgis_num(n.properties->>'daya_kva')*1000, qgis_num(n.properties->>'daya_mva')*1000000, $1) ELSE 0 END,
+	CASE WHEN t.is_sink AND NOT ` + SQLNonOperating + ` THEN COALESCE(qgis_num(n.properties->>'daya_va'), qgis_num(n.properties->>'daya_kva')*1000, qgis_num(n.properties->>'daya_mva')*1000000, $1) ELSE 0 END,
 	CASE WHEN t.is_switch AND cardinality(n.open_ways) > 0 THEN n.open_ways ELSE NULL END,
-	CASE WHEN t.is_switch THEN n.properties->>'normal' ELSE NULL END
+	CASE WHEN t.is_switch THEN n.properties->>'normal' ELSE NULL END,
+	CASE WHEN t.is_switch THEN n.properties->>'pembatas_zona' ELSE NULL END,
+	CASE WHEN t.is_sink AND NOT ` + SQLNonOperating + ` THEN qgis_num(n.properties->>'jumlah_pelanggan') ELSE NULL END,
+	` + SQLNonOperating + `
 	FROM gis_nodes n JOIN component_types t ON t.code = n.type_code WHERE t.topology`
+
+// SQLNonOperating: kondisi SQL (alias tabel node "n") objek yang belum / tidak beroperasi — atribut status_operasi
+// Rencana, Non aktif, Tidak operasi, atau Bongkar (mis. gardu rencana, gardu / pelanggan INACTIVE di GDB, pelanggan tanpa SR). Tidak dihitung di rekap nyala / padam
+// (gardu, trafo, pelanggan, beban, SAIDI / SAIFI, wilayah) dan tampil abu-abu di peta.
+const SQLNonOperating = `(n.properties ? 'status_operasi' AND lower(n.properties->>'status_operasi') IN ('rencana', 'non aktif', 'nonaktif', 'tidak operasi', 'bongkar'))`
 
 func waysSet(ids []int64) map[int64]struct{} {
 	if len(ids) == 0 {
@@ -294,6 +324,8 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	adj := make(map[int64][]int64, nNodes)
 	openWays := map[int64]map[int64]struct{}{}
 	normalWays := map[int64]map[int64]struct{}{}
+	bulk := map[int64]uint32{}
+	nonOp := map[int64]struct{}{}
 
 	// pemetaan tipe dibangun pada salinan lokal lalu dipublikasikan bersama graf
 	g.mu.RLock()
@@ -311,11 +343,17 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	for rows.Next() {
 		var id int64
 		var r nodeRow
-		if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal); err != nil {
+		if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp); err != nil {
 			rows.Close()
 			return err
 		}
 		nodes[id] = local.makeNodeRecLocked(r, nil)
+		if r.cust != nil && *r.cust > 1 {
+			bulk[id] = uint32(*r.cust)
+		}
+		if r.nonOp {
+			nonOp[id] = struct{}{}
+		}
 		if len(r.openWays) > 0 {
 			openWays[id] = waysSet(r.openWays)
 			normalWays[id] = waysSet(r.openWays)
@@ -350,6 +388,8 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 
 	g.mu.Lock()
 	g.nodes, g.edges, g.adj = nodes, edges, adj
+	g.bulkN = bulk
+	g.nonOp = nonOp
 	g.openWays, g.normalOpenWays = openWays, normalWays
 	g.typeNames, g.typeIndex = local.typeNames, local.typeIndex
 	g.builtAt = time.Now()
@@ -377,7 +417,7 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 		for rows.Next() {
 			var id int64
 			var r nodeRow
-			if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal); err != nil {
+			if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp); err != nil {
 				rows.Close()
 				return err
 			}
@@ -422,6 +462,8 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 				old = &o
 			}
 			g.nodes[id] = g.makeNodeRecLocked(r, old)
+			g.setBulkLocked(id, r)
+			g.setNonOpLocked(id, r.nonOp)
 			if len(r.openWays) > 0 {
 				g.openWays[id] = waysSet(r.openWays)
 				if _, ok := g.normalOpenWays[id]; !ok || old == nil {
@@ -435,6 +477,8 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 			}
 		} else {
 			delete(g.nodes, id)
+			delete(g.bulkN, id)
+			delete(g.nonOp, id)
 			delete(g.adj, id)
 			delete(g.openWays, id)
 			delete(g.normalOpenWays, id)
@@ -638,6 +682,41 @@ func (g *Graph) computeGroups() {
 		lv[i] = ct.GeomKind == "line" && ct.VoltageKV > 0 && ct.VoltageKV < 1
 	}
 	rakIdx, hasRak := g.typeIndex["rak_tr"]
+	fcoIdx, hasFCO := g.typeIndex["fco"]
+	bgIdx, hasBG := g.typeIndex["busbar_gardu"]
+	// alat switching di dalam gardu (FCO, PMT, PMS): bila bertetangga langsung dengan trafo distribusi
+	// atau gardu, alat itu milik gardu dan tidak melepas penanda gardu
+	garduSw := map[uint16]bool{}
+	for _, c := range []string{"fco", "pmt_20kv", "pms_20kv"} {
+		if i, ok := g.typeIndex[c]; ok {
+			garduSw[i] = true
+		}
+	}
+	adjTo := func(id int64, idx uint16) bool {
+		for _, eid := range g.adj[id] {
+			if g.nodes[g.edges[eid].other(id)].typ == idx {
+				return true
+			}
+		}
+		return false
+	}
+	// FCO trafo (bertetangga langsung dengan trafo distribusi) tidak membentuk zona; FCO percabangan
+	// diperlakukan seperti alat pemisah zona lainnya
+	trafoFCO := func(id int64) bool { return hasTD && adjTo(id, tdIdx) }
+	// milik gardu: menempel trafo, atau menempel gardu lewat sambungan pendek (≤ 30 m; kabel keluar
+	// gardu lain yang panjang tidak dihitung)
+	inGardu := func(id int64) bool {
+		if hasTD && adjTo(id, tdIdx) {
+			return true
+		}
+		for _, eid := range g.adj[id] {
+			e := g.edges[eid]
+			if hasGD && g.nodes[e.other(id)].typ == gdIdx && e.lengthM > 0 && e.lengthM <= 30 {
+				return true
+			}
+		}
+		return false
+	}
 	type asg struct{ feeder, zone, route, gd int64 }
 	assign := make(map[int64]asg, len(g.nodes))
 	feeders := map[int64]*feederInfo{}
@@ -715,7 +794,8 @@ func (g *Graph) computeGroups() {
 				continue
 			}
 			na := a
-			if cn.isSwitch() && !lvNode[cn.typ] {
+			// PMT / PMS dengan atribut pembatas_zona = Tidak hanya memutus, tidak membentuk zona
+			if cn.isSwitch() && !lvNode[cn.typ] && !cn.noZone() && !(hasFCO && cn.typ == fcoIdx && trafoFCO(cur)) {
 				na.zone = cur // zona hanya dibentuk alat switching TM (switch jurusan TR tidak)
 			}
 			switch {
@@ -735,6 +815,9 @@ func (g *Graph) computeGroups() {
 				na.gd = nb
 			case lv[e.typ]:
 			case hasTD && nbTyp == tdIdx:
+			case hasBG && e.typ == bgIdx:
+				// busbar gardu berada di dalam gardu
+			case garduSw[nbTyp] && inGardu(nb):
 			case g.nodes[nb].sink():
 				// pelanggan TM yang disambung langsung dari kubikel gardu tetap milik gardu itu
 			default:
@@ -1288,6 +1371,9 @@ func (g *Graph) Summarize(nodeIDs []int64, edges int) GroupSummary {
 		if !ok {
 			continue
 		}
+		if _, no := g.nonOp[id]; no {
+			continue
+		}
 		s.CountByType[g.typeName(n.typ)]++
 		switch {
 		case hasGI && n.typ == giIdx:
@@ -1300,7 +1386,7 @@ func (g *Graph) Summarize(nodeIDs []int64, edges int) GroupSummary {
 			s.TrafoGD++
 		}
 		if n.sink() {
-			s.Customers++
+			s.Customers += g.custLocked(id, n)
 			s.LoadVA += float64(n.loadVA)
 		}
 		if n.feeder != 0 {
@@ -1402,11 +1488,11 @@ type SectionStat struct {
 	LoadOffVA    float64 `json:"load_off_va"`
 }
 
-func (x *SectionStat) add(on bool, va float64) {
-	x.Customers++
+func (x *SectionStat) add(on bool, va float64, c int) {
+	x.Customers += c
 	x.LoadVA += va
 	if !on {
-		x.CustomersOff++
+		x.CustomersOff += c
 		x.LoadOffVA += va
 	}
 }
@@ -1498,6 +1584,9 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 		return x
 	}
 	for id, n := range g.nodes {
+		if _, ok := g.nonOp[id]; ok {
+			continue // rencana / tidak operasi / bongkar: bukan bagian jaringan yang beroperasi
+		}
 		on := n.energized()
 		s.Nodes.Total++
 		if !on {
@@ -1541,7 +1630,7 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 				rs = &SectionStat{Kind: "route"}
 				routeSec[n.route] = rs
 			}
-			rs.add(on, float64(n.loadVA))
+			rs.add(on, float64(n.loadVA), g.custLocked(id, n))
 		}
 		if n.isSwitch() && lvNode[n.typ] {
 			lvSwitch[id] = n.route
@@ -1550,10 +1639,11 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 			raks = append(raks, id)
 		}
 		if n.sink() {
-			s.Customers.Total++
+			c := g.custLocked(id, n)
+			s.Customers.Total += c
 			s.LoadVA += float64(n.loadVA)
 			if !on {
-				s.Customers.Off++
+				s.Customers.Off += c
 				s.LoadOffVA += float64(n.loadVA)
 			}
 		}
@@ -1576,10 +1666,11 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 				}
 			}
 			if n.sink() {
-				f.Customers++
+				c := g.custLocked(id, n)
+				f.Customers += c
 				f.LoadVA += float64(n.loadVA)
 				if !on {
-					f.CustomersOff++
+					f.CustomersOff += c
 					f.LoadOffVA += float64(n.loadVA)
 				}
 			}
@@ -1591,10 +1682,11 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 				x.NodesOff++
 			}
 			if n.sink() {
-				x.Customers++
+				c := g.custLocked(id, n)
+				x.Customers += c
 				x.LoadVA += float64(n.loadVA)
 				if !on {
-					x.CustomersOff++
+					x.CustomersOff += c
 					x.LoadOffVA += float64(n.loadVA)
 				}
 			}
@@ -1616,7 +1708,7 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 					zs = &SectionStat{}
 					zoneOwn[n.zone] = zs
 				}
-				zs.add(on, float64(n.loadVA))
+				zs.add(on, float64(n.loadVA), g.custLocked(id, n))
 			}
 		}
 	}
@@ -1889,7 +1981,7 @@ func (g *Graph) Trace(req TraceRequest) TraceResult {
 				res.Sources = append(res.Sources, nb)
 			}
 			if nbRec.sink() {
-				res.Sinks++
+				res.Sinks += g.custLocked(nb, nbRec)
 			}
 			if nbRec.open() {
 				res.OpenSwitches = append(res.OpenSwitches, nb)
@@ -1990,4 +2082,58 @@ func (g *Graph) Validate(limit int, lang i18n.Lang) ([]ValidationIssue, map[stri
 		}
 	}
 	return issues, summary
+}
+
+// custLocked: jumlah pelanggan yang diwakili node sink (1, atau atribut jumlah_pelanggan untuk pelanggan
+// kolektif / bulk). Harus dengan RLock.
+func (g *Graph) custLocked(id int64, n nodeRec) int {
+	if n.flags&flagBulk != 0 {
+		if c, ok := g.bulkN[id]; ok && c > 1 {
+			return int(c)
+		}
+	}
+	return 1
+}
+
+// setBulkLocked mencatat / menghapus jumlah pelanggan node kolektif. Harus dengan Lock.
+func (g *Graph) setBulkLocked(id int64, r nodeRow) {
+	if r.cust != nil && *r.cust > 1 {
+		if g.bulkN == nil {
+			g.bulkN = map[int64]uint32{}
+		}
+		g.bulkN[id] = uint32(*r.cust)
+		return
+	}
+	delete(g.bulkN, id)
+}
+
+// setNonOpLocked mencatat / menghapus status non-operasi node. Harus dengan Lock.
+func (g *Graph) setNonOpLocked(id int64, on bool) {
+	if !on {
+		delete(g.nonOp, id)
+		return
+	}
+	if g.nonOp == nil {
+		g.nonOp = map[int64]struct{}{}
+	}
+	g.nonOp[id] = struct{}{}
+}
+
+// NonOperating: node berstatus rencana / tidak operasi / bongkar.
+func (g *Graph) NonOperating(id int64) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	_, ok := g.nonOp[id]
+	return ok
+}
+
+// CustomerCount mengembalikan jumlah pelanggan yang diwakili sebuah node (pelanggan kolektif > 1).
+func (g *Graph) CustomerCount(id int64) int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	n, ok := g.nodes[id]
+	if !ok || !n.sink() {
+		return 0
+	}
+	return g.custLocked(id, n)
 }

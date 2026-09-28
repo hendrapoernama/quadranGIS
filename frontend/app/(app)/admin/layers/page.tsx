@@ -214,7 +214,13 @@ export default function LayersPage() {
                     <input className="input w-16" type="number" value={val(x, 'sort_order')} onChange={(e) => set(x.code, { sort_order: Number(e.target.value) })} />
                   </td>
                   <td className="td">
-                    <input type="checkbox" checked={val(x, 'topology') ?? true} disabled={x.geom_kind === 'line'} onChange={(e) => set(x.code, { topology: e.target.checked })} />
+                    <input
+                      type="checkbox"
+                      checked={x.category === 'pendukung' ? false : (val(x, 'topology') ?? true)}
+                      disabled={x.geom_kind === 'line' || x.category === 'pendukung'}
+                      title={x.category === 'pendukung' ? t('layerspage.support_locked') : undefined}
+                      onChange={(e) => set(x.code, { topology: e.target.checked })}
+                    />
                   </td>
                   <td className="td">
                     <input className="input w-14" type="number" min={0} max={8} value={val(x, 'ways') ?? 0} disabled={!x.is_switch} onChange={(e) => set(x.code, { ways: Number(e.target.value) })} />

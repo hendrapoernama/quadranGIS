@@ -25,13 +25,15 @@ function typeMatch(types: ComponentType[]): any {
 }
 
 export const SUPPORT_COLOR = '#a8a29e'; // objek pendukung (tiang) pada mode status: netral
+export const INACTIVE_COLOR = '#78716c'; // objek rencana / tidak operasi / bongkar (properti tile "nonaktif")
+const isInactive: any = ['==', ['get', 'nonaktif'], true];
 
 export function colorExpr(types: ComponentType[], mode: ColorMode = 'type'): any {
   // objek pendukung (bukan topologi) tidak punya status nyala/padam
   const support = types.filter((t) => t.topology === false).map((t) => t.code);
   const isSupport = ['in', ['get', 'type_code'], ['literal', support]];
-  if (mode === 'status') return ['case', isSupport, SUPPORT_COLOR, energizedExpr(), ON_STATUS, OFF_STATUS];
-  return ['case', isSupport, typeMatch(types), energizedExpr(), typeMatch(types), OFF_COLOR];
+  if (mode === 'status') return ['case', isSupport, SUPPORT_COLOR, isInactive, INACTIVE_COLOR, energizedExpr(), ON_STATUS, OFF_STATUS];
+  return ['case', isSupport, typeMatch(types), isInactive, INACTIVE_COLOR, energizedExpr(), typeMatch(types), OFF_COLOR];
 }
 
 /** Warna kepadatan selalu per tipe (agregat tidak punya status). */
@@ -224,7 +226,25 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': color,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, ['*', lSize, 0.35], 13, ['*', lSize, 0.8], 18, ['*', lSize, 1.6]],
+        // melebar sampai zoom 17 lalu menipis lagi: di zoom detail beberapa saluran sejajar berjarak < 1 m
+        // (satu jalur tiang) tetap terpisah; minimal 1 px agar tetap terlihat
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          8,
+          ['*', lSize, 0.35],
+          13,
+          ['*', lSize, 0.8],
+          17,
+          ['*', lSize, 1.3],
+          19,
+          ['max', 1.2, ['*', lSize, 0.9]],
+          21,
+          ['max', 1, ['*', lSize, 0.6]],
+          24,
+          ['max', 1, ['*', lSize, 0.5]],
+        ],
         'line-opacity': 0.95,
       },
     },
@@ -234,7 +254,7 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
       source: SOURCE,
       'source-layer': 'edges',
       filter: baseFilters['edges-open'],
-      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 18, 3], 'line-dasharray': [2, 2] },
+      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 17, 2.5, 21, 1.2], 'line-dasharray': [2, 2] },
     },
     // ---- garis padam (garis putus-putus, hanya pada mode status)
     {
@@ -244,7 +264,7 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
       'source-layer': 'edges',
       filter: baseFilters['edges-off'],
       layout: { visibility: mode === 'status' ? 'visible' : 'none' },
-      paint: { 'line-color': '#fecaca', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 18, 2], 'line-dasharray': [1.5, 2.5] },
+      paint: { 'line-color': '#fecaca', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 17, 2, 21, 1], 'line-dasharray': [1.5, 2.5] },
     },
     {
       id: 'edge-labels',

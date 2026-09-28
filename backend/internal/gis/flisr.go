@@ -190,7 +190,7 @@ func (g *Graph) FLISR(faultKind string, faultID int64, p SimParams, limit int) (
 	for id := range section {
 		n := g.nodes[id]
 		if n.sink() {
-			res.SectionCustomers++
+			res.SectionCustomers += g.custLocked(id, n)
 		}
 		if len(res.SectionNodes) < 3000 {
 			res.SectionNodes = append(res.SectionNodes, id)
@@ -290,7 +290,7 @@ func (g *Graph) FLISR(faultKind string, faultID int64, p SimParams, limit int) (
 			cur := q[i]
 			cn := g.nodes[cur]
 			if cn.sink() {
-				isl.Customers++
+				isl.Customers += g.custLocked(cur, cn)
 				isl.LoadVA += float64(cn.loadVA)
 			}
 			isl.Nodes++
@@ -486,7 +486,7 @@ func (g *Graph) OutageSections(causeKind string, causeID int64, max int) ([]Faul
 			cn := g.nodes[cur]
 			sec.Nodes++
 			if cn.sink() {
-				sec.Customers++
+				sec.Customers += g.custLocked(cur, cn)
 			}
 			if len(sec.NodeIDs) < 20000 {
 				sec.NodeIDs = append(sec.NodeIDs, cur)
@@ -588,7 +588,7 @@ func (g *Graph) SuspectFromCustomers(ids []int64) (*ReportSuspect, error) {
 		level = "pelanggan"
 	case typ == "switch_jurusan_tr":
 		level = "jurusan"
-	case typ == "rak_tr" || typ == "trafo_distribusi":
+	case typ == "rak_tr" || typ == "trafo_distribusi" || (typ == "fco" && sn.gd != 0):
 		level = "trafo_gd"
 	case typ == "gd":
 		level = "gardu_distribusi"
@@ -600,15 +600,15 @@ func (g *Graph) SuspectFromCustomers(ids []int64) (*ReportSuspect, error) {
 	// pelanggan di hilir dugaan (topologi normal, dibatasi)
 	total := 0
 	if sn.sink() {
-		total = 1
+		total = g.custLocked(suspect, sn)
 	} else {
 		d0 := ndist[suspect]
 		q := []int64{suspect}
 		seen := map[int64]struct{}{suspect: {}}
 		for i := 0; i < len(q) && i < 200000; i++ {
 			cur := q[i]
-			if g.nodes[cur].sink() {
-				total++
+			if cn := g.nodes[cur]; cn.sink() {
+				total += g.custLocked(cur, cn)
 			}
 			dc := ndist[cur]
 			for _, eid := range g.adj[cur] {

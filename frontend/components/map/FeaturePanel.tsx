@@ -10,6 +10,7 @@ import { fmtDate, fmtLength, fmtVA } from '@/lib/format';
 import { fmtArea } from '@/lib/geo';
 import { SectionRecap } from '@/components/power/SectionRecap';
 import { useUnits, unitLabel } from '@/components/units/useUnits';
+import { PowerStateBadge } from '@/components/map/PowerStateBadge';
 
 interface Props {
   feature: GeoFeature | null;
@@ -198,7 +199,7 @@ export function FeaturePanel(props: Props) {
           <span className="font-semibold uppercase text-gray-500">{t('feature.energized')}</span>
           {inGraph ? (
             <span className="flex items-center gap-1">
-              {graph!.energized ? <Badge tone="green">{t('feature.on')}</Badge> : <Badge tone="red">{t('feature.off')}</Badge>}
+              <PowerStateBadge energized={!!graph!.energized} attrs={p.properties} />
               {graph!.open && <Badge tone="amber">{t('feature.device_open')}</Badge>}
             </span>
           ) : (

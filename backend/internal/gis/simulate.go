@@ -317,7 +317,7 @@ func (g *Graph) simLoads(region map[int64]struct{}, on map[int64]int64, p SimPar
 		}
 		lab, ok := on[id]
 		if !ok {
-			off++
+			off += g.custLocked(id, n)
 			offVA += float64(n.loadVA)
 			continue
 		}
@@ -529,7 +529,7 @@ func (g *Graph) simulateLocked(actions []SimAction, base *simState, p SimParams,
 		switch {
 		case nowOn && !n.energized():
 			if n.sink() {
-				res.CustomersRestored++
+				res.CustomersRestored += g.custLocked(id, n)
 				res.LoadRestoredVA += float64(n.loadVA)
 			}
 			if len(res.NodesOn) < limit {
@@ -537,7 +537,7 @@ func (g *Graph) simulateLocked(actions []SimAction, base *simState, p SimParams,
 			}
 		case !nowOn && n.energized():
 			if n.sink() {
-				res.CustomersNewOff++
+				res.CustomersNewOff += g.custLocked(id, n)
 				res.LoadNewOffVA += float64(n.loadVA)
 			}
 			if len(res.NodesOff) < limit {

@@ -15,6 +15,7 @@ import (
 	"quadrangis/internal/auth"
 	"quadrangis/internal/cache"
 	"quadrangis/internal/config"
+	"quadrangis/internal/gdbimport"
 	"quadrangis/internal/gis"
 	"quadrangis/internal/middleware"
 	"quadrangis/internal/monitor"
@@ -60,6 +61,7 @@ type Deps struct {
 type Server struct {
 	d        *Deps
 	upgrader websocket.Upgrader
+	gdb      *gdbimport.Manager
 }
 
 // NewRouter membangun router Gin lengkap.
@@ -68,6 +70,7 @@ func NewRouter(d *Deps) *gin.Engine {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	s := &Server{d: d}
+	s.gdb = s.newGDBManager()
 	allowed := map[string]struct{}{}
 	for _, o := range d.Cfg.CORSOrigins {
 		allowed[o] = struct{}{}
@@ -226,6 +229,8 @@ func NewRouter(d *Deps) *gin.Engine {
 	op.POST("/plans/:id/steps/:seq/skip", middleware.RequirePermission("power.plan"), s.opsStep(true))
 	op.GET("/flisr/sections", s.opsFlisrSections)
 	op.POST("/flisr", s.opsFlisr)
+	op.GET("/fault-locate/defaults", s.opsFaultDefaults)
+	op.POST("/fault-locate", s.opsFaultLocate)
 	op.GET("/reports", s.opsListReports)
 	op.GET("/reports/suspects", s.opsReportSuspects)
 	op.POST("/reports", middleware.RequirePermission("report.manage"), s.opsCreateReport)
@@ -360,6 +365,16 @@ func NewRouter(d *Deps) *gin.Engine {
 	adm.POST("/menus", middleware.RequirePermission("admin.menus"), s.createMenu)
 	adm.PUT("/menus/:id", middleware.RequirePermission("admin.menus"), s.updateMenu)
 	adm.DELETE("/menus/:id", middleware.RequirePermission("admin.menus"), s.deleteMenu)
+
+	// perintah energize / de-energize dari sistem eksternal lewat Kafka: log & uji kirim
+	adm.GET("/switch-events", middleware.RequirePermission("admin.config"), s.switchEventsList)
+	adm.POST("/switch-events/test", middleware.RequirePermission("admin.config"), s.switchEventsTest)
+
+	// impor Esri File Geodatabase (ZIP) → jaringan
+	adm.POST("/gdb-import", middleware.RequirePermission("admin.config"), s.gdbImportStart)
+	adm.GET("/gdb-import/status", middleware.RequirePermission("admin.config"), s.gdbImportStatus)
+	adm.GET("/gdb-import/batches", middleware.RequirePermission("admin.config"), s.gdbImportBatches)
+	adm.DELETE("/gdb-import/batches/:tag", middleware.RequirePermission("admin.config"), s.gdbImportDelete)
 
 	adm.GET("/configs", middleware.RequirePermission("admin.config"), s.listConfigs)
 	adm.PUT("/configs", middleware.RequirePermission("admin.config"), s.upsertConfigs)

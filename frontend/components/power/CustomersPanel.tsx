@@ -20,6 +20,7 @@ export interface CustomerRow {
   type_code: string;
   energized: boolean;
   daya_va: number;
+  jumlah_pelanggan?: number; // > 1: pelanggan kolektif (bulk)
   kode_ssot: string;
   feeder: CodeName | null;
   gd: CodeName | null;
@@ -119,6 +120,7 @@ export function CustomersPanel({ active, state, onState, refreshKey, onSelect, t
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
               <span>{typeName(c.type_code)}</span>
+              {(c.jumlah_pelanggan ?? 1) > 1 && <span className="font-medium text-teal-700">{t('power.bulk_customers', { n: fmtNum(c.jumlah_pelanggan!) })}</span>}
               {c.daya_va > 0 && <span>{fmtVA(c.daya_va)}</span>}
               {c.feeder && (
                 <span>

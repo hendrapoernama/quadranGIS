@@ -211,3 +211,17 @@ func Consume(ctx context.Context, brokers []string, topic, groupID string, handl
 		}
 	}
 }
+
+// PublishRaw mengirim satu pesan mentah (mis. perintah uji dari halaman admin) ke topik lalu menunggu konfirmasi broker.
+func PublishRaw(ctx context.Context, brokers []string, topic string, key, value []byte) error {
+	if len(brokers) == 0 {
+		return errors.New("kafka: broker belum dikonfigurasi")
+	}
+	if err := EnsureTopic(ctx, brokers, topic, 3); err != nil {
+		log.Printf("[kafka] tidak dapat memastikan topik %s: %v", topic, err)
+	}
+	w := &kafka.Writer{Addr: kafka.TCP(brokers...), Topic: topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireOne,
+		AllowAutoTopicCreation: true, WriteTimeout: 10 * time.Second}
+	defer w.Close()
+	return w.WriteMessages(ctx, kafka.Message{Key: key, Value: value, Time: time.Now()})
+}

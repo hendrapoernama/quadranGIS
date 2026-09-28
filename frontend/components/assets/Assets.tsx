@@ -35,6 +35,7 @@ interface Row {
   state: 'on' | 'partial' | 'off';
   energized: boolean;
   children: number;
+  children_by?: Record<string, number>;
   pelanggan: number;
   pelanggan_off: number;
   beban_va: number;
@@ -292,6 +293,12 @@ export default function Assets() {
   const unitOptions = useMemo(() => units.filter((u) => u.active), [units]);
 
   // --- tampilan
+  // rincian isi: "1 trafo · 2 jurusan" (urut menurut tingkat hirarki)
+  const contents = (r: Row) => {
+    const by = r.children_by || {};
+    const parts = [...LEVELS].filter((l) => by[l]).map((l) => `${fmtNum(by[l])} ${A(`cn_${l}`)}`);
+    return parts.length ? parts.join(' · ') : `${fmtNum(r.children)} ${A(`ch_${r.kind}`)}`;
+  };
   const levelBadge = (k: Kind) => <Badge tone={TONE[k]}>{A(`sh_${k}`)}</Badge>;
   const stateDot = (s: string) => <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${DOT[s] || 'bg-gray-400'}`} title={A(`st_${s}`)} />;
 
@@ -338,11 +345,11 @@ export default function Assets() {
             <span className="ml-auto flex shrink-0 items-center gap-3 tabular-nums text-gray-600">
               {r.children > 0 && r.kind !== 'route' && (
                 <span className="hidden text-[11px] text-gray-500 md:inline">
-                  {fmtNum(r.children)} {A(`ch_${r.kind}`)}
+                  {contents(r)}
                 </span>
               )}
               <span className="w-24 text-right" title={A('customers_total')}>
-                {r.kind === 'pelanggan' ? '' : fmtNum(r.pelanggan)}
+                {r.kind === 'pelanggan' && r.pelanggan <= 1 ? '' : fmtNum(r.pelanggan)}
                 {r.pelanggan_off > 0 && r.kind !== 'pelanggan' && <span className="text-red-600"> ({fmtNum(r.pelanggan_off)})</span>}
               </span>
               <span className="w-20 text-right" title={A('load')}>
@@ -471,7 +478,7 @@ export default function Assets() {
                       <tr>
                         <td className="text-gray-500">{A('children')}</td>
                         <td className="text-right text-gray-900">
-                          {fmtNum(sel.children)} {A(`ch_${sel.kind}`)}
+                          {contents(sel)}
                         </td>
                       </tr>
                     )}
@@ -495,6 +502,9 @@ export default function Assets() {
                     </tr>
                   </tbody>
                 </table>
+                {sel.kind === 'gd' && sel.children_by && !sel.children_by.trafo && sel.children_by.route ? (
+                  <p className="rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">{A('gd_no_trafo')}</p>
+                ) : null}
                 {chain(sel).length > 0 && (
                   <div>
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{A('chain')}</div>
@@ -519,7 +529,9 @@ export default function Assets() {
                 )}
                 {childLevel(sel.kind) && sel.children > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {LEVELS.slice(LEVELS.indexOf(sel.kind) + 1).map((lv) => (
+                    {LEVELS.slice(LEVELS.indexOf(sel.kind) + 1)
+                      .filter((lv) => !(lv === 'trafo' && sel.kind === 'gd' && !sel.children_by?.trafo))
+                      .map((lv) => (
                       <button key={lv} className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-gray-800 hover:bg-gray-50" onClick={() => openTable(sel, lv)}>
                         <Icon name="list" size={12} /> {A('show_table', { level: A(`lv_${lv}`).toLowerCase() })}
                       </button>
@@ -630,7 +642,7 @@ export default function Assets() {
                       </span>
                     </td>
                     {level !== 'pelanggan' && (
-                      <td className="py-1.5 text-right tabular-nums text-gray-700" title={A(`ch_${r.kind}`)}>
+                      <td className="py-1.5 text-right tabular-nums text-gray-700" title={contents(r)}>
                         {fmtNum(r.children)}
                       </td>
                     )}

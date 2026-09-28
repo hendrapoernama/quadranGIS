@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"quadrangis/internal/gis"
+	"quadrangis/internal/i18n"
 	"quadrangis/internal/middleware"
 	"quadrangis/internal/models"
 	"quadrangis/internal/stream"
@@ -82,6 +83,23 @@ func outageLevel(targetKind, typeCode string, ct models.ComponentType, sum gis.G
 	case typeCode == "gd":
 		return "gardu_distribusi"
 	case typeCode == "trafo_distribusi" || typeCode == "rak_tr":
+		return "trafo_gd"
+	case typeCode == "pmt_20kv" || typeCode == "pms_20kv":
+		// PMT / PMS gardu beton / gardu hubung: dari cakupan dampaknya
+		switch {
+		case sum.GD > 0:
+			return "zona"
+		case sum.TrafoGD > 0:
+			return "trafo_gd"
+		case sum.Customers > 0:
+			return "pelanggan"
+		}
+		return "zona"
+	case typeCode == "fco":
+		// FCO trafo: hanya trafo di hilirnya; FCO percabangan: satu zona dengan gardu-gardunya
+		if sum.GD > 0 {
+			return "zona"
+		}
 		return "trafo_gd"
 	case typeCode == "switch_jurusan_tr":
 		return "jurusan"
@@ -197,6 +215,43 @@ type maneuverReq struct {
 	Note      string `json:"note"`
 }
 
+// maneuverActor adalah pelaku manuver: operator (web / ponsel / SLD / rencana) atau sistem eksternal (Kafka).
+type maneuverActor struct {
+	UserID   *string
+	Username string
+	FullName string
+	Role     string
+	ClientIP string
+	Channel  string
+	Lang     i18n.Lang
+	At       *time.Time          // waktu kejadian dari sistem eksternal; nil = sekarang
+	System   bool                // sistem eksternal: tanpa cek izin role, tolak bila status sudah sama
+	Has      func(p string) bool // cek izin operator (nil untuk sistem)
+}
+
+// maneuverError adalah galat validasi / izin manuver beserta kode HTTP-nya.
+type maneuverError struct {
+	status int
+	msg    string
+}
+
+func (e *maneuverError) Error() string { return e.msg }
+
+func (a maneuverActor) tr(key string, args ...any) string { return i18n.T(a.Lang, key, args...) }
+
+// actorFromRequest: operator yang sedang login.
+func (s *Server) actorFromRequest(c *gin.Context) maneuverActor {
+	who := s.person(c)
+	a := maneuverActor{Username: who.Username, FullName: who.FullNameOr(), Role: who.Role, ClientIP: clientIP(c), Channel: clientChannel(c),
+		Lang: middleware.GetLang(c)}
+	if cl := middleware.GetClaims(c); cl != nil {
+		uid := cl.UserID
+		a.UserID = &uid
+		a.Has = cl.Has
+	}
+	return a
+}
+
 // POST /api/gis/maneuver: buka/tutup alat switching, pemutusan objek (gardu, trafo, pelanggan)
 // atau saluran, dengan kategori GANGGUAN / PEMELIHARAAN / MLS / MANUVER / BENCANA ALAM.
 func (s *Server) powerManeuver(c *gin.Context) {
@@ -205,10 +260,25 @@ func (s *Server) powerManeuver(c *gin.Context) {
 		failT(c, http.StatusBadRequest, "gis.node_id_required")
 		return
 	}
+	res, err := s.execManeuver(c.Request.Context(), req, s.actorFromRequest(c))
+	var me *maneuverError
+	switch {
+	case errors.As(err, &me):
+		fail(c, me.status, me.msg)
+		return
+	case err != nil:
+		handleErr(c, err)
+		return
+	}
+	ok(c, res)
+}
+
+// execManeuver menjalankan manuver (buka/tutup, energize/deenergize) lengkap dengan persistensi, kejadian padam,
+// SOE, notifikasi, siaran realtime, dan audit. Dipakai endpoint operator dan konsumer Kafka sistem eksternal.
+func (s *Server) execManeuver(ctx context.Context, req maneuverReq, a maneuverActor) (gin.H, error) {
 	req.Action = strings.ToLower(strings.TrimSpace(req.Action))
 	if req.Action != "open" && req.Action != "close" {
-		failT(c, http.StatusBadRequest, "power.action_invalid")
-		return
+		return nil, &maneuverError{http.StatusBadRequest, a.tr("power.action_invalid")}
 	}
 	req.Kind = strings.ToUpper(strings.TrimSpace(req.Kind))
 	validKind := false
@@ -219,43 +289,49 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	}
 	// kategori pemadaman wajib saat membuka / deenergize; saat menutup boleh kosong (ikut kejadian aktif)
 	if !validKind && (req.Action == "open" || req.Kind != "") {
-		failT(c, http.StatusBadRequest, "power.kind_invalid")
-		return
+		return nil, &maneuverError{http.StatusBadRequest, a.tr("power.kind_invalid")}
 	}
-	ctx := c.Request.Context()
-	lang := middleware.GetLang(c)
 	targetKind, targetID := "node", req.NodeID
 	if req.EdgeID > 0 {
 		targetKind, targetID = "edge", req.EdgeID
 	}
 	ft, err := s.d.Features.Get(ctx, targetKind, targetID)
 	if err != nil {
-		handleErr(c, err)
-		return
+		return nil, err
 	}
 	typeCode, _ := ft.Properties["type_code"].(string)
 	code, _ := ft.Properties["code"].(string)
 	ct, _ := s.d.Types.Get(typeCode)
 	if targetKind == "node" && !ct.Topology {
-		fail(c, http.StatusBadRequest, tr(c, "power.not_switch", targetID, typeCode))
-		return
+		return nil, &maneuverError{http.StatusBadRequest, a.tr("power.not_switch", targetID, typeCode)}
 	}
-	// hak akses sesuai role: switching / energize, domain TM / TR
+	// hak akses sesuai role: switching / energize, domain TM / TR (sistem eksternal dipercaya lewat Kafka)
 	domain := s.operateDomain(targetKind, targetID, ct)
-	if perm := operatePermission(targetKind, ct, domain); !middleware.GetClaims(c).Has(perm) {
-		fail(c, http.StatusForbidden, tr(c, "auth.no_permission", perm))
-		return
+	if perm := operatePermission(targetKind, ct, domain); !a.System && (a.Has == nil || !a.Has(perm)) {
+		return nil, &maneuverError{http.StatusForbidden, a.tr("auth.no_permission", perm)}
 	}
 	var wayEdge *int64
 	if req.WayEdgeID > 0 && targetKind == "node" {
 		if ct.Ways < 3 {
-			failT(c, http.StatusBadRequest, "power.way_not_allowed")
-			return
+			return nil, &maneuverError{http.StatusBadRequest, a.tr("power.way_not_allowed")}
 		}
 		w := req.WayEdgeID
 		wayEdge = &w
 	}
 	open := req.Action == "open"
+	if a.System && wayEdge == nil {
+		// perintah sistem eksternal idempoten: status sama tidak diulang (tidak membuat kejadian ganda)
+		var cur bool
+		if targetKind == "edge" {
+			info, _ := s.d.Graph.EdgeInfo(targetID)
+			cur = info.Open
+		} else {
+			cur = s.d.Graph.NodeInfo(targetID).Open
+		}
+		if cur == open {
+			return nil, &maneuverError{http.StatusConflict, a.tr("power.already_state", code, req.Action)}
+		}
+	}
 	if req.Kind == "" {
 		if req.Kind = s.d.Power.ActiveOutageKind(ctx, targetKind, targetID, wayEdge); req.Kind == "" {
 			req.Kind = "MANUVER"
@@ -268,29 +344,19 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	diff, err := s.d.Graph.Maneuver(in)
 	switch {
 	case errors.Is(err, gis.ErrNotFound):
-		failT(c, http.StatusConflict, "power.not_in_graph")
-		return
+		return nil, &maneuverError{http.StatusConflict, a.tr("power.not_in_graph")}
 	case errors.Is(err, gis.ErrNotSwitch):
-		failT(c, http.StatusBadRequest, "power.way_not_allowed")
-		return
+		return nil, &maneuverError{http.StatusBadRequest, a.tr("power.way_not_allowed")}
 	case errors.Is(err, gis.ErrBadRequest):
-		fail(c, http.StatusBadRequest, tr(c, "power.way_invalid", req.WayEdgeID, req.NodeID))
-		return
+		return nil, &maneuverError{http.StatusBadRequest, a.tr("power.way_invalid", req.WayEdgeID, req.NodeID)}
 	case err != nil:
-		handleErr(c, err)
-		return
+		return nil, err
 	}
 
 	// persistensi: posisi, energisasi, catatan manuver, kejadian padam
 	pctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	cl := middleware.GetClaims(c)
-	var userID *string
-	username := ""
-	if cl != nil {
-		uid := cl.UserID
-		userID, username = &uid, cl.Username
-	}
+	userID, username := a.UserID, a.Username
 	if targetKind == "edge" {
 		err = s.d.Power.SetEdgeState(pctx, targetID, open, userID)
 	} else {
@@ -298,12 +364,10 @@ func (s *Server) powerManeuver(c *gin.Context) {
 		err = s.d.Power.SetSwitchState(pctx, req.NodeID, info.Open, info.OpenWays, userID)
 	}
 	if err != nil {
-		handleErr(c, err)
-		return
+		return nil, err
 	}
 	if err := s.d.Power.ApplyEnergized(pctx, diff); err != nil {
-		handleErr(c, err)
-		return
+		return nil, err
 	}
 	var affectedNodes []int64
 	affectedEdges := 0
@@ -315,15 +379,16 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	sum := s.d.Graph.Summarize(affectedNodes, affectedEdges)
 	report := s.buildGroupReport(pctx, sum)
 	reportJSON, _ := json.Marshal(report)
-	who := s.person(c)
-	channel := clientChannel(c)
+	channel := a.Channel
 	m := gis.ManeuverRecord{TargetKind: targetKind, NodeID: targetID, NodeCode: code, NodeType: typeCode, Action: req.Action, WayEdgeID: wayEdge,
 		Kind: req.Kind, Note: strings.TrimSpace(req.Note), UserID: userID, Username: username, Affected: reportJSON,
-		FullName: who.FullNameOr(), Role: who.Role, ClientIP: clientIP(c), Channel: channel}
+		FullName: a.FullName, Role: a.Role, ClientIP: a.ClientIP, Channel: channel}
+	if a.At != nil {
+		m.CreatedAt = *a.At
+	}
 	mid, err := s.d.Power.InsertManeuver(pctx, m)
 	if err != nil {
-		handleErr(c, err)
-		return
+		return nil, err
 	}
 	var outageID *int64
 	closedOutages := []int64{}
@@ -331,11 +396,14 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	if open && len(affectedNodes) > 0 {
 		_, isHead := s.d.Graph.FeederOf(targetID)
 		level = outageLevel(targetKind, typeCode, ct, sum, targetKind == "node" && isHead)
-		oid, err := s.d.Power.OpenOutage(pctx, gis.OutageRecord{Kind: req.Kind, Level: level, GroupCode: code, CauseKind: targetKind, CauseNodeID: targetID,
-			CauseNodeCode: code, CauseNodeType: typeCode, WayEdgeID: wayEdge, OpenManeuverID: &mid, Summary: reportJSON}, affectedNodes)
+		o := gis.OutageRecord{Kind: req.Kind, Level: level, GroupCode: code, CauseKind: targetKind, CauseNodeID: targetID,
+			CauseNodeCode: code, CauseNodeType: typeCode, WayEdgeID: wayEdge, OpenManeuverID: &mid, Summary: reportJSON}
+		if a.At != nil {
+			o.StartedAt = *a.At
+		}
+		oid, err := s.d.Power.OpenOutage(pctx, o, affectedNodes)
 		if err != nil {
-			handleErr(c, err)
-			return
+			return nil, err
 		}
 		outageID = &oid
 		_ = s.d.Power.LinkManeuverOutage(pctx, mid, oid)
@@ -344,7 +412,7 @@ func (s *Server) powerManeuver(c *gin.Context) {
 			s.publishReportEvent("linked", oid)
 		}
 	} else if !open {
-		closedOutages, _ = s.d.Power.CloseOutages(pctx, targetKind, targetID, wayEdge, mid, reportJSON)
+		closedOutages, _ = s.d.Power.CloseOutages(pctx, targetKind, targetID, wayEdge, mid, reportJSON, a.At)
 		if len(closedOutages) > 0 {
 			_ = s.d.Power.LinkManeuverOutage(pctx, mid, closedOutages[0])
 			// sisa padam (pemulihan sebagian): dicatat sebagai kejadian lanjutan per switch isolasi
@@ -379,8 +447,11 @@ func (s *Server) powerManeuver(c *gin.Context) {
 	}
 	tid := targetID
 	base := gis.SOEEvent{TargetKind: targetKind, TargetID: &tid, TargetCode: code, TargetType: typeCode, WayEdgeID: wayEdge,
-		Kind: req.Kind, FeederCode: feederCode, Username: username, UserID: userID, FullName: who.FullNameOr(), Role: who.Role,
-		ClientIP: clientIP(c), Channel: channel}
+		Kind: req.Kind, FeederCode: feederCode, Username: username, UserID: userID, FullName: a.FullName, Role: a.Role,
+		ClientIP: a.ClientIP, Channel: channel}
+	if a.At != nil {
+		base.TS = *a.At
+	}
 	ev1 := base
 	ev1.Category, ev1.Event, ev1.Severity, ev1.Level = category, strings.ToUpper(req.Action), sev, level
 	ev1.Customers, ev1.LoadVA, ev1.Nodes, ev1.ManeuverID, ev1.OutageID, ev1.Note = report.Customers, report.LoadVA, len(affectedNodes), &mid, outageID, m.Note
@@ -415,28 +486,28 @@ func (s *Server) powerManeuver(c *gin.Context) {
 		msgKey = "power.msg_open"
 	}
 	label := ct.Name
-	if lang == "en" && ct.NameEN != "" {
+	if a.Lang == "en" && ct.NameEN != "" {
 		label = ct.NameEN
 	}
-	message := tr(c, msgKey, label, targetID, req.Kind, len(affectedNodes)+affectedEdges, report.Customers)
+	message := a.tr(msgKey, label, targetID, req.Kind, len(affectedNodes)+affectedEdges, report.Customers)
 	evData, _ := json.Marshal(gin.H{"action": req.Action, "kind": req.Kind, "target_kind": targetKind, "node_code": code, "way_edge_id": wayEdge, "maneuver_id": mid,
-		"outage_id": outageID, "level": level, "closed_outages": closedOutages, "summary": report, "message": message})
+		"outage_id": outageID, "level": level, "closed_outages": closedOutages, "summary": report, "message": message, "channel": channel})
 	ev := stream.Event{Type: "maneuver", Kind: targetKind, ID: targetID, TypeCode: typeCode, Version: version, Username: username, At: time.Now(), Data: evData}
 	if userID != nil {
 		ev.UserID = *userID
 	}
 	s.d.Producer.Publish(ev)
 	s.d.Hub.Publish(ev)
-	if cl != nil {
-		s.d.Audit.Log(&cl.UserID, cl.Username, "maneuver."+req.Action, targetKind, strconv.FormatInt(targetID, 10),
-			gin.H{"kind": req.Kind, "level": level, "way_edge_id": wayEdge, "nodes": len(affectedNodes), "customers": report.Customers, "outage_id": outageID}, clientIP(c))
-	}
+	s.d.Audit.Log(userID, username, "maneuver."+req.Action, targetKind, strconv.FormatInt(targetID, 10),
+		gin.H{"kind": req.Kind, "level": level, "way_edge_id": wayEdge, "nodes": len(affectedNodes), "customers": report.Customers, "outage_id": outageID, "channel": channel},
+		a.ClientIP)
 	feat, err := s.d.Features.Get(ctx, targetKind, targetID)
 	if err == nil {
 		s.enrichFeature(ctx, &feat)
 	}
-	ok(c, gin.H{"maneuver_id": mid, "outage_id": outageID, "level": level, "closed_outages": closedOutages, "summary": report, "message": message,
-		"tile_version": version, "feature": feat, "diff": gin.H{"nodes_on": len(diff.NodesOn), "nodes_off": len(diff.NodesOff), "edges_on": len(diff.EdgesOn), "edges_off": len(diff.EdgesOff)}})
+	return gin.H{"maneuver_id": mid, "outage_id": outageID, "level": level, "closed_outages": closedOutages, "summary": report, "message": message,
+		"tile_version": version, "feature": feat, "target_kind": targetKind, "target_id": targetID, "code": code, "type_code": typeCode,
+		"diff": gin.H{"nodes_on": len(diff.NodesOn), "nodes_off": len(diff.NodesOff), "edges_on": len(diff.EdgesOn), "edges_off": len(diff.EdgesOff)}}, nil
 }
 
 // GET /api/power/summary
@@ -646,6 +717,7 @@ type customerRow struct {
 	TypeCode   string        `json:"type_code"`
 	Energized  bool          `json:"energized"`
 	DayaVA     float64       `json:"daya_va"`
+	Customers  int           `json:"jumlah_pelanggan"` // > 1: pelanggan kolektif (bulk)
 	KodeSSOT   string        `json:"kode_ssot"`
 	Feeder     *gis.CodeName `json:"feeder"`
 	GD         *gis.CodeName `json:"gd"`
@@ -671,7 +743,8 @@ func (s *Server) powerCustomers(c *gin.Context) {
 	if offset < 0 {
 		offset = 0
 	}
-	where, args := []string{"type_code = ANY($1)"}, []any{sinks}
+	// pelanggan tidak operasi / bongkar tidak termasuk (sama dengan rekap graf)
+	where, args := []string{"type_code = ANY($1)", "NOT " + gis.SQLNonOperating}, []any{sinks}
 	switch c.Query("state") {
 	case "off":
 		where = append(where, "NOT energized")
@@ -700,7 +773,7 @@ func (s *Server) powerCustomers(c *gin.Context) {
 			total = sum.Customers.Total
 		}
 	} else {
-		if err := s.d.Pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM gis_nodes WHERE `+cond+` LIMIT 10001) x`, args...).Scan(&total); err != nil {
+		if err := s.d.Pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM gis_nodes n WHERE `+cond+` LIMIT 10001) x`, args...).Scan(&total); err != nil {
 			handleErr(c, err)
 			return
 		}
@@ -710,7 +783,7 @@ func (s *Server) powerCustomers(c *gin.Context) {
 	rows, err := s.d.Pool.Query(ctx, `SELECT id, code, name, type_code, energized,
 		COALESCE(NULLIF(properties->>'daya_va','')::float8, NULLIF(properties->>'daya_kva','')::float8 * 1000, 0),
 		COALESCE(properties->>'kode_ssot','')
-		FROM gis_nodes WHERE `+cond+fmt.Sprintf(` ORDER BY energized, code, id LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
+		FROM gis_nodes n WHERE `+cond+fmt.Sprintf(` ORDER BY energized, code, id LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
 	if err != nil {
 		handleErr(c, err)
 		return
@@ -733,6 +806,7 @@ func (s *Server) powerCustomers(c *gin.Context) {
 	offIDs := []int64{}
 	for i, r := range items {
 		infos[i] = s.d.Graph.NodeInfo(r.ID)
+		items[i].Customers = s.d.Graph.CustomerCount(r.ID)
 		if infos[i].Feeder != 0 {
 			nodeIDs = append(nodeIDs, infos[i].Feeder)
 		}
