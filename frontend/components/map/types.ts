@@ -65,6 +65,21 @@ export interface MapHandle {
   /** overlay batas wilayah UP3 / ULP (data disimpan bila peta belum siap) */
   setBoundary: (fc: FeatureCollection | null) => void;
   setBoundaryStyle: (s: BoundaryStyle) => void;
+  /** penanda objek padam berkedip merah / cluster merah (null = sembunyikan) */
+  setOffMarkers: (items: OffMarker[] | null) => void;
+}
+
+/** Objek padam untuk penanda peta (GET /api/power/off-markers). */
+export interface OffMarker {
+  id: number;
+  type_code: string;
+  code: string;
+  name: string;
+  lng: number;
+  lat: number;
+  outage_id: number | null;
+  outage_kind: string | null;
+  since: string | null;
 }
 
 /** Tampilan overlay batas wilayah. opacity = kepekatan isi UP3 (0..1). */

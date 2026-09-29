@@ -16,6 +16,7 @@ import { useIsMobile } from '@/lib/mobile';
 import { useFieldT } from '@/components/field/i18n';
 import { SearchBox } from './SearchBox';
 import { BoundaryControl, useBoundaryOverlay } from './BoundaryOverlay';
+import { OffMarkerCheckbox, useOffMarkers } from './useOffMarkers';
 import { LayerPanel } from './LayerPanel';
 import { FeaturePanel } from './FeaturePanel';
 import { ChangesPanel } from './ChangesPanel';
@@ -523,6 +524,7 @@ export default function MapWorkspace() {
   );
 
   const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
+  const offMarks = useOffMarkers(mapRef, configs, mapReady);
 
   // ------------------------------------------------------------ trace
   const onTraceResult = useCallback((r: TraceResponse | null) => {
@@ -753,6 +755,7 @@ export default function MapWorkspace() {
                 canEdit={canEdit}
                 zoom={cursor.zoom}
                 overlay={<BoundaryControl state={boundary} />}
+                statusExtra={<OffMarkerCheckbox state={offMarks} />}
               />
             )}
             {tab === 'feature' && (

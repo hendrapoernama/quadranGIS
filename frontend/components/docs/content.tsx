@@ -276,7 +276,12 @@ const features = (
     <FeatureCard
       icon="✨"
       title="AI Assistant"
-      items={['Claude, ChatGPT, Kimi, OpenRouter', 'Menjawab dari data jaringan terkini (tool calling)', 'AI operasi: ringkasan gangguan, shift, laporan, beban']}
+      items={[
+        'Claude, ChatGPT, Kimi, OpenRouter',
+        'Menjawab dari data jaringan terkini (tool calling)',
+        'AI operasi: ringkasan gangguan, shift, laporan, beban',
+        'Dibatasi pada ruang lingkup QuadranGIS & jaringan distribusi',
+      ]}
     />
     <FeatureCard
       icon="🛡️"
@@ -463,20 +468,34 @@ docker compose up -d --build`}</Pre>
       ]}
     />
     <H3>Konfigurasi aplikasi (menu Administrasi › Konfigurasi)</H3>
+    <P>
+      Setiap grup tampil sebagai tab (jumlah kunci di samping nama; titik kuning = ada perubahan belum disimpan). Kotak cari di kanan atas mencari kunci, keterangan, atau nilai di semua tab sekaligus.
+      Tab aktif tersimpan di alamat (<C>?tab=monitoring</C>) sehingga dapat ditautkan; grup campuran dipecah per awalan kunci (mis. <C>ai.*</C>, <C>app.*</C>). Perubahan di beberapa tab disimpan
+      sekaligus dengan tombol Simpan perubahan.
+    </P>
     <Table
-      head={['Grup', 'Contoh kunci', 'Fungsi']}
+      head={['Tab', 'Contoh kunci', 'Fungsi']}
       rows={[
-        ['Identitas aplikasi', <C key="0">app.name, app.description, app.logo</C>, 'Nama, deskripsi & logo — diubah lewat bagian Identitas aplikasi'],
-        ['Umum', <C key="1">app.map_center, map.boundary_opacity, unit.default_code</C>, 'Pusat peta, basemap, overlay UP3, unit bawaan kepemilikan aset'],
-        ['Loading', <C key="2">loading.max_features_per_tile, loading.density_max_zoom</C>, 'Kinerja tile & kepadatan titik'],
-        ['Topologi', <C key="3">topology.snap_tolerance_m, gis.approval_enabled, gis.approval_allow_self</C>, 'Toleransi snapping, pemisahan garis, alur persetujuan editing'],
-        ['Monitoring', <C key="4">monitoring.default_daya_va, monitoring.soe_retention_days</C>, 'Daya bawaan pelanggan, interval refresh, retensi SOE'],
-        ['Keandalan', <C key="5">reliability.tariff_rp_per_kwh, reliability.load_factor</C>, 'Tarif ENS Rupiah, faktor beban, cos φ, batas momentary'],
-        ['Aliran daya', <C key="6">powerflow.source_pu, powerflow.default_trafo_kva</C>, 'Parameter perhitungan & batas tegangan'],
-        ['SLD', <C key="7">sld.max_elements, sld.default_level</C>, 'Batas elemen & tingkat detail bawaan diagram'],
+        ['Identitas aplikasi', <C key="0">app.name, app.description, app.logo</C>, 'Nama, deskripsi & logo aplikasi (formulir khusus, bukan tabel kunci)'],
+        [
+          'Umum',
+          <C key="1">app.map_center, app.basemap_url, map.boundary_opacity, sld.max_elements, unit.default_code, topology.snap_tolerance_m, ai.*.api_key</C>,
+          'Pusat peta, basemap, overlay UP3, batas & tingkat detail SLD, unit bawaan kepemilikan aset, toleransi snapping, alamat & kunci API penyedia AI (rahasia)',
+        ],
+        ['Autentikasi', <C key="2">auth.session_hours, auth.max_login_attempts, auth.captcha_ttl_seconds</C>, 'Umur sesi, batas percobaan login, masa berlaku captcha'],
+        ['Loading & performa', <C key="3">loading.max_features_per_tile, loading.density_max_zoom, loading.tile_cache_ttl_seconds</C>, 'Kinerja tile, cache & kepadatan titik'],
+        ['Topologi otomatis', <C key="4">topology.auto_split_edges, gis.approval_enabled, gis.approval_allow_self</C>, 'Pemisahan garis & junction otomatis, alur persetujuan editing'],
+        ['Trace', <C key="5">trace.max_depth, trace.max_result_features</C>, 'Batas kedalaman & jumlah hasil trace'],
+        [
+          'Monitoring',
+          <C key="6">monitoring.default_daya_va, monitoring.soe_retention_days, monitoring.off_marker_types, ops.report_sla_minutes, report.auto_daily, scada.switch_enabled</C>,
+          'Daya bawaan pelanggan, interval refresh, retensi SOE, penanda padam berkedip & cluster merah, SLA laporan, laporan otomatis, target SAIDI/SAIFI, integrasi Kafka energize/de-energize',
+        ],
+        ['Keandalan (SAIDI/SAIFI/ENS)', <C key="7">reliability.tariff_rp_per_kwh, reliability.load_factor, reliability.sustained_minutes</C>, 'Tarif ENS Rupiah, faktor beban, cos φ, batas momentary'],
+        ['Aliran daya & lokasi gangguan', <C key="8">powerflow.source_pu, powerflow.default_trafo_kva, fault.source_mva, fault.z0_ratio</C>, 'Parameter aliran daya, batas tegangan, impedansi sumber & saluran untuk lokasi gangguan'],
         ['Beban & energi', <C key="9">load.kafka_topic, load.simulator, load.cap_pf, load.energy_mode, load.losses_high_pct</C>, 'Topik SCADA, simulator, daya mampu MW, mode energi, batas susut'],
-        ['Mobile', <C key="10">mobile.*, push.*</C>, 'PWA lapangan & notifikasi push'],
-        ['AI', <C key="8">ai.default_provider, ai.anthropic_api_key</C>, 'Penyedia & kunci API AI (rahasia)'],
+        ['Mobile & notifikasi', <C key="10">mobile.*, push.*</C>, 'PWA lapangan & notifikasi push'],
+        ['AI', <C key="11">ai.default_provider, ai.anthropic.model, ai.max_tokens, ai.system_prompt, ai.scope_strict</C>, 'Penyedia bawaan, model, batas token, prompt sistem & pembatasan ruang lingkup asisten AI'],
       ]}
     />
     <H3>Pengaturan layer (menu Administrasi › Pengaturan Layer)</H3>
@@ -748,6 +767,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
           'Klik widget (GI, penyulang, gardu, pelanggan) untuk langsung membuka daftar terkait di panel kanan.',
           'Filter peta: Semua / Nyala / Padam; alat ukur panjang & luas; tombol UP3 untuk overlay wilayah.',
           'Warna peta: hijau nyala, merah padam, lingkaran merah = switch terbuka.',
+          'Gardu distribusi & trafo GI yang padam berkedip merah; bila banyak dan berdekatan dikelompokkan menjadi cluster merah berangka (klik untuk memperbesar). Tombol "Tanda padam" menyembunyikan / menampilkannya.',
         ],
       },
       {
@@ -1087,7 +1107,10 @@ const guide: { group: string; items: GuideItem[] }[] = [
         img: 'ai',
         intro: 'Asisten percakapan yang dapat membaca kondisi jaringan terkini (rekap, kejadian padam, penyulang) untuk menjawab pertanyaan.',
         steps: ['Pilih penyedia (Claude, ChatGPT, Kimi, OpenRouter) dan model.', 'Centang "Sertakan data jaringan" agar AI memakai data aktual.', 'Admin mengisi kunci API lewat tombol Pengaturan.'],
-        tips: ['Jawaban AI dapat keliru; verifikasi sebelum mengambil keputusan operasional.'],
+        tips: [
+          'Jawaban AI dapat keliru; verifikasi sebelum mengambil keputusan operasional.',
+          'Asisten hanya melayani topik QuadranGIS & jaringan distribusi listrik; pertanyaan di luar itu ditolak. Admin dapat mematikan batasan ini lewat Pengaturan › "Batasi ke ruang lingkup aplikasi" (ai.scope_strict).',
+        ],
         perm: 'ai.use (pengaturan: admin.config)',
       },
     ],

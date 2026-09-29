@@ -1,0 +1,45 @@
+Sistem eksternal (SCADA, DMS, AMI, dan lainnya) sekarang bisa membuka dan menutup objek jaringan dengan mengirim pesan JSON ke Kafka. Saya sudah mengujinya dari ujung ke ujung, termasuk lewat Kafka sungguhan.
+
+Format pesan (topik scada.switch.events):
+
+
+{
+  "event_id": "SCADA-2026-000123",
+  "code": "REC-GMB-02-05",
+  "type": "recloser",
+  "status": "open",
+  "outage_category": "GANGGUAN",
+  "timestamp": "2026-09-29T10:15:00+07:00",
+  "note": "trip OCR fasa R",
+  "source": "SCADA-UP2D"
+}
+Kode/nama objek (code/kode/name/nama): bisa juga kode SSOT, IDPEL pelanggan, atau id objek.
+Jenis objek (type/jenis): kode tipe atau nama tipe. Dipakai untuk membedakan kalau satu kode dipakai beberapa objek.
+Status (status): open berarti padam, close berarti nyala. Diterima juga buka/tutup, off/on, trip, dan deenergize/energize.
+Kategori padam (outage_category/kategori): wajib untuk open. Nilainya GANGGUAN, PEMELIHARAAN, MLS, MANUVER, atau BENCANA ALAM.
+Tanggal (timestamp/tanggal): format ISO, "YYYY-MM-DD HH:MM:SS" (dianggap WIB), atau epoch. Tanggal ini dipakai sebagai waktu mulai dan selesai padam, jadi durasi dan SAIDI akurat walaupun pesan datang terlambat.
+event_id (opsional): mencegah pesan yang sama diproses dua kali.
+Cara kerjanya
+
+Perintah dari Kafka memakai jalur yang persis sama dengan tombol Energize/De-energize di panel. Kejadian padam, SAIDI/SAIFI, SOE, notifikasi, laporan pelanggan, dan audit semuanya ikut tercatat.
+Di SOE dan riwayat manuver, pelakunya tercatat sebagai scada beserta nama sistem pengirim, dengan kanal "Kafka (sistem eksternal)".
+Perintah dengan status yang sudah sama diabaikan, sehingga tidak ada kejadian padam ganda.
+Perintah dari Kafka tidak melewati pengecekan hak akses pengguna. Karena itu, pastikan hanya sistem yang dipercaya yang bisa menulis ke topik ini.
+Menu baru Administrasi › Integrasi Kafka
+
+Status integrasi (aktif/nonaktif, topik, consumer group) dan jumlah pesan 24 jam terakhir.
+Tabel format pesan dan contoh yang bisa disalin.
+Pengiriman uji: "Kirim ke Kafka", atau "Proses langsung" tanpa Kafka. Keduanya benar-benar mengubah status objek di jaringan.
+Log semua pesan masuk beserta hasilnya (Diterapkan, Dilewati, Duplikat, Galat), dan pesan aslinya bisa dibuka per baris.
+Hasil uji pada REC-GMB-02-05 (sudah dipulihkan ke tertutup dan bertegangan):
+
+Skenario	Hasil
+open GANGGUAN, tanggal 5 menit lalu	Diterapkan: 65 pelanggan padam, kejadian dimulai sesuai tanggal di pesan
+open lagi	Dilewati (status sudah open)
+event_id sama	Duplikat
+close lewat Kafka sungguhan	Diterapkan, durasi padam 302 detik
+objek tidak ada / kategori kosong	Galat dengan pesan yang jelas
+manuver dari panel web	Tetap normal
+Uji ini meninggalkan catatan kejadian padam #92 dan #93 di riwayat, sama seperti uji manuver sebelumnya.
+
+Pengaturan ada di menu Konfigurasi, kelompok monitoring: scada.switch_enabled, scada.switch_topic, scada.switch_group, scada.switch_username, dan scada.switch_max_future_sec. Perubahan topik atau group baru berlaku setelah backend dimulai ulang. Dokumentasi, README, dan memori sudah diperbarui, dan belum ada yang di-commit.

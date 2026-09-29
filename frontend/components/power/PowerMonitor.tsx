@@ -18,6 +18,7 @@ import { SectionRecap } from './SectionRecap';
 import { SOEPanel } from './SOEPanel';
 import { CustomersPanel, type CustomerState } from './CustomersPanel';
 import { BoundaryControl, useBoundaryOverlay } from '@/components/map/BoundaryOverlay';
+import { OffBlinkDot, OffMarkerButton, useOffMarkers } from '@/components/map/useOffMarkers';
 import { OperateBox, type ManeuverBody } from './OperateBox';
 import { TracePanel, type TraceSeed } from '@/components/map/TracePanel';
 import { useAuth } from '@/lib/auth';
@@ -499,6 +500,7 @@ export default function PowerMonitor() {
   }, [outages, levelFilter]);
 
   const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
+  const offMarks = useOffMarkers(mapRef, configs, mapReady);
 
   // ------------------------------------------------------------ trace hilir / hulu
   const onTraceResult = useCallback((r: TraceResponse | null) => {
@@ -1110,6 +1112,11 @@ export default function PowerMonitor() {
           <span className="flex items-center gap-1">
             <span className="inline-block h-1 w-4 rounded bg-amber-500" /> {t('power.outage_area')}
           </span>
+          {offMarks.enabled && (
+            <span className="flex items-center gap-1" title={t('offmark.hint')}>
+              <OffBlinkDot /> {t('offmark.legend')}
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-3 text-gray-500">
             {graphLoading && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-900">{t('power.graph_loading')}</span>}
             {updatedAt && s && (
@@ -1292,6 +1299,7 @@ export default function PowerMonitor() {
               </button>
             ))}
           </div>
+          <OffMarkerButton state={offMarks} />
           {!mobile && <span className="h-5 w-px bg-gray-300" />}
           {!mobile && ([
             ['length', 'ruler', t('map.tool_measure_length')],

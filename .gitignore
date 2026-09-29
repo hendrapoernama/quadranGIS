@@ -27,3 +27,6 @@ Thumbs.db
 
 # hasil build TypeScript
 *.tsbuildinfo
+
+# Claude Code: setting per mesin (autoMemoryDirectory berisi path absolut)
+.claude/settings.local.json

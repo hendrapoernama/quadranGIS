@@ -535,6 +535,7 @@ func (s *Server) aiOps(c *gin.Context) {
 		system += "\n\n" + extra
 	}
 	system += "\n\nData (disusun otomatis oleh aplikasi, " + fmtT(time.Now()) + " WIB):\n" + data
+	system = s.withAIScope(system)
 
 	msgs := []ai.Message{{Role: "user", Content: aiTaskPrompt(req.Task, en)}}
 	for _, m := range req.Messages {

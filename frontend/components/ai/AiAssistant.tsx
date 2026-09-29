@@ -91,14 +91,16 @@ export default function AiAssistant() {
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [scopeStrict, setScopeStrict] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const canConfig = has('admin.config');
 
   const loadProviders = useCallback(async () => {
     try {
-      const r = await api<{ items: ProviderInfo[]; default: string }>('/api/ai/providers');
+      const r = await api<{ items: ProviderInfo[]; default: string; scope_strict?: boolean }>('/api/ai/providers');
       setProviders(r.items);
+      setScopeStrict(r.scope_strict !== false);
       const pref = load<{ provider?: string; withContext?: boolean }>(PREF_KEY, {});
       const pick = r.items.find((p) => p.id === pref.provider && p.configured) || r.items.find((p) => p.id === r.default && p.configured) || r.items.find((p) => p.configured) || r.items[0];
       if (pick) {
@@ -268,7 +270,10 @@ export default function AiAssistant() {
           {messages.length === 0 && (
             <div className="pt-8 text-center">
               <div className="mb-1 text-lg font-semibold text-gray-900">{t('ai.welcome')}</div>
-              <div className="mb-4 text-sm text-gray-500">{t('ai.welcome_sub')}</div>
+              <div className="mb-4 text-sm text-gray-500">
+                {t('ai.welcome_sub')}
+                {scopeStrict && <span className="mt-1 block text-xs">{t('ai.scope_note')}</span>}
+              </div>
               <div className="mx-auto grid max-w-2xl gap-2 sm:grid-cols-2">
                 {suggestions.map((s) => (
                   <button key={s} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50" onClick={() => send(s)} disabled={busy}>
@@ -327,7 +332,10 @@ export default function AiAssistant() {
             </Button>
           )}
         </div>
-        <div className="mx-auto mt-1 max-w-3xl text-[11px] text-gray-400">{t('ai.disclaimer')}</div>
+        <div className="mx-auto mt-1 max-w-3xl text-[11px] text-gray-400">
+          {scopeStrict && `${t('ai.scope_short')} `}
+          {t('ai.disclaimer')}
+        </div>
       </div>
 
       {settingsOpen && <AiSettings providers={providers} onClose={() => setSettingsOpen(false)} onSaved={loadProviders} />}
@@ -443,6 +451,13 @@ function AiSettings({ providers, onClose, onSaved }: { providers: ProviderInfo[]
             <label className="label">{t('ai.system_prompt')}</label>
             <textarea className="input h-20 w-full" value={val('ai.system_prompt')} onChange={(e) => set('ai.system_prompt', e.target.value)} />
           </div>
+          <label className="flex items-start gap-2 text-sm text-gray-800">
+            <input type="checkbox" className="mt-0.5" checked={val('ai.scope_strict') !== 'false'} onChange={(e) => set('ai.scope_strict', String(e.target.checked))} />
+            <span>
+              {t('ai.scope_strict')}
+              <span className="block text-xs text-gray-500">{t('ai.scope_strict_hint')}</span>
+            </span>
+          </label>
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>

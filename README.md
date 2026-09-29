@@ -283,6 +283,25 @@ Migrasi `007_power_monitoring.sql` menambahkan:
   rekap per group dan tombol *Tampilkan di peta* (area terdampak); daftar
   penyulang dengan filter status. Diperbarui otomatis (`monitoring.power_refresh_seconds`)
   dan lewat WebSocket.
+- **Penanda padam berkedip** (Pusat Operasi dan Editor Peta, `GET /api/power/off-markers`):
+  - gardu distribusi dan trafo GI yang padam tampil dengan simbol merah berkedip dan gelombang merah;
+  - bila banyak dan berdekatan, penanda dikelompokkan menjadi **cluster merah** berangka;
+  - klik cluster untuk memperbesar peta; klik penanda untuk memilih objek; arahkan kursor untuk
+    melihat kejadian padam aktifnya;
+  - objek rencana / non aktif / bongkar tidak ditandai;
+  - diperbarui lewat WebSocket setelah manuver / energize dan setiap `monitoring.power_refresh_seconds`;
+  - tombol *Tanda padam* (Pusat Operasi) dan kotak centang di tab *Layer* (Editor Peta) menyembunyikannya
+    (disimpan per browser);
+  - animasi hanya berjalan selama ada penanda di area tampilan, dan dimatikan bila browser meminta
+    gerak dikurangi (`prefers-reduced-motion`).
+
+  Konfigurasi:
+
+  | Kunci | Bawaan | Fungsi |
+  |---|---|---|
+  | `monitoring.off_marker_types` | `gd,trafo_gi` | tipe objek yang ditandai (kode tipe, pisahkan koma) |
+  | `monitoring.off_marker_cluster_radius` | `50` | radius pengelompokan dalam piksel; `0` = tanpa cluster |
+  | `monitoring.off_marker_cluster_max_zoom` | `15` | di atas zoom ini setiap objek tampil sendiri |
 - Data contoh pada simulasi Gambir: 2 recloser, 2 LBS 2 way, 1 LBS 3 way (arah
   ke-3 = tie normally-open ke penyulang GMB-05), tiang TM tiap ±45 m di SUTM,
   tiang TR di tiap tiang sambungan SKUTR.
@@ -1088,6 +1107,14 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
   menjawab berdasarkan kondisi terkini.
 - Riwayat obrolan disimpan di browser pengguna; setiap permintaan dicatat di
   audit (`ai.chat`, tanpa isi percakapan).
+- **Ruang lingkup** (`ai.scope_strict`, bawaan `true`; kotak centang di *Pengaturan* halaman AI):
+  - asisten hanya menjawab topik QuadranGIS: data & kondisi jaringan, operasi dan analisis jaringan
+    distribusi (keandalan, beban, susut, aliran daya, gangguan, K3/SOP), serta cara memakai aplikasi;
+  - pertanyaan lain (pengetahuan umum, hiburan, kode yang tidak terkait, dan sejenisnya) ditolak
+    dengan sopan, disertai contoh pertanyaan yang relevan;
+  - permintaan untuk mengabaikan atau membocorkan instruksi juga ditolak;
+  - aturan ini ditaruh paling akhir di prompt sistem obrolan dan AI Operasi, setelah
+    `ai.system_prompt` dan data jaringan, sehingga instruksi tambahan tidak dapat melonggarkannya.
 
 ## Cara memakai peta
 
@@ -1131,6 +1158,7 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | POST | `/api/gis/topology/rebuild` | muat ulang graf |
 | POST | `/api/gis/maneuver` | `{node_id\|edge_id,action:open|close,kind:GANGGUAN|PEMELIHARAAN|MLS|MANUVER|BENCANA ALAM (wajib saat open),note,way_edge_id?}`; izin `power.switch_*` / `power.energize_*` |
 | GET  | `/api/power/summary` | rekap nyala/padam (GI, trafo GI, penyulang, zona, GD, pelanggan, beban) |
+| GET  | `/api/power/off-markers` | objek padam bertanda peta (tipe `monitoring.off_marker_types`) beserta kejadian padam aktifnya |
 | GET  | `/api/power/feeders?state&q` | daftar penyulang beserta status |
 | GET  | `/api/power/gi?state&q` | daftar gardu induk beserta rekap penyulang |
 | GET  | `/api/power/customers?state&q&limit&offset` | daftar pelanggan nyala / padam (paging) |

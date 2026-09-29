@@ -1,0 +1,14 @@
+- [Port host QuadranGIS](quadrangis-host-ports.md) — 5432/6379/29092/80/443/8080 sudah terpakai; proyek memakai 5434/6380/29093 dan port nginx/backend via .env
+- [Kekhasan lingkungan dev](quadrangis-dev-env-quirks.md) — RAM sempit (build satu per satu), openssl psqlODBC, MSYS path, pin go-internal, Playwright pakai 127.0.0.1
+- [Status data simulasi massal QuadranGIS](quadrangis-bulk-sim-state.md) — DB dev berisi 2,7 juta node sejak 25 Sep 2026; restart backend 20–35 s; jangan ukur peta dengan waitForFunction(map.loaded())
+- [Cara menguji QuadranGIS](quadrangis-testing-approach.md) — prosedur & alat uji di skill proyek uji-quadrangis; akun uji admin/quadran123; kunci OpenRouter asli jangan dipakai
+- [Preferensi pengguna](user-prefs-quadrangis.md) — bahasa Indonesia, tema gelap (cek setiap UI baru di mode gelap)
+- [Versi mobile PWA](quadrangis-mobile-plan.md) — PWA tahap 1–3 dibangun 27 Sep 2026; asumsi yang dipakai & yang belum teruji di perangkat nyata
+- [Usulan fitur lanjutan](quadrangis-feature-backlog.md) — 12 usulan (27 Sep 2026) belum dipilih; rekomendasi mulai Work Order lalu SCADA; pekerjaan terbuka docs/presentasi/commit
+- [Simulator beban SCADA](quadrangis-load-sim.md) — data Pembebanan di DB dev sintetis; matikan load.simulator saat SCADA asli
+- [Alur persetujuan editing](quadrangis-approval-workflow.md) — edit peta via paket perubahan (draf→rilis) sejak 27 Sep 2026; belum ada akun supervisor/manajer; cara uji & pulihkan
+- [Susut gardu → pelanggan](quadrangis-customer-losses.md) — impor kWh tagihan bulanan (27 Sep 2026); keputusan lag BLTH & kebutuhan idpel GIS belum dikonfirmasi
+- [Impor GDB Kramat Jati](quadrangis-gdb-kjt-import.md) — tag KJT-05082026 (28 Sep 2026), menu Administrasi › Impor GDB, keterbatasan data sumber
+- [Integrasi Kafka energize/de-energize](quadrangis-kafka-switch.md) — topik scada.switch.events, execManeuver bersama, log switch_events; uji di REC-GMB-02-05 & pulihkan
+- [Penanda padam & batasan AI](quadrangis-off-markers-ai-scope.md) — kedip 2 keadaan GD/trafo GI + cluster merah; ai.scope_strict belum diuji ke model asli
+- [Lokasi memori & skill](quadrangis-claude-setup.md) — memori di .claude/memory (autoMemoryDirectory di settings.local.json), skill proyek di .claude/skills

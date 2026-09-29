@@ -288,6 +288,53 @@ func (p *Power) GetOutage(ctx context.Context, id int64) (OutageRecord, []int64,
 	return o, affected, nil
 }
 
+// OffMarker adalah satu objek padam untuk penanda peta (berkedip / cluster merah).
+type OffMarker struct {
+	ID         int64      `json:"id"`
+	TypeCode   string     `json:"type_code"`
+	Code       string     `json:"code"`
+	Name       string     `json:"name"`
+	Lng        float64    `json:"lng"`
+	Lat        float64    `json:"lat"`
+	OutageID   *int64     `json:"outage_id"`   // kejadian padam aktif tertua yang mencakup objek ini
+	OutageKind *string    `json:"outage_kind"` // GANGGUAN | PEMELIHARAAN | ...
+	Since      *time.Time `json:"since"`
+}
+
+// OffMarkers mengembalikan objek bertipe tertentu yang sedang padam (tanpa objek rencana / tidak
+// operasi / bongkar) beserta kejadian padam aktifnya. total = jumlah seluruhnya sebelum dibatasi limit.
+func (p *Power) OffMarkers(ctx context.Context, types []string, limit int) ([]OffMarker, int, error) {
+	out := []OffMarker{}
+	if len(types) == 0 {
+		return out, 0, nil
+	}
+	rows, err := p.pool.Query(ctx, `WITH off AS (
+		SELECT n.id, n.type_code, n.code, n.name, ST_X(n.geom) AS lng, ST_Y(n.geom) AS lat, count(*) OVER () AS total
+		  FROM gis_nodes n
+		 WHERE NOT n.energized AND n.type_code = ANY($1::text[]) AND NOT `+SQLNonOperating+`
+		 ORDER BY n.id LIMIT $2),
+	act AS (
+		SELECT DISTINCT ON (a.nid) a.nid, o.id, o.kind, o.started_at
+		  FROM outages o CROSS JOIN LATERAL unnest(o.affected_nodes) AS a(nid)
+		 WHERE o.ended_at IS NULL AND a.nid IN (SELECT id FROM off)
+		 ORDER BY a.nid, o.started_at)
+	SELECT off.id, off.type_code, off.code, off.name, off.lng, off.lat, off.total, act.id, act.kind, act.started_at
+	  FROM off LEFT JOIN act ON act.nid = off.id ORDER BY off.id`, types, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	total := 0
+	for rows.Next() {
+		var m OffMarker
+		if err := rows.Scan(&m.ID, &m.TypeCode, &m.Code, &m.Name, &m.Lng, &m.Lat, &total, &m.OutageID, &m.OutageKind, &m.Since); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, m)
+	}
+	return out, total, rows.Err()
+}
+
 // CountActiveOutages menghitung kejadian padam yang masih berlangsung.
 func (p *Power) CountActiveOutages(ctx context.Context) (int, error) {
 	var n int

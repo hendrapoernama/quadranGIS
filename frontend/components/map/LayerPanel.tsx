@@ -25,9 +25,10 @@ interface Props {
   canEdit: boolean;
   zoom: number;
   overlay?: React.ReactNode; // kontrol overlay (batas wilayah)
+  statusExtra?: React.ReactNode; // kontrol tambahan status kelistrikan (penanda padam)
 }
 
-export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labels, onLabels, colorMode = 'type', onColorMode, onReload, graph, canEdit, zoom, overlay }: Props) {
+export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labels, onLabels, colorMode = 'type', onColorMode, onReload, graph, canEdit, zoom, overlay, statusExtra }: Props) {
   const { t, pick } = useT();
   const toast = useToast();
   const [validating, setValidating] = useState(false);
@@ -99,6 +100,7 @@ export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labe
         <label className="flex items-center gap-2 text-gray-800">
           <input type="checkbox" checked={labels} onChange={(e) => onLabels(e.target.checked)} /> {t('layers.labels')}
         </label>
+        {statusExtra}
         {onColorMode && (
           <div>
             <div className="mb-1 text-xs font-semibold uppercase text-gray-500">{t('layers.color_mode')}</div>

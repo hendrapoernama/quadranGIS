@@ -316,6 +316,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	pw := authed.Group("/power")
 	pw.Use(middleware.RequirePermission("gis.view"))
 	pw.GET("/summary", s.powerSummary)
+	pw.GET("/off-markers", s.powerOffMarkers)
 	pw.GET("/feeders", s.powerFeeders)
 	pw.GET("/gi", s.powerGI)
 	pw.GET("/customers", s.powerCustomers)

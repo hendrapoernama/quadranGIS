@@ -497,6 +497,106 @@ export function buildLayers(types: ComponentType[], font: string, mode: ColorMod
   ];
 }
 
+// ---------------------------------------------------------------------------
+// penanda objek padam (gardu distribusi & trafo GI): simbol berkedip merah + gelombang,
+// dikelompokkan menjadi cluster merah bila berdekatan (sumber GeoJSON ber-cluster)
+// ---------------------------------------------------------------------------
+export const OFF_SOURCE = 'offmark';
+export const OFF_RED = '#dc2626';
+export const OFF_CLUSTER_LAYERS = ['offmark-cluster-halo', 'offmark-cluster', 'offmark-cluster-count'];
+export const OFF_POINT_LAYERS = ['offmark-pulse', 'offmark-dot', 'offmark-icon'];
+export const OFF_LAYERS = [...OFF_CLUSTER_LAYERS, ...OFF_POINT_LAYERS];
+const isCluster: any = ['has', 'point_count'];
+/** tanpa transisi: kedip tegas dan peta hanya digambar ulang saat keadaan berganti (bawaan MapLibre 300 ms = render terus-menerus) */
+const NO_FADE = { duration: 0, delay: 0 };
+/** radius cluster (px) menurut jumlah anggota */
+export const offClusterRadius: any = ['step', ['get', 'point_count'], 14, 10, 17, 50, 21, 200, 25, 1000, 30];
+
+export function offMarkerLayers(types: ComponentType[], font: string): any[] {
+  const sym = symbolTypes(types);
+  const symCodes = sym.map((t) => t.code);
+  const hasSym = ['in', ['get', 'type_code'], ['literal', symCodes]];
+  const size = sizeExpr(types, ['point', 'polygon']);
+  return [
+    {
+      id: 'offmark-cluster-halo',
+      type: 'circle',
+      source: OFF_SOURCE,
+      filter: isCluster,
+      paint: {
+        'circle-color': OFF_RED,
+        'circle-opacity': 0.3,
+        'circle-opacity-transition': NO_FADE,
+        'circle-radius': ['+', offClusterRadius, 6],
+        'circle-radius-transition': NO_FADE,
+      },
+    },
+    {
+      id: 'offmark-cluster',
+      type: 'circle',
+      source: OFF_SOURCE,
+      filter: isCluster,
+      paint: { 'circle-color': OFF_RED, 'circle-radius': offClusterRadius, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+    },
+    {
+      id: 'offmark-cluster-count',
+      type: 'symbol',
+      source: OFF_SOURCE,
+      filter: isCluster,
+      layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': [font], 'text-size': 12, 'text-allow-overlap': true, 'text-ignore-placement': true },
+      paint: { 'text-color': '#ffffff' },
+    },
+    // cincin merah di sekeliling simbol: tampil bergantian dengan simbol terang (kedip); statis bila gerak dikurangi
+    {
+      id: 'offmark-pulse',
+      type: 'circle',
+      source: OFF_SOURCE,
+      filter: ['!', isCluster],
+      paint: {
+        'circle-color': OFF_RED,
+        'circle-opacity': 0.2,
+        'circle-opacity-transition': NO_FADE,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 11, 16, 16, 20, 24],
+        'circle-stroke-color': OFF_RED,
+        'circle-stroke-width': 2,
+        'circle-stroke-opacity': 0.8,
+        'circle-stroke-opacity-transition': NO_FADE,
+      },
+    },
+    // tipe tanpa simbol standar: titik merah
+    {
+      id: 'offmark-dot',
+      type: 'circle',
+      source: OFF_SOURCE,
+      filter: ['all', ['!', isCluster], ['!', hasSym]],
+      paint: {
+        'circle-color': OFF_RED,
+        'circle-opacity-transition': NO_FADE,
+        'circle-radius': 6,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1.5,
+        'circle-stroke-opacity-transition': NO_FADE,
+      },
+    },
+    // simbol objek (GD / trafo GI) berwarna merah yang berkedip
+    {
+      id: 'offmark-icon',
+      type: 'symbol',
+      source: OFF_SOURCE,
+      filter: ['all', ['!', isCluster], hasSym],
+      layout: {
+        'icon-image': symCodes.length ? ['match', ['get', 'type_code'], ...sym.flatMap((t) => [t.code, t.icon]), ''] : '',
+        // sedikit lebih besar dari simbol jaringan dan tetap terlihat di zoom rendah
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, ['max', 0.7, ['*', size, 0.08]], 13, ['max', 0.95, ['*', size, 0.15]], 18, ['*', size, 0.3]],
+        'icon-rotation-alignment': 'viewport',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: { 'icon-color': OFF_RED, 'icon-opacity-transition': NO_FADE, 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.5, 'icon-halo-blur': 0.3 },
+    },
+  ];
+}
+
 export const typeFilteredLayers = ['density', 'density-label', 'buildings-fill', 'buildings-outline', 'edges', 'edges-open', 'edges-off', 'edge-labels', 'nodes', 'nodes-symbol', 'node-labels'];
 
 /** Layer titik yang dapat diklik (lingkaran + ikon pelanggan). */

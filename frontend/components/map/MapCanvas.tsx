@@ -1,14 +1,30 @@
 'use client';
 
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import maplibregl, { Map as MLMap, MapMouseEvent, MapLayerMouseEvent, GeoJSONSource, VectorTileSource } from 'maplibre-gl';
+import maplibregl, { Map as MLMap, MapMouseEvent, MapLayerMouseEvent, GeoJSONSource, VectorTileSource, Popup } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { API_BASE, api, getToken } from '@/lib/api';
+import { fmtDate } from '@/lib/format';
 import { closestOnPolyline, fmtArea, fmtDistance, haversine, metersPerPixel, midpoint, pathLength, ringArea } from '@/lib/geo';
+import { useT } from '@/lib/i18n';
 import type { ComponentType, FeatureCollection, GeoFeature } from '@/lib/types';
-import { BOUNDARY_LAYERS, NODE_LAYERS, SOURCE, applyColorMode, baseFilters, buildLayers, energizedExpr, typeFilter, typeFilteredLayers, type ColorMode } from './mapStyle';
+import {
+  BOUNDARY_LAYERS,
+  NODE_LAYERS,
+  OFF_SOURCE,
+  SOURCE,
+  applyColorMode,
+  baseFilters,
+  buildLayers,
+  energizedExpr,
+  offClusterRadius,
+  offMarkerLayers,
+  typeFilter,
+  typeFilteredLayers,
+  type ColorMode,
+} from './mapStyle';
 import { registerSymbols } from './symbols';
-import type { BasemapKind, ConnectedEdge, DrawMode, MapHandle, MeasureResult, BoundaryStyle } from './types';
+import type { BasemapKind, ConnectedEdge, DrawMode, MapHandle, MeasureResult, BoundaryStyle, OffMarker } from './types';
 
 interface Props {
   types: ComponentType[];
@@ -37,6 +53,10 @@ interface Props {
   /** parameter tambahan untuk snap (mis. `cs=12`: titik usulan paket perubahan ikut disnap) */
   snapQuery?: string;
 }
+
+/** Layer penanda padam yang dapat diklik (gelombang tidak ikut: terlalu lebar). */
+const OFF_CLICK_LAYERS = ['offmark-cluster', 'offmark-cluster-count', 'offmark-dot', 'offmark-icon'];
+const OFF_BLINK_MS = 700; // lama satu keadaan kedip (terang / redup)
 
 /** Lapisan pratinjau paket perubahan: tambah (oranye), ubah (biru), hapus (merah), pisah/gabung (ungu). */
 const DRAFT_COLOR: any = ['match', ['get', 'op'], 'create', '#f97316', 'update', '#2563eb', 'delete', '#dc2626', '#9333ea'];
@@ -78,6 +98,110 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
   const colorMode = useRef<ColorMode>(props.initialColorMode || 'type');
   const visibleCodes = useRef<string[] | null>(null);
   const energyFilter = useRef<'all' | 'on' | 'off'>('all');
+  const { t, pick } = useT();
+  const i18n = useRef({ t, pick });
+  i18n.current = { t, pick };
+
+  // ------------------------------------------------------------ penanda padam (berkedip / cluster merah)
+  const offData = useRef<OffMarker[] | null>(null);
+  const offTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const offTip = useRef<Popup | null>(null);
+  const offTipId = useRef<number | null>(null);
+
+  /** Kedip dua keadaan: simbol terang ↔ simbol redup + cincin merah (peta digambar ulang ±1,4 kali/detik). */
+  const blinkFrame = (on: boolean) => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer('offmark-icon')) return;
+    map.setPaintProperty('offmark-pulse', 'circle-opacity', on ? 0 : 0.3);
+    map.setPaintProperty('offmark-pulse', 'circle-stroke-opacity', on ? 0 : 0.9);
+    map.setPaintProperty('offmark-icon', 'icon-opacity', on ? 1 : 0.2);
+    map.setPaintProperty('offmark-dot', 'circle-opacity', on ? 1 : 0.2);
+    map.setPaintProperty('offmark-dot', 'circle-stroke-opacity', on ? 1 : 0.2);
+    map.setPaintProperty('offmark-cluster-halo', 'circle-radius', ['+', offClusterRadius, on ? 5 : 10]);
+    map.setPaintProperty('offmark-cluster-halo', 'circle-opacity', on ? 0.35 : 0.15);
+  };
+  const offShown = useRef<OffMarker[]>([]);
+  const offKey = useRef<string | null>(null);
+  const stopBlink = () => {
+    if (offTimer.current) clearInterval(offTimer.current);
+    offTimer.current = null;
+  };
+  // kedip hanya selama ada penanda di area tampilan; tanpa kedip (cincin statis) bila pengguna memilih gerak dikurangi
+  const updateBlink = () => {
+    const map = mapRef.current;
+    const b = map?.getBounds();
+    const inView = !!b && offShown.current.some((m) => b.contains([m.lng, m.lat]));
+    if (!inView || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      stopBlink();
+      return;
+    }
+    if (offTimer.current) return;
+    let on = true;
+    offTimer.current = setInterval(() => {
+      if (document.hidden) return;
+      on = !on;
+      blinkFrame(on);
+    }, OFF_BLINK_MS);
+  };
+
+  /** Isi sumber penanda padam: hanya tipe yang tampil, disembunyikan saat filter "nyala". */
+  const renderOff = () => {
+    const src = mapRef.current?.getSource(OFF_SOURCE) as GeoJSONSource | undefined;
+    if (!src) return;
+    const codes = visibleCodes.current ? new Set(visibleCodes.current) : null;
+    const items = energyFilter.current === 'on' ? [] : (offData.current || []).filter((m) => !codes || codes.has(m.type_code));
+    offShown.current = items;
+    // pembaruan berkala dengan isi sama tidak mengisi ulang sumber (cluster tidak dihitung ulang)
+    const key = items.map((m) => `${m.id}:${m.outage_id ?? ''}:${m.lng},${m.lat}`).join('|');
+    if (key === offKey.current) {
+      updateBlink();
+      return;
+    }
+    offKey.current = key;
+    src.setData({
+      type: 'FeatureCollection',
+      features: items.map((m) => ({
+        type: 'Feature',
+        id: m.id,
+        geometry: { type: 'Point', coordinates: [m.lng, m.lat] },
+        properties: { id: m.id, type_code: m.type_code, code: m.code, name: m.name, outage_id: m.outage_id, outage_kind: m.outage_kind, since: m.since },
+      })),
+    } as any);
+    updateBlink();
+  };
+
+  /** Keterangan singkat saat kursor di atas penanda padam (teks dari data, tanpa HTML). */
+  const showOffTip = (map: MLMap, e: MapMouseEvent) => {
+    const hit = map.getLayer('offmark-icon')
+      ? map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: ['offmark-icon', 'offmark-dot'] })[0]
+      : undefined;
+    if (!hit || hit.geometry.type !== 'Point') {
+      offTip.current?.remove();
+      offTipId.current = null;
+      return;
+    }
+    const pr = hit.properties || {};
+    if (offTipId.current === Number(pr.id)) return;
+    offTipId.current = Number(pr.id);
+    const { t: tt, pick: pk } = i18n.current;
+    const ct = p.current.types.find((x) => x.code === pr.type_code);
+    const el = document.createElement('div');
+    const line = (text: string, cls = '') => {
+      const d = document.createElement('div');
+      d.textContent = text;
+      if (cls) d.className = cls;
+      el.appendChild(d);
+    };
+    line(pr.code || `#${pr.id}`, 'font-semibold');
+    if (pr.name && pr.name !== pr.code) line(pr.name);
+    line(`${ct ? pk(ct.name, ct.name_en) : pr.type_code} · ${tt('offmark.off')}`, 'offmark-tip-state');
+    line(pr.outage_id ? tt('offmark.outage', { id: pr.outage_id, kind: pr.outage_kind || '-', since: fmtDate(pr.since) }) : tt('offmark.no_outage'), 'offmark-tip-sub');
+    if (!offTip.current) offTip.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 16, maxWidth: '280px', className: 'offmark-tip' });
+    offTip.current
+      .setLngLat(hit.geometry.coordinates as Coord)
+      .setDOMContent(el)
+      .addTo(map);
+  };
 
   /** Filter gabungan: tipe yang tampil + status kelistrikan (semua / nyala / padam). */
   const applyFilters = () => {
@@ -93,6 +217,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       if ((id === 'density' || id === 'density-label') && energyFilter.current === 'off') all.push(['!', true]);
       map.setFilter(id, all.length === 0 ? null : all.length === 1 ? all[0] : ['all', ...all]);
     }
+    renderOff();
   };
   const darkRef = useRef(props.initialBasemap === 'dark');
 
@@ -460,6 +585,17 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         filter: ['==', ['geometry-type'], 'Point'],
         paint: { 'circle-radius': 7, 'circle-color': '#ffffff', 'circle-stroke-color': DRAFT_COLOR, 'circle-stroke-width': 3.5 },
       });
+      // penanda objek padam (di atas jaringan): cluster merah bila berdekatan, radius 0 = tanpa cluster
+      const clusterRadius = Number(cfg['monitoring.off_marker_cluster_radius'] || 50);
+      map.addSource(OFF_SOURCE, {
+        type: 'geojson',
+        data: EMPTY as any,
+        cluster: clusterRadius > 0,
+        clusterRadius: Math.max(1, clusterRadius),
+        clusterMaxZoom: Number(cfg['monitoring.off_marker_cluster_max_zoom'] || 15),
+      });
+      for (const layer of offMarkerLayers(p.current.types, font)) map.addLayer(layer);
+      renderOff();
       // posisi GPS pengguna (lingkar akurasi + titik), selalu paling atas
       map.addSource('user-loc', { type: 'geojson', data: EMPTY as any });
       map.addLayer({ id: 'user-acc', type: 'fill', source: 'user-loc', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.12, 'fill-outline-color': '#2563eb' } });
@@ -493,10 +629,15 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       if (kind === 'vertex') return; // kursor diatur oleh handle
       if (kind === 'select') {
         const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], {
-          layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density', ...DRAFT_LAYERS].filter((l) => map.getLayer(l)),
+          layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density', ...DRAFT_LAYERS, ...OFF_CLICK_LAYERS].filter((l) => map.getLayer(l)),
         });
         map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
+        showOffTip(map, e);
         return;
+      }
+      if (offTipId.current !== null) {
+        offTip.current?.remove();
+        offTipId.current = null;
       }
       map.getCanvas().style.cursor = 'crosshair';
       if (kind === 'move' || kind === 'split') return;
@@ -532,6 +673,23 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       const { lng, lat } = e.lngLat;
       if (!map.getLayer('nodes')) return;
       if (mode.kind === 'select') {
+        // penanda padam paling atas: cluster diperbesar, objek dipilih (dan didekati bila masih jauh)
+        const off = map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: OFF_CLICK_LAYERS.filter((l) => map.getLayer(l)) })[0];
+        if (off && off.geometry.type === 'Point') {
+          const center = off.geometry.coordinates as Coord;
+          if (off.properties?.cluster_id !== undefined) {
+            try {
+              const z = await (map.getSource(OFF_SOURCE) as GeoJSONSource).getClusterExpansionZoom(Number(off.properties.cluster_id));
+              map.easeTo({ center, zoom: Math.min(z + 0.5, 22) });
+            } catch {
+              map.easeTo({ center, zoom: map.getZoom() + 2 });
+            }
+          } else {
+            p.current.onSelect('node', Number(off.properties?.id));
+            if (map.getZoom() < 16) map.easeTo({ center, zoom: 17 });
+          }
+          return;
+        }
         // objek usulan (paket perubahan) didahulukan
         const dh = map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers: DRAFT_LAYERS.filter((l) => map.getLayer(l)) });
         const d = dh.find((h) => h.layer.id === 'draft-point') || dh[0];
@@ -612,6 +770,13 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       }
     });
 
+    map.on('moveend', updateBlink);
+
+    map.on('mouseout', () => {
+      offTip.current?.remove();
+      offTipId.current = null;
+    });
+
     map.on('zoomend', () => {
       const c = map.getCenter();
       p.current.onCursor(c.lng, c.lat, map.getZoom());
@@ -640,6 +805,8 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     (window as any).__qgisMap = map; // untuk debugging / uji otomatis
     return () => {
       window.removeEventListener('keydown', onKey);
+      stopBlink();
+      offTip.current?.remove();
       ro.disconnect();
       map.remove();
       mapRef.current = null;
@@ -768,6 +935,10 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       getCenter: () => {
         const c = mapRef.current?.getCenter();
         return c ? [c.lng, c.lat] : null;
+      },
+      setOffMarkers: (items) => {
+        offData.current = items;
+        renderOff();
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

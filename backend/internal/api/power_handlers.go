@@ -528,6 +528,25 @@ func (s *Server) powerSummary(c *gin.Context) {
 	ok(c, gin.H{"summary": sum, "active_outages": active, "feeders_off": off, "graph": s.d.Graph.Status()})
 }
 
+const offMarkerLimit = 20000
+
+// GET /api/power/off-markers: objek padam (tipe dari monitoring.off_marker_types, bawaan gardu
+// distribusi & trafo GI) untuk penanda berkedip / cluster merah di peta.
+func (s *Server) powerOffMarkers(c *gin.Context) {
+	types := []string{}
+	for _, t := range strings.Split(s.d.Configs.Str("monitoring.off_marker_types", "gd,trafo_gi"), ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			types = append(types, t)
+		}
+	}
+	items, total, err := s.d.Power.OffMarkers(c.Request.Context(), types, offMarkerLimit)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	ok(c, gin.H{"items": items, "total": total, "truncated": total > len(items), "types": types})
+}
+
 func (s *Server) fillFeederCodes(ctx context.Context, list []gis.FeederStatus) {
 	ids := make([]int64, 0, len(list)*3)
 	for _, f := range list {
