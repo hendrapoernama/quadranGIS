@@ -11,4 +11,5 @@
 - [Impor GDB Kramat Jati](quadrangis-gdb-kjt-import.md) — tag KJT-05082026 (28 Sep 2026), menu Administrasi › Impor GDB, keterbatasan data sumber
 - [Integrasi Kafka energize/de-energize](quadrangis-kafka-switch.md) — topik scada.switch.events, execManeuver bersama, log switch_events; uji di REC-GMB-02-05 & pulihkan
 - [Penanda padam & batasan AI](quadrangis-off-markers-ai-scope.md) — kedip 2 keadaan GD/trafo GI + cluster merah; ai.scope_strict belum diuji ke model asli
+- [Pewarnaan per penyulang & paralel](quadrangis-feeder-coloring-plan.md) — Normal/Aktual di Pusat Operasi, Editor, SLD + penanda paralel (29 Sep 2026); 103 loop normal data KJT
 - [Lokasi memori & skill](quadrangis-claude-setup.md) — memori di .claude/memory (autoMemoryDirectory di settings.local.json), skill proyek di .claude/skills

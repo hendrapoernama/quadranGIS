@@ -17,6 +17,8 @@ import { useFieldT } from '@/components/field/i18n';
 import { SearchBox } from './SearchBox';
 import { BoundaryControl, useBoundaryOverlay } from './BoundaryOverlay';
 import { OffMarkerCheckbox, useOffMarkers } from './useOffMarkers';
+import { FeederLegend, useFeederColoring } from './FeederColoring';
+import { ParallelBanner, useParallelFeeders } from './ParallelFeeders';
 import { LayerPanel } from './LayerPanel';
 import { FeaturePanel } from './FeaturePanel';
 import { ChangesPanel } from './ChangesPanel';
@@ -525,6 +527,8 @@ export default function MapWorkspace() {
 
   const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
   const offMarks = useOffMarkers(mapRef, configs, mapReady);
+  const feeder = useFeederColoring(mapRef, mapReady, colorMode === 'feeder');
+  const parallel = useParallelFeeders(mapRef, configs, mapReady);
 
   // ------------------------------------------------------------ trace
   const onTraceResult = useCallback((r: TraceResponse | null) => {
@@ -621,6 +625,7 @@ export default function MapWorkspace() {
         }}
         onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
         snapQuery={approval && csId ? `cs=${csId}` : undefined}
+        onViewChanged={feeder.refreshView}
         onArea={(ring) => {
           setArea(ring);
           setMode({ kind: 'select' });
@@ -663,6 +668,8 @@ export default function MapWorkspace() {
               </button>
             )}
           </div>
+          <ParallelBanner items={parallel.items} mapRef={mapRef} />
+          {mobile && colorMode === 'feeder' && <FeederLegend state={feeder} defaultOpen={false} normalLoops={parallel.normalLoops} />}
           {helpOpen && (
             <div className="w-[26rem] max-w-[calc(100vw-6rem)] rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-800 shadow-xl">
               <div className="mb-2 flex items-center justify-between">
@@ -689,38 +696,41 @@ export default function MapWorkspace() {
         </div>
       </div>
 
-      {measure && (
-        <div className="absolute bottom-10 left-3 z-10 w-64 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-900">{measure.what === 'area' ? t('measure.area_title') : t('measure.length_title')}</span>
-            <button className="text-gray-500 hover:text-gray-800" onClick={() => mapRef.current?.clearMeasure()} aria-label={t('common.clear')}>
-              <Icon name="x" size={14} />
-            </button>
-          </div>
-          <dl className="grid grid-cols-2 gap-y-0.5">
-            <dt className="text-gray-500">{measure.what === 'area' ? t('measure.perimeter') : t('measure.length')}</dt>
-            <dd className="text-right font-semibold tabular-nums">{fmtDistance(measure.lengthM)}</dd>
-            {measure.what === 'area' && (
-              <>
-                <dt className="text-gray-500">{t('measure.area')}</dt>
-                <dd className="text-right font-semibold tabular-nums">{fmtArea(measure.areaM2)}</dd>
-              </>
-            )}
-            <dt className="text-gray-500">{t('measure.vertices')}</dt>
-            <dd className="text-right tabular-nums">{measure.vertices}</dd>
-          </dl>
-          {measure.segments.length > 0 && (
-            <div className="mt-1 max-h-20 overflow-y-auto text-[11px] text-gray-500">
-              {measure.segments.map((s, i) => (
-                <span key={i} className="mr-2 inline-block">
-                  {i + 1}: {fmtDistance(s)}
-                </span>
-              ))}
+      <div className="absolute bottom-10 left-3 z-10 flex flex-col gap-2">
+        {!mobile && colorMode === 'feeder' && <FeederLegend state={feeder} normalLoops={parallel.normalLoops} />}
+        {measure && (
+          <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-900">{measure.what === 'area' ? t('measure.area_title') : t('measure.length_title')}</span>
+              <button className="text-gray-500 hover:text-gray-800" onClick={() => mapRef.current?.clearMeasure()} aria-label={t('common.clear')}>
+                <Icon name="x" size={14} />
+              </button>
             </div>
-          )}
-          <div className="mt-1 text-[11px] text-gray-500">{measure.done ? t('measure.done_hint') : t('measure.hint')}</div>
-        </div>
-      )}
+            <dl className="grid grid-cols-2 gap-y-0.5">
+              <dt className="text-gray-500">{measure.what === 'area' ? t('measure.perimeter') : t('measure.length')}</dt>
+              <dd className="text-right font-semibold tabular-nums">{fmtDistance(measure.lengthM)}</dd>
+              {measure.what === 'area' && (
+                <>
+                  <dt className="text-gray-500">{t('measure.area')}</dt>
+                  <dd className="text-right font-semibold tabular-nums">{fmtArea(measure.areaM2)}</dd>
+                </>
+              )}
+              <dt className="text-gray-500">{t('measure.vertices')}</dt>
+              <dd className="text-right tabular-nums">{measure.vertices}</dd>
+            </dl>
+            {measure.segments.length > 0 && (
+              <div className="mt-1 max-h-20 overflow-y-auto text-[11px] text-gray-500">
+                {measure.segments.map((s, i) => (
+                  <span key={i} className="mr-2 inline-block">
+                    {i + 1}: {fmtDistance(s)}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-1 text-[11px] text-gray-500">{measure.done ? t('measure.done_hint') : t('measure.hint')}</div>
+          </div>
+        )}
+      </div>
 
       <div className={`absolute right-3 top-3 z-10 mr-11 flex max-h-[calc(100%-4.5rem)] flex-col rounded-lg border border-gray-200 bg-white shadow-xl transition-all ${panelOpen ? 'w-[22rem] max-md:w-[calc(100vw-4.25rem)]' : 'w-10'}`}>
         <div className="flex items-center border-b border-gray-200">

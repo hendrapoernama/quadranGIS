@@ -12,7 +12,8 @@ import type { ComponentType, FeederStatus, GDStatus, GeoFeature, RealtimeEvent, 
 import { Badge, Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import MapCanvas from '@/components/map/MapCanvas';
-import { OFF_STATUS, ON_STATUS } from '@/components/map/mapStyle';
+import { NO_FEEDER_COLOR, OFF_STATUS, ON_STATUS, feederColor } from '@/components/map/mapStyle';
+import { useFeederColors, useFeederLivePref } from '@/components/map/FeederColoring';
 import { isSymbol, symbolDataURL } from '@/components/map/symbols';
 import type { BasemapKind, DrawMode, MapHandle } from '@/components/map/types';
 import { OperateBox, type ManeuverBody } from '@/components/power/OperateBox';
@@ -91,7 +92,10 @@ export default function SLD() {
   const [offsets, setOffsets] = useState<Offsets>({});
   const [dirty, setDirty] = useState(false);
   const [orient, setOrient] = useState<Orientation>('h');
-  const [colorMode, setColorMode] = useState<'status' | 'type'>('status');
+  const [colorMode, setColorMode] = useState<'status' | 'type' | 'feeder'>('status');
+  const byFeeder = colorMode === 'feeder';
+  const [feederLive, setFeederLive] = useFeederLivePref(); // sama dengan pilihan Normal / Aktual di peta
+  const fcol = useFeederColors(byFeeder);
   const [showTies, setShowTies] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [wrap, setWrap] = useState(true);
@@ -605,12 +609,40 @@ export default function SLD() {
       return loadingColor(mx);
     }
     if (colorMode === 'type') return s.energized ? typeOf(s.type_code)?.color || '#6b7280' : '#9ca3af';
+    if (byFeeder) return s.energized ? feederColorOf(s.feeder, s.feeder_live) : '#9ca3af';
     return s.energized ? ON_STATUS : OFF_STATUS;
   };
+  /** warna penyulang: aktual (override bila ada) atau normal; tanpa penyulang = abu kebiruan */
+  const feederColorOf = (normal?: number, live?: number) => {
+    const f = feederLive && live !== undefined && live !== null ? live : normal;
+    return f ? feederColor(fcol.byId.get(f)?.color) : NO_FEEDER_COLOR;
+  };
+  const nodeById = useMemo(() => new Map((diagram?.nodes || []).map((n) => [n.id, n])), [diagram]);
   const nodeColor = (n: SLDNodeData) => {
     if (colorMode === 'type') return n.energized ? typeOf(n.type_code)?.color || '#6b7280' : '#9ca3af';
+    if (byFeeder) {
+      if (!n.energized) return '#9ca3af';
+      // kelompok pelanggan agregat mengikuti penyulang induknya
+      const src = n.kind === 'customers' ? nodeById.get(n.parent) || n : n;
+      return feederColorOf(src.feeder, src.feeder_live);
+    }
     return n.energized ? ON_STATUS : OFF_STATUS;
   };
+  /** penyulang yang tampil di diagram (normal / aktual) untuk legenda */
+  const diagramFeeders = useMemo(() => {
+    if (!byFeeder || !diagram) return [] as number[];
+    const set = new Set<number>();
+    for (const x of [...diagram.nodes, ...diagram.sections]) {
+      const f = feederLive && x.feeder_live !== undefined && x.feeder_live !== null ? x.feeder_live : x.feeder;
+      if (f) set.add(f);
+    }
+    return Array.from(set);
+  }, [byFeeder, feederLive, diagram]);
+  const feederLegend = diagramFeeders.slice(0, 12).map((f) => (
+    <span key={f} className="flex items-center gap-1">
+      <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: feederColor(fcol.byId.get(f)?.color) }} /> {fcol.byId.get(f)?.code || `#${f}`}
+    </span>
+  ));
   const subLabel = (n: SLDNodeData): string => {
     const parts: string[] = [];
     if (n.head) parts.push(t('sld.head'));
@@ -852,12 +884,18 @@ export default function SLD() {
             {diagram.title} · {levelLabel(diagram.level)}
           </span>
         )}
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')}
-        </span>
+        {byFeeder ? (
+          feederLegend
+        ) : (
+          <>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')}
+            </span>
+          </>
+        )}
         <span className="flex items-center gap-1">
           <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-dashed border-red-600" /> {t('layers.legend_open')}
         </span>
@@ -1028,7 +1066,24 @@ export default function SLD() {
                   <select className="input" value={colorMode} onChange={(e) => setColorMode(e.target.value as any)}>
                     <option value="status">{t('layers.color_status')}</option>
                     <option value="type">{t('layers.color_type')}</option>
+                    <option value="feeder">{t('fdr.by_feeder')}</option>
                   </select>
+                  {byFeeder && (
+                    <span className="mt-1 flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('fdr.mode')}>
+                      {([false, true] as const).map((v) => (
+                        <button
+                          key={String(v)}
+                          type="button"
+                          className={`flex-1 px-2 py-0.5 ${feederLive === v ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                          onClick={() => setFeederLive(v)}
+                          title={v ? t('fdr.live_hint') : t('fdr.normal_hint')}
+                          aria-pressed={feederLive === v}
+                        >
+                          {v ? t('fdr.live') : t('fdr.normal')}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                 </label>
                 <div className="space-y-1 pt-4">
                   <label className="flex items-center gap-2 text-gray-800">
@@ -1308,7 +1363,18 @@ export default function SLD() {
             {renderBody(layout, true)}
           </svg>
           <div className="sld-print-legend">
-            <span style={{ color: ON_STATUS }}>■</span> {t('power.on')} &nbsp; <span style={{ color: OFF_STATUS }}>■</span> {t('power.off')} &nbsp; ○ {t('layers.legend_open')} &nbsp; - - - {t('sld.legend_tie')}
+            {byFeeder ? (
+              diagramFeeders.slice(0, 12).map((f) => (
+                <span key={f}>
+                  <span style={{ color: feederColor(fcol.byId.get(f)?.color) }}>■</span> {fcol.byId.get(f)?.code || `#${f}`} &nbsp;{' '}
+                </span>
+              ))
+            ) : (
+              <>
+                <span style={{ color: ON_STATUS }}>■</span> {t('power.on')} &nbsp; <span style={{ color: OFF_STATUS }}>■</span> {t('power.off')} &nbsp;
+              </>
+            )}{' '}
+            ○ {t('layers.legend_open')} &nbsp; - - - {t('sld.legend_tie')}
             {pf && (
               <>
                 &nbsp; · {t('pf.loading')}: <span style={{ color: GOOD }}>■</span> &lt;60% <span style={{ color: WARN }}>■</span> 60–80% <span style={{ color: SERIOUS }}>■</span> 80–100% <span style={{ color: CRIT }}>■</span> &gt;100%

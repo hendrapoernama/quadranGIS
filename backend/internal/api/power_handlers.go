@@ -164,7 +164,16 @@ func (s *Server) enrichFeature(ctx context.Context, ft *models.Feature) {
 	if info.InGraph {
 		ft.Properties["energized"] = info.Energized
 	}
-	codes, _ := s.d.Power.NodeCodes(ctx, []int64{info.Feeder, info.Zone})
+	// penyulang penyuplai saat ini bila berbeda dari keanggotaan normal (dilimpahkan lewat manuver)
+	live, isLive := s.d.Graph.LiveFeeder(kind, ft.ID)
+	codes, _ := s.d.Power.NodeCodes(ctx, []int64{info.Feeder, info.Zone, live})
+	if isLive {
+		if c, ok := codes[live]; ok {
+			ft.Properties["feeder_live"] = c
+		} else {
+			ft.Properties["feeder_live"] = gis.CodeName{} // bertegangan tanpa penyulang
+		}
+	}
 	if c, ok := codes[info.Feeder]; ok {
 		ft.Properties["feeder"] = c
 		if fi, ok := s.d.Graph.FeederOf(info.Feeder); ok {
@@ -545,6 +554,90 @@ func (s *Server) powerOffMarkers(c *gin.Context) {
 		return
 	}
 	ok(c, gin.H{"items": items, "total": total, "truncated": total > len(items), "types": types})
+}
+
+// GET /api/power/feeder-colors: seluruh penyulang beserta indeks warna palet (pewarnaan peta per
+// penyulang), kode/nama, dan GI-nya. color -1 = belum diberi warna (pengelompokan baru selesai).
+func (s *Server) powerFeederColors(c *gin.Context) {
+	ctx := c.Request.Context()
+	list := s.d.Graph.FeederList()
+	colors, err := s.d.Power.FeederColors(ctx)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	ids := make([]int64, 0, len(list)*2)
+	for _, f := range list {
+		ids = append(ids, f.Head, f.GI)
+	}
+	names, _ := s.d.Power.NodeCodes(ctx, ids)
+	items := make([]gin.H, 0, len(list))
+	for _, f := range list {
+		col, ok := colors[f.Head]
+		if !ok {
+			col = -1
+		}
+		items = append(items, gin.H{"id": f.Head, "code": names[f.Head].Code, "name": names[f.Head].Name,
+			"gi_id": f.GI, "gi_code": names[f.GI].Code, "color": col})
+	}
+	nLive, eLive := s.d.Graph.LiveCounts()
+	ok(c, gin.H{"palette": gis.FeederPaletteSize, "items": items, "live_nodes": nLive, "live_edges": eLive})
+}
+
+// GET /api/power/parallel: pasangan penyulang yang sedang beroperasi paralel (loop lewat tie yang
+// tertutup) beserta tie penyebab dan titik temu suplainya (koordinat untuk penanda peta).
+// normal_loops: jumlah pasangan yang sudah ber-loop pada posisi normal switch (catatan kualitas data).
+func (s *Server) powerParallel(c *gin.Context) {
+	ctx := c.Request.Context()
+	list := s.d.Graph.ParallelFeeders()
+	nodeIDs, edgeIDs := []int64{}, []int64{}
+	for _, p := range list {
+		nodeIDs = append(nodeIDs, p.A, p.B)
+		nodeIDs = append(nodeIDs, p.Ties...)
+		edgeIDs = append(edgeIDs, p.Meet)
+	}
+	names, _ := s.d.Power.NodeCodes(ctx, nodeIDs)
+	pts, mids, err := s.d.Power.PointOf(ctx, nodeIDs, edgeIDs)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	items := make([]gin.H, 0, len(list))
+	normalLoops := 0
+	for _, p := range list {
+		if p.NormalLoop {
+			normalLoops++ // loop pada konfigurasi normal (kualitas data), bukan paralel akibat manuver
+			continue
+		}
+		ties := make([]gin.H, 0, len(p.Ties))
+		for _, id := range p.Ties {
+			pt := pts[id]
+			ties = append(ties, gin.H{"id": id, "code": names[id].Code, "type_code": names[id].TypeCode, "lng": pt[0], "lat": pt[1]})
+		}
+		m := mids[p.Meet]
+		items = append(items, gin.H{"a": names[p.A], "b": names[p.B], "ties": ties, "meets": p.Meets,
+			"meet": gin.H{"edge_id": p.Meet, "lng": m[0], "lat": m[1]}})
+	}
+	ok(c, gin.H{"items": items, "normal_loops": normalLoops})
+}
+
+// GET /api/power/feeders/:id/extent?live=1: batas area penyulang (untuk memperbesar peta).
+func (s *Server) powerFeederExtent(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		failT(c, http.StatusBadRequest, "common.bad_payload")
+		return
+	}
+	bbox, found, err := s.d.Power.FeederExtent(c.Request.Context(), id, c.Query("live") == "1")
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	if !found {
+		failT(c, http.StatusNotFound, "common.not_found")
+		return
+	}
+	ok(c, gin.H{"bbox": bbox})
 }
 
 func (s *Server) fillFeederCodes(ctx context.Context, list []gis.FeederStatus) {

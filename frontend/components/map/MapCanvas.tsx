@@ -22,9 +22,10 @@ import {
   typeFilter,
   typeFilteredLayers,
   type ColorMode,
+  type FeederStyle,
 } from './mapStyle';
 import { registerSymbols } from './symbols';
-import type { BasemapKind, ConnectedEdge, DrawMode, MapHandle, MeasureResult, BoundaryStyle, OffMarker } from './types';
+import type { BasemapKind, ConnectedEdge, DrawMode, MapHandle, MeasureResult, BoundaryStyle, OffMarker, ParallelItem } from './types';
 
 interface Props {
   types: ComponentType[];
@@ -50,6 +51,8 @@ interface Props {
   onError?: (sourceId: string, message: string) => void;
   /** poligon area seleksi selesai digambar (mode 'area') */
   onArea?: (ring: [number, number][]) => void;
+  /** tampilan peta berubah (selesai digeser / tile selesai dimuat), mis. untuk legenda penyulang */
+  onViewChanged?: () => void;
   /** parameter tambahan untuk snap (mis. `cs=12`: titik usulan paket perubahan ikut disnap) */
   snapQuery?: string;
 }
@@ -57,6 +60,8 @@ interface Props {
 /** Layer penanda padam yang dapat diklik (gelombang tidak ikut: terlalu lebar). */
 const OFF_CLICK_LAYERS = ['offmark-cluster', 'offmark-cluster-count', 'offmark-dot', 'offmark-icon'];
 const OFF_BLINK_MS = 700; // lama satu keadaan kedip (terang / redup)
+/** Penanda penyulang paralel (kuning tua: peringatan operasi, bukan padam). */
+const PAR_COLOR = '#d97706';
 
 /** Lapisan pratinjau paket perubahan: tambah (oranye), ubah (biru), hapus (merah), pisah/gabung (ungu). */
 const DRAFT_COLOR: any = ['match', ['get', 'op'], 'create', '#f97316', 'update', '#2563eb', 'delete', '#dc2626', '#9333ea'];
@@ -96,6 +101,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
   const pendingSnap = useRef<Promise<unknown> | null>(null);
   const session = useRef<EditSession | null>(null);
   const colorMode = useRef<ColorMode>(props.initialColorMode || 'type');
+  const feederStyle = useRef<FeederStyle>({ colors: {}, live: true, highlight: null });
   const visibleCodes = useRef<string[] | null>(null);
   const energyFilter = useRef<'all' | 'on' | 'off'>('all');
   const { t, pick } = useT();
@@ -121,6 +127,20 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     map.setPaintProperty('offmark-cluster-halo', 'circle-opacity', on ? 0.35 : 0.15);
   };
   const offShown = useRef<OffMarker[]>([]);
+  const parData = useRef<ParallelItem[] | null>(null);
+  /** Penanda paralel: satu per tie penyebab (atau di titik temu bila tie tidak dikenali). */
+  const renderPar = () => {
+    const src = mapRef.current?.getSource('parallel') as GeoJSONSource | undefined;
+    if (!src) return;
+    const { t: tt } = i18n.current;
+    const features: GeoFeature[] = [];
+    for (const it of parData.current || []) {
+      const label = tt('par.map_label', { a: it.a.code || `#${it.a.id}`, b: it.b.code || `#${it.b.id}` });
+      const spots = it.ties.length > 0 ? it.ties.map((x) => ({ c: [x.lng, x.lat] as Coord, id: x.id })) : [{ c: [it.meet.lng, it.meet.lat] as Coord, id: 0 }];
+      for (const sp of spots) features.push(pt(sp.c, { label, node_id: sp.id }));
+    }
+    src.setData({ type: 'FeatureCollection', features } as any);
+  };
   const offKey = useRef<string | null>(null);
   const stopBlink = () => {
     if (offTimer.current) clearInterval(offTimer.current);
@@ -408,7 +428,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     const map = mapRef.current;
     if (!map) return;
     darkRef.current = dark;
-    if (map.getLayer('nodes')) applyColorMode(map, p.current.types, colorMode.current, dark);
+    if (map.getLayer('nodes')) applyColorMode(map, p.current.types, colorMode.current, dark, feederStyle.current);
     const text = dark ? '#f9fafb' : '#111827';
     const halo = dark ? '#111827' : '#ffffff';
     for (const id of ['node-labels', 'edge-labels', 'density-label', 'bnd-label', 'bnd-ulp-label']) {
@@ -424,6 +444,10 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     if (map.getLayer('draw-line')) map.setPaintProperty('draw-line', 'line-color', dark ? '#f9fafb' : '#111827');
     if (map.getLayer('draw-vertices')) map.setPaintProperty('draw-vertices', 'circle-color', dark ? '#f9fafb' : '#111827');
     if (map.getLayer('edges-open')) map.setPaintProperty('edges-open', 'line-color', dark ? '#111827' : '#ffffff');
+    if (map.getLayer('par-label')) {
+      map.setPaintProperty('par-label', 'text-color', dark ? '#fbbf24' : '#92400e');
+      map.setPaintProperty('par-label', 'text-halo-color', halo);
+    }
   };
 
   // ------------------------------------------------------------ init
@@ -596,6 +620,18 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       });
       for (const layer of offMarkerLayers(p.current.types, font)) map.addLayer(layer);
       renderOff();
+      // penyulang paralel: cincin + titik kuning tua dan label pasangan penyulang
+      map.addSource('parallel', { type: 'geojson', data: EMPTY as any });
+      map.addLayer({ id: 'par-ring', type: 'circle', source: 'parallel', paint: { 'circle-radius': 17, 'circle-color': PAR_COLOR, 'circle-opacity': 0.18, 'circle-stroke-color': PAR_COLOR, 'circle-stroke-width': 2.5 } });
+      map.addLayer({ id: 'par-dot', type: 'circle', source: 'parallel', paint: { 'circle-radius': 6, 'circle-color': PAR_COLOR, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
+      map.addLayer({
+        id: 'par-label',
+        type: 'symbol',
+        source: 'parallel',
+        layout: { 'text-field': ['get', 'label'], 'text-font': [font], 'text-size': 11, 'text-offset': [0, 1.9], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-max-width': 24 },
+        paint: { 'text-color': '#92400e', 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
+      });
+      renderPar();
       // posisi GPS pengguna (lingkar akurasi + titik), selalu paling atas
       map.addSource('user-loc', { type: 'geojson', data: EMPTY as any });
       map.addLayer({ id: 'user-acc', type: 'fill', source: 'user-loc', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.12, 'fill-outline-color': '#2563eb' } });
@@ -629,7 +665,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       if (kind === 'vertex') return; // kursor diatur oleh handle
       if (kind === 'select') {
         const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], {
-          layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density', ...DRAFT_LAYERS, ...OFF_CLICK_LAYERS].filter((l) => map.getLayer(l)),
+          layers: [...NODE_LAYERS, 'edges', 'buildings-fill', 'density', ...DRAFT_LAYERS, ...OFF_CLICK_LAYERS, 'par-dot', 'par-ring'].filter((l) => map.getLayer(l)),
         });
         map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
         showOffTip(map, e);
@@ -673,6 +709,14 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       const { lng, lat } = e.lngLat;
       if (!map.getLayer('nodes')) return;
       if (mode.kind === 'select') {
+        // penanda paralel: pilih tie penyebab (atau dekati titik temu)
+        const par = map.queryRenderedFeatures([[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]], { layers: ['par-dot', 'par-ring'].filter((l) => map.getLayer(l)) })[0];
+        if (par && par.geometry.type === 'Point') {
+          const nodeId = Number(par.properties?.node_id || 0);
+          if (nodeId) p.current.onSelect('node', nodeId);
+          if (map.getZoom() < 16) map.easeTo({ center: par.geometry.coordinates as Coord, zoom: 17 });
+          return;
+        }
         // penanda padam paling atas: cluster diperbesar, objek dipilih (dan didekati bila masih jauh)
         const off = map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: OFF_CLICK_LAYERS.filter((l) => map.getLayer(l)) })[0];
         if (off && off.geometry.type === 'Point') {
@@ -771,6 +815,16 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     });
 
     map.on('moveend', updateBlink);
+    // tampilan berubah: selesai digeser, atau tile jaringan selesai dimuat (setelah refresh)
+    let viewTimer: ReturnType<typeof setTimeout> | undefined;
+    const viewChanged = () => {
+      clearTimeout(viewTimer);
+      viewTimer = setTimeout(() => p.current.onViewChanged?.(), 350);
+    };
+    map.on('moveend', viewChanged);
+    map.on('sourcedata', (ev: any) => {
+      if (ev.sourceId === SOURCE && ev.isSourceLoaded) viewChanged();
+    });
 
     map.on('mouseout', () => {
       offTip.current?.remove();
@@ -893,7 +947,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       setColorMode: (mode) => {
         colorMode.current = mode;
         const map = mapRef.current;
-        if (map && map.getLayer('nodes')) applyColorMode(map, p.current.types, mode, darkRef.current);
+        if (map && map.getLayer('nodes')) applyColorMode(map, p.current.types, mode, darkRef.current, feederStyle.current);
       },
       cancelDraw: () => clearDraw(),
       getZoom: () => mapRef.current?.getZoom() ?? 0,
@@ -939,6 +993,27 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
       setOffMarkers: (items) => {
         offData.current = items;
         renderOff();
+      },
+      setParallel: (items) => {
+        parData.current = items;
+        renderPar();
+      },
+      setFeederStyle: (st) => {
+        feederStyle.current = { ...feederStyle.current, ...st };
+        const map = mapRef.current;
+        if (map && map.getLayer('nodes') && colorMode.current === 'feeder') applyColorMode(map, p.current.types, 'feeder', darkRef.current, feederStyle.current);
+      },
+      feedersInView: () => {
+        const map = mapRef.current;
+        if (!map || !map.getLayer('edges')) return [];
+        const live = feederStyle.current.live;
+        const cnt = new Map<number, number>();
+        for (const f of map.queryRenderedFeatures({ layers: ['edges', 'nodes', 'nodes-symbol'].filter((l) => map.getLayer(l)) })) {
+          const pr = f.properties || {};
+          const id = Number(live && pr.fdl != null ? pr.fdl : pr.fdr ?? 0);
+          if (id) cnt.set(id, (cnt.get(id) || 0) + 1);
+        }
+        return Array.from(cnt, ([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count);
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

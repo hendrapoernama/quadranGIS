@@ -649,11 +649,12 @@ const guide: { group: string; items: GuideItem[] }[] = [
         id: 'g-layers',
         title: 'Layer, peta dasar & overlay UP3',
         img: 'map-layers',
-        intro: 'Tab Layer mengatur tampilan: tipe yang tampil, peta dasar, label, pewarnaan (per tipe atau nyala/padam), dan overlay batas wilayah UP3/ULP.',
+        intro: 'Tab Layer mengatur tampilan: tipe yang tampil, peta dasar, label, pewarnaan (per tipe, nyala/padam, atau per penyulang), dan overlay batas wilayah UP3/ULP.',
         steps: [
           'Centang/kosongkan tipe komponen; "Semua"/"Kosongkan" untuk sekaligus.',
           'Pilih peta dasar: ikuti tema, OSM terang, OSM gelap, atau tanpa peta dasar.',
           'Pada "Batas wilayah UP3": tampilkan batas, garis ULP, label, dan geser slider transparansi.',
+          'Pewarnaan "Penyulang": legenda di kiri bawah peta (di ponsel di bawah kotak cari) memilih Normal / Aktual dan menyorot penyulang yang diklik.',
         ],
         tips: ['Legenda memakai simbol standar yang sama dengan peta.', 'Pilihan overlay tersimpan di browser masing-masing pengguna.'],
       },
@@ -768,6 +769,8 @@ const guide: { group: string; items: GuideItem[] }[] = [
           'Filter peta: Semua / Nyala / Padam; alat ukur panjang & luas; tombol UP3 untuk overlay wilayah.',
           'Warna peta: hijau nyala, merah padam, lingkaran merah = switch terbuka.',
           'Gardu distribusi & trafo GI yang padam berkedip merah; bila banyak dan berdekatan dikelompokkan menjadi cluster merah berangka (klik untuk memperbesar). Tombol "Tanda padam" menyembunyikan / menampilkannya.',
+          'Tombol Warna peta "Status | Penyulang": mode Penyulang mewarnai jaringan per penyulang (penyulang bertetangga selalu beda warna). Pilih Normal (posisi normal switch) atau Aktual (penyulang yang menyuplai saat ini — seksi yang dilimpahkan lewat tie ikut berganti warna). Legenda menampilkan penyulang di layar; klik untuk menyorot & memperbesar.',
+          'Bila dua penyulang beroperasi paralel karena tie ditutup, muncul penanda kuning tua di tie tersebut, spanduk "⚠ Paralel: A ⇄ B" di bawah toolbar (klik untuk menuju tie), dan notifikasi. Loop yang sudah ada pada posisi normal (data) hanya dicatat jumlahnya di legenda penyulang.',
         ],
       },
       {
@@ -1061,7 +1064,7 @@ const guide: { group: string; items: GuideItem[] }[] = [
         steps: [
           'Pilih cakupan: Penyulang, Gardu induk, Gardu distribusi, Objek, atau Area GIS (gambar poligon).',
           'Pilih tingkat detail: hanya TM, sampai trafo gardu, sampai jurusan TR, atau sampai pelanggan.',
-          'Atur orientasi, warna (nyala/padam atau per tipe), label, tie/loop, dan lipat baris panjang (penanda K1, K2, ...).',
+          'Atur orientasi, warna (nyala/padam, per tipe, atau per penyulang normal / aktual), label, tie/loop, dan lipat baris panjang (penanda K1, K2, ...).',
           'Ekspor SVG, PNG, atau PDF (A3 dengan kop) melalui dialog cetak.',
         ],
         tips: ['Garis putus-putus "NO → ..." adalah tie normally-open ke penyulang lain.', 'Label seksi menunjukkan panjang, penghantar, dan jumlah objek yang dilipat (+n).'],

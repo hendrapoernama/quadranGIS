@@ -70,6 +70,20 @@ type Graph struct {
 
 	assetMu    sync.Mutex
 	assetCache *assetIndex // indeks hirarki aset (assets.go)
+
+	// pewarnaan per penyulang (feeders.go): override penyulang penyuplai saat ini yang berbeda dari
+	// keanggotaan normal (jarang: hanya bagian yang dilimpahkan), saluran yang perlu ditulis ulang
+	// keanggotaannya setelah edit, dan hook persistensi
+	live     map[int64]int64
+	liveE    map[int64]int64
+	dirtyE   map[int64]struct{}
+	onFeeder func(FeederChange)
+
+	// cache deteksi penyulang paralel (per generasi graf & waktu pengelompokan)
+	parMu     sync.Mutex
+	parCache  []ParallelFeeder
+	parGen    uint64
+	parGroups time.Time
 }
 
 const (
@@ -140,7 +154,8 @@ var ErrNotSwitch = errors.New("not a switch")
 // NewGraph membuat graf kosong.
 func NewGraph(types *Types) *Graph {
 	return &Graph{types: types, typeIndex: map[string]uint16{}, nodes: map[int64]nodeRec{}, edges: map[int64]edgeRec{}, adj: map[int64][]int64{},
-		openWays: map[int64]map[int64]struct{}{}, normalOpenWays: map[int64]map[int64]struct{}{}, dist: map[int64]int32{}, feeders: map[int64]*feederInfo{}, defaultLoadVA: 1300}
+		openWays: map[int64]map[int64]struct{}{}, normalOpenWays: map[int64]map[int64]struct{}{}, dist: map[int64]int32{}, feeders: map[int64]*feederInfo{}, defaultLoadVA: 1300,
+		live: map[int64]int64{}, liveE: map[int64]int64{}}
 }
 
 // lvNodeTypesLocked menandai tipe titik tegangan rendah (switch jurusan TR, rak TR, trafo distribusi, ...).
@@ -219,6 +234,7 @@ type nodeRow struct {
 	zone        *string  // atribut pembatas_zona (alat switching)
 	cust        *float64 // atribut jumlah_pelanggan (pelanggan kolektif)
 	nonOp       bool     // status_operasi rencana / tidak operasi / bongkar: bukan sink, dilewati rekap
+	feeder      int64    // keanggotaan penyulang tersimpan di DB (pembanding saat pengelompokan)
 }
 
 func (g *Graph) makeNodeRecLocked(r nodeRow, old *nodeRec) nodeRec {
@@ -268,6 +284,8 @@ func (g *Graph) makeNodeRecLocked(r nodeRow, old *nodeRec) nodeRec {
 	}
 	if old != nil {
 		rec.feeder, rec.zone, rec.route, rec.gd = old.feeder, old.zone, old.route, old.gd
+	} else {
+		rec.feeder = r.feeder // nilai DB: pengelompokan berikutnya hanya menulis yang berubah
 	}
 	return rec
 }
@@ -286,7 +304,7 @@ const nodeLoadSQL = `SELECT n.id, n.type_code, n.status, n.energized,
 	CASE WHEN t.is_switch THEN n.properties->>'normal' ELSE NULL END,
 	CASE WHEN t.is_switch THEN n.properties->>'pembatas_zona' ELSE NULL END,
 	CASE WHEN t.is_sink AND NOT ` + SQLNonOperating + ` THEN qgis_num(n.properties->>'jumlah_pelanggan') ELSE NULL END,
-	` + SQLNonOperating + `
+	` + SQLNonOperating + `, COALESCE(n.feeder_id, 0)
 	FROM gis_nodes n JOIN component_types t ON t.code = n.type_code WHERE t.topology`
 
 // SQLNonOperating: kondisi SQL (alias tabel node "n") objek yang belum / tidak beroperasi — atribut status_operasi
@@ -343,7 +361,7 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	for rows.Next() {
 		var id int64
 		var r nodeRow
-		if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp); err != nil {
+		if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp, &r.feeder); err != nil {
 			rows.Close()
 			return err
 		}
@@ -385,8 +403,14 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	// override penyulang aktual tersimpan: pembanding perhitungan ulang setelah pengelompokan
+	liveN, liveE, err := loadLiveFeeders(ctx, pool)
+	if err != nil {
+		return err
+	}
 
 	g.mu.Lock()
+	g.live, g.liveE = liveN, liveE
 	g.nodes, g.edges, g.adj = nodes, edges, adj
 	g.bulkN = bulk
 	g.nonOp = nonOp
@@ -417,7 +441,7 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 		for rows.Next() {
 			var id int64
 			var r nodeRow
-			if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp); err != nil {
+			if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp, &r.feeder); err != nil {
 				rows.Close()
 				return err
 			}
@@ -489,6 +513,19 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 		g.edges[id] = rec
 		g.adj[rec.from] = append(g.adj[rec.from], id)
 		g.adj[rec.to] = append(g.adj[rec.to], id)
+	}
+	// keanggotaan penyulang saluran yang diedit (dan saluran di sekitar node yang diedit, mis. posisi
+	// normal switch berubah) ditulis ulang pada pengelompokan berikutnya
+	if g.dirtyE == nil {
+		g.dirtyE = map[int64]struct{}{}
+	}
+	for _, id := range edgeIDs {
+		g.dirtyE[id] = struct{}{}
+	}
+	for _, id := range nodeIDs {
+		for _, eid := range g.adj[id] {
+			g.dirtyE[eid] = struct{}{}
+		}
 	}
 	g.gen++
 	g.distDirty = true
@@ -831,8 +868,12 @@ func (g *Graph) computeGroups() {
 
 	g.mu.Lock()
 	changed := 0
+	var feederChanged []IDFeeder // node yang keanggotaan penyulangnya berubah (untuk disimpan)
 	for id, n := range g.nodes {
 		a := assign[id]
+		if n.feeder != a.feeder {
+			feederChanged = append(feederChanged, IDFeeder{id, a.feeder})
+		}
 		if n.feeder != a.feeder || n.zone != a.zone || n.route != a.route || n.gd != a.gd {
 			n.feeder, n.zone, n.route, n.gd = a.feeder, a.zone, a.route, a.gd
 			g.nodes[id] = n
@@ -853,6 +894,7 @@ func (g *Graph) computeGroups() {
 	g.mu.Unlock()
 	g.invalidateSummary()
 	log.Printf("[graph] pengelompokan: %d penyulang, %d node diperbarui (%s)", len(feeders), changed, time.Since(start).Round(time.Millisecond))
+	g.publishFeederChange(feederChanged)
 }
 
 // switchesAtNormalLocked: semua alat switching berada pada posisi normalnya. Harus dengan RLock.
@@ -1032,6 +1074,11 @@ func (g *Graph) Maneuver(in ManeuverInput) (EnergyDiff, error) {
 	// objek yang dimanuver (dan saluran di sekitarnya) selalu diselaraskan, walau jarak tidak berubah
 	touched = append(touched, seeds...)
 	diff := g.applyEnergyLocked(touched)
+	// penyulang penyuplai saat ini (pewarnaan "aktual"): hanya wilayah terdampak; diteruskan ke hook
+	// selagi lock dipegang agar urutannya sama dengan perubahan dari pengelompokan ulang
+	if live := g.updateLiveLocked(touched); !live.Empty() && g.onFeeder != nil {
+		g.onFeeder(FeederChange{Live: live})
+	}
 	g.distAt = time.Now()
 	g.mu.Unlock()
 	g.invalidateSummary()

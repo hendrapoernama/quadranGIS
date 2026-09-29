@@ -59,25 +59,28 @@ type SLDNode struct {
 	Count      int     `json:"count,omitempty"` // customers: jumlah pelanggan yang diagregasi
 	KVA        float64 `json:"kva,omitempty"`   // trafo: kapasitas
 	SSOT       string  `json:"kode_ssot,omitempty"`
-	Outside    bool    `json:"outside,omitempty"`   // area: di luar area (jalur hulu)
-	Collapsed  int     `json:"collapsed,omitempty"` // jumlah objek yang dilipat di seksi induk
-	Head       bool    `json:"head,omitempty"`      // kepala penyulang
+	Outside    bool    `json:"outside,omitempty"`     // area: di luar area (jalur hulu)
+	Collapsed  int     `json:"collapsed,omitempty"`   // jumlah objek yang dilipat di seksi induk
+	Head       bool    `json:"head,omitempty"`        // kepala penyulang
+	FeederLive *int64  `json:"feeder_live,omitempty"` // penyulang penyuplai saat ini bila berbeda dari keanggotaan normal
 }
 
 // SLDSection adalah satu ruas diagram: satu saluran atau gabungan segmen berurutan.
 type SLDSection struct {
-	ID        int64   `json:"id"` // id saluran pertama
-	EdgeIDs   []int64 `json:"edge_ids"`
-	From      int64   `json:"from"`
-	To        int64   `json:"to"`
-	TypeCode  string  `json:"type_code"`
-	Code      string  `json:"code"`
-	Conductor string  `json:"conductor,omitempty"`
-	LengthM   float64 `json:"length_m"`
-	Energized bool    `json:"energized"`
-	Open      bool    `json:"open"`    // saluran diputus
-	Skipped   int     `json:"skipped"` // objek pass-through yang dihapus
-	Mixed     bool    `json:"mixed,omitempty"`
+	ID         int64   `json:"id"` // id saluran pertama
+	EdgeIDs    []int64 `json:"edge_ids"`
+	From       int64   `json:"from"`
+	To         int64   `json:"to"`
+	TypeCode   string  `json:"type_code"`
+	Code       string  `json:"code"`
+	Conductor  string  `json:"conductor,omitempty"`
+	LengthM    float64 `json:"length_m"`
+	Energized  bool    `json:"energized"`
+	Open       bool    `json:"open"`    // saluran diputus
+	Skipped    int     `json:"skipped"` // objek pass-through yang dihapus
+	Mixed      bool    `json:"mixed,omitempty"`
+	Feeder     int64   `json:"feeder,omitempty"`      // penyulang (keanggotaan normal) saluran pertama
+	FeederLive *int64  `json:"feeder_live,omitempty"` // penyuplai saat ini bila berbeda (dilimpahkan)
 }
 
 // SLDTie adalah sambungan di luar pohon: tie normally-open ke penyulang lain, loop, atau
@@ -724,6 +727,7 @@ func (s *SLD) build(req SLDRequest, lv int, members map[int64]struct{}) (*SLDDia
 			e := g.edges[cw.edge]
 			if sec == nil {
 				sec = &SLDSection{ID: cw.edge, EdgeIDs: []int64{cw.edge}, From: parentOut, TypeCode: g.typeNames[e.typ], LengthM: float64(e.lengthM), Energized: e.energized, Open: e.open}
+				g.sldSectionFeederLocked(sec, e)
 			} else {
 				sec.EdgeIDs = append(sec.EdgeIDs, cw.edge)
 				sec.LengthM += float64(e.lengthM)
@@ -742,6 +746,9 @@ func (s *SLD) build(req SLDRequest, lv int, members map[int64]struct{}) (*SLDDia
 			NormalOpen: n.flags&flagNormalOpen != 0}
 		if _, head := g.feeders[id]; head {
 			out.Head = true
+		}
+		if f, ok := g.live[id]; ok {
+			out.FeederLive = &f
 		}
 		if m := g.openWays[id]; len(m) > 0 {
 			for eid := range m {
@@ -776,6 +783,7 @@ func (s *SLD) build(req SLDRequest, lv int, members map[int64]struct{}) (*SLDDia
 			cw := inTree[c]
 			e := g.edges[cw.edge]
 			ns := &SLDSection{ID: cw.edge, EdgeIDs: []int64{cw.edge}, From: id, TypeCode: g.typeNames[e.typ], LengthM: float64(e.lengthM), Energized: e.energized, Open: e.open}
+			g.sldSectionFeederLocked(ns, e)
 			walk(c, id, ns, depth+1)
 		}
 		if a := aggregate[id]; a != nil {
@@ -1027,4 +1035,12 @@ func (s *SLD) SavePositions(ctx context.Context, scope string, pos map[int64]SLD
 func (s *SLD) ResetPositions(ctx context.Context, scope string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM sld_positions WHERE scope=$1`, scope)
 	return err
+}
+
+// sldSectionFeederLocked mengisi penyulang seksi SLD dari saluran pertamanya (normal & aktual).
+func (g *Graph) sldSectionFeederLocked(sec *SLDSection, e edgeRec) {
+	sec.Feeder = g.edgeFeederLocked(sec.ID, e, false, nil)
+	if f, ok := g.liveE[sec.ID]; ok {
+		sec.FeederLive = &f
+	}
 }

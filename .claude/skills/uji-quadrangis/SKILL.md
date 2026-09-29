@@ -40,6 +40,11 @@ atau konfigurasi WAJIB dipulihkan (blok `finally` + pengawas waktu) dan jejaknya
 - Verifikasi pemulihan: status node `closed`, `GET /api/power/outages?active=1` kosong.
 - Setiap uji meninggalkan catatan kejadian padam / manuver di riwayat (tidak bisa dihapus lewat UI):
   sebutkan nomornya di laporan.
+- Pelimpahan penyulang tanpa padam (uji pewarnaan penyulang mode Aktual): tutup arah tie
+  `{"node_id":2702661,"action":"close","way_edge_id":2702648}` (LBS3-GMB-03-07 → GMB-05), lalu buka kubikel
+  kepala GMB-03 `{"node_id":29,"action":"open","kind":"PEMELIHARAAN"}`. Seluruh GMB-03 kini disuplai GMB-05
+  (±218 node dilimpahkan, tanpa kejadian padam). Pulihkan dengan urutan terbalik: tutup id 29, lalu buka
+  kembali arah 2702648 (`"kind":"MANUVER"`). Cek `GET /api/power/feeder-colors` → `live_nodes` 0.
 
 ## 4. Uji AI dengan server LLM tiruan
 

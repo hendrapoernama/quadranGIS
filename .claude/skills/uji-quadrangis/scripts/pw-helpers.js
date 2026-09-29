@@ -16,9 +16,12 @@ function solve(q) {
 
 const launch = () => chromium.launch({ args: ['--ignore-certificate-errors'] });
 
-/** Konteks baru + login (captcha). scheme: 'dark' | 'light'. Mengembalikan { ctx, p, token }. */
-async function login(browser, scheme = 'dark', user = 'admin', pass = 'quadran123') {
-  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 950 }, colorScheme: scheme });
+/**
+ * Konteks baru + login (captcha). scheme: 'dark' | 'light'. opts: opsi konteks tambahan, mis. ponsel
+ * { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }. Mengembalikan { ctx, p, token }.
+ */
+async function login(browser, scheme = 'dark', user = 'admin', pass = 'quadran123', opts = {}) {
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 950 }, colorScheme: scheme, ...opts });
   const p = await ctx.newPage();
   p.setDefaultTimeout(15000);
   p.errs = [];

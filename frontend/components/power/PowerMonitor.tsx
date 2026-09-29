@@ -19,6 +19,8 @@ import { SOEPanel } from './SOEPanel';
 import { CustomersPanel, type CustomerState } from './CustomersPanel';
 import { BoundaryControl, useBoundaryOverlay } from '@/components/map/BoundaryOverlay';
 import { OffBlinkDot, OffMarkerButton, useOffMarkers } from '@/components/map/useOffMarkers';
+import { FeederLegend, useFeederColoring } from '@/components/map/FeederColoring';
+import { ParallelBanner, useParallelFeeders } from '@/components/map/ParallelFeeders';
 import { OperateBox, type ManeuverBody } from './OperateBox';
 import { TracePanel, type TraceSeed } from '@/components/map/TracePanel';
 import { useAuth } from '@/lib/auth';
@@ -501,6 +503,27 @@ export default function PowerMonitor() {
 
   const boundary = useBoundaryOverlay(mapRef, configs, mapReady);
   const offMarks = useOffMarkers(mapRef, configs, mapReady);
+  // warna peta: status nyala/padam atau per penyulang (disimpan per browser)
+  const [colorBy, setColorByState] = useState<'status' | 'feeder'>(() => {
+    try {
+      return window.localStorage.getItem('qgis_color_by') === 'feeder' ? 'feeder' : 'status';
+    } catch {
+      return 'status';
+    }
+  });
+  const setColorBy = (v: 'status' | 'feeder') => {
+    setColorByState(v);
+    try {
+      window.localStorage.setItem('qgis_color_by', v);
+    } catch {
+      /* penyimpanan browser tidak tersedia */
+    }
+  };
+  const feeder = useFeederColoring(mapRef, mapReady, colorBy === 'feeder');
+  const parallel = useParallelFeeders(mapRef, configs, mapReady);
+  useEffect(() => {
+    if (mapReady) mapRef.current?.setColorMode(colorBy);
+  }, [mapReady, colorBy]);
 
   // ------------------------------------------------------------ trace hilir / hulu
   const onTraceResult = useCallback((r: TraceResponse | null) => {
@@ -690,6 +713,14 @@ export default function PowerMonitor() {
                 <dd>
                   {selected.properties.feeder.code}
                   {selected.properties.feeder_gi && <span className="text-gray-500"> · {selected.properties.feeder_gi.code}</span>}
+                </dd>
+              </>
+            )}
+            {selected.properties.feeder_live && (
+              <>
+                <dt className="text-gray-500">{t('fdr.supplied_now')}</dt>
+                <dd>
+                  <Badge tone="amber">{selected.properties.feeder_live.code || t('fdr.no_feeder')}</Badge> <span className="text-gray-500">{t('fdr.transferred')}</span>
                 </dd>
               </>
             )}
@@ -1265,11 +1296,12 @@ export default function PowerMonitor() {
           mapRef.current?.setVisibleTypes(types.map((x) => x.code));
           mapRef.current?.setBasemap(basemap);
           mapRef.current?.setDarkLabels(basemap === 'dark');
-          mapRef.current?.setColorMode('status');
+          mapRef.current?.setColorMode(colorBy);
           mapRef.current?.setEnergyFilter(energy);
           if (isOps(tabRef.current)) mapRef.current?.setOverlay(opsOverlays.current[tabRef.current]);
         }}
         onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
+        onViewChanged={feeder.refreshView}
       />
 
       {/* judul & legenda */}
@@ -1283,7 +1315,7 @@ export default function PowerMonitor() {
             }}
           />
         </div>
-        <div className="flex w-fit items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-1 shadow-lg">
+        <div className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-1 shadow-lg">
           <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('power.filter_label')}>
             {(['all', 'on', 'off'] as const).map((f) => (
               <button
@@ -1300,6 +1332,19 @@ export default function PowerMonitor() {
             ))}
           </div>
           <OffMarkerButton state={offMarks} />
+          <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('fdr.color_by')}>
+            {(['status', 'feeder'] as const).map((v) => (
+              <button
+                key={v}
+                className={`px-2.5 py-1 ${colorBy === v ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                onClick={() => setColorBy(v)}
+                aria-pressed={colorBy === v}
+                title={t('fdr.color_by')}
+              >
+                {v === 'status' ? t('fdr.by_status') : t('fdr.by_feeder')}
+              </button>
+            ))}
+          </div>
           {!mobile && <span className="h-5 w-px bg-gray-300" />}
           {!mobile && ([
             ['length', 'ruler', t('map.tool_measure_length')],
@@ -1348,6 +1393,8 @@ export default function PowerMonitor() {
           </button>
           <OfflineAreaButton mapRef={mapRef} configs={configs} />
         </div>
+        <ParallelBanner items={parallel.items} mapRef={mapRef} />
+        {mobile && colorBy === 'feeder' && <FeederLegend state={feeder} defaultOpen={false} normalLoops={parallel.normalLoops} />}
         {bndOpen && (
           <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
             <BoundaryControl state={boundary} compact />
@@ -1375,6 +1422,7 @@ export default function PowerMonitor() {
       </div>
 
       <div className="absolute bottom-10 left-3 z-10 flex flex-col gap-2">
+      {!mobile && colorBy === 'feeder' && <FeederLegend state={feeder} normalLoops={parallel.normalLoops} />}
       {measure && (
         <div className="w-72 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
           <div className="mb-1 flex items-center justify-between">

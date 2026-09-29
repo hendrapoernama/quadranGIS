@@ -197,15 +197,17 @@ WITH n AS (
   SELECT n.id, n.type_code, n.code, n.name, n.status,
          CASE WHEN ` + SQLNonOperating + ` THEN NULL ELSE n.energized END AS energized,
          CASE WHEN ` + SQLNonOperating + ` THEN true END AS nonaktif,
+         n.feeder_id AS fdr, lf.feeder_id AS fdl,
          ST_AsMVTGeom(ST_Transform(n.geom, 3857), ` + env + `, ` + ext + `, ` + buf + `, true) AS geom
-  FROM gis_nodes n
+  FROM gis_nodes n LEFT JOIN gis_node_feeder_live lf ON lf.id = n.id
   WHERE ` + sqlTypeCond("n.type_code", p.pointTypes) + ` AND n.geom && ` + box + `
   LIMIT ` + lim + `
 ),
 e AS (
   SELECT e.id, e.type_code, e.code, e.name, e.status, e.energized, e.from_node_id, e.to_node_id, round(e.length_m)::int AS length_m,
+         e.feeder_id AS fdr, lf.feeder_id AS fdl,
          ST_AsMVTGeom(ST_Simplify(ST_Transform(e.geom, 3857), ` + sqlFloat(p.simplifyM) + `), ` + env + `, ` + ext + `, ` + buf + `, true) AS geom
-  FROM gis_edges e
+  FROM gis_edges e LEFT JOIN gis_edge_feeder_live lf ON lf.id = e.id
   WHERE ` + sqlTypeCond("e.type_code", p.lineTypes) + ` AND e.geom && ` + box + `
   LIMIT ` + lim + `
 ),
@@ -217,9 +219,9 @@ d AS (
   GROUP BY d.type_code, ST_SnapToGrid(d.geom, ` + sqlFloat(p.densityCell) + `)
 ),
 p AS (
-  SELECT n.id, n.type_code, n.code, n.name, n.status, n.energized,
+  SELECT n.id, n.type_code, n.code, n.name, n.status, n.energized, n.feeder_id AS fdr, lf.feeder_id AS fdl,
          ST_AsMVTGeom(ST_Transform(n.footprint, 3857), ` + env + `, ` + ext + `, ` + buf + `, true) AS geom
-  FROM gis_nodes n
+  FROM gis_nodes n LEFT JOIN gis_node_feeder_live lf ON lf.id = n.id
   WHERE ` + sqlTypeCond("n.type_code", p.polyTypes) + ` AND n.footprint IS NOT NULL AND n.footprint && ` + box + `
   LIMIT ` + lim + `
 )

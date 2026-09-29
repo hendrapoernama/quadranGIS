@@ -47,7 +47,13 @@ export interface MapHandle {
   setBasemap: (kind: BasemapKind) => void;
   setLabelsVisible: (v: boolean) => void;
   setDarkLabels: (dark: boolean) => void;
-  setColorMode: (mode: 'type' | 'status') => void;
+  setColorMode: (mode: 'type' | 'status' | 'feeder') => void;
+  /** pewarnaan per penyulang (mode feeder): warna, normal / aktual, penyulang yang disorot */
+  setFeederStyle: (s: Partial<FeederStyleInput>) => void;
+  /** penyulang yang tampak di layar (dari saluran & titik yang dirender), terbanyak lebih dulu */
+  feedersInView: () => { id: number; count: number }[];
+  /** penanda penyulang yang beroperasi paralel (di tie penyebab / titik temu; null = sembunyikan) */
+  setParallel: (items: ParallelItem[] | null) => void;
   /** filter status kelistrikan: semua / hanya nyala / hanya padam */
   setEnergyFilter: (f: 'all' | 'on' | 'off') => void;
   cancelDraw: () => void;
@@ -67,6 +73,24 @@ export interface MapHandle {
   setBoundaryStyle: (s: BoundaryStyle) => void;
   /** penanda objek padam berkedip merah / cluster merah (null = sembunyikan) */
   setOffMarkers: (items: OffMarker[] | null) => void;
+}
+
+/** Masukan pewarnaan per penyulang (lihat FeederStyle di mapStyle). */
+export interface FeederStyleInput {
+  colors: Record<number, number>;
+  live: boolean;
+  highlight: number | null;
+}
+
+/** Dua penyulang yang beroperasi paralel (GET /api/power/parallel). */
+export interface ParallelItem {
+  a: { id: number; code: string; name: string };
+  b: { id: number; code: string; name: string };
+  /** switch normally-open yang kini tertutup di antara keduanya */
+  ties: { id: number; code: string; type_code: string; lng: number; lat: number }[];
+  /** jumlah titik temu suplai kedua penyulang */
+  meets: number;
+  meet: { edge_id: number; lng: number; lat: number };
 }
 
 /** Objek padam untuk penanda peta (GET /api/power/off-markers). */

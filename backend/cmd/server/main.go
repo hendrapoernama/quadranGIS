@@ -117,6 +117,17 @@ func main() {
 		}
 		log.Printf("[power] energisasi disimpan: +%d/-%d node, +%d/-%d edge", len(d.NodesOn), len(d.NodesOff), len(d.EdgesOn), len(d.EdgesOff))
 	})
+	// penyulang (pewarnaan peta per penyulang): keanggotaan normal & penyuplai aktual disimpan di
+	// latar belakang; setelah tersimpan tile dimuat ulang dan klien diberi tahu
+	feederSync := gis.NewFeederSync(power, graph, func(regroup bool) {
+		pctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		v := tiles.BumpVersion(pctx)
+		data, _ := json.Marshal(map[string]bool{"regroup": regroup})
+		hub.Publish(stream.Event{Type: "feeders.changed", Version: v, At: time.Now(), Data: data})
+	})
+	graph.OnFeederChange(feederSync.Enqueue)
+	go feederSync.Run(ctx)
 	go func() { // retensi SOE
 		for {
 			if n, err := power.PruneSOE(ctx, configs.Int("monitoring.soe_retention_days", 365)); err != nil {

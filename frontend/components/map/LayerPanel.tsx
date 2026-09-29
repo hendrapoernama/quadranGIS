@@ -104,17 +104,20 @@ export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labe
         {onColorMode && (
           <div>
             <div className="mb-1 text-xs font-semibold uppercase text-gray-500">{t('layers.color_mode')}</div>
-            <div className="grid grid-cols-2 gap-1">
-              {(['type', 'status'] as ColorMode[]).map((m) => (
+            <div className="grid grid-cols-3 gap-1">
+              {(['type', 'status', 'feeder'] as ColorMode[]).map((m) => (
                 <button
                   key={m}
                   className={`rounded-md border px-2 py-1 text-xs ${colorMode === m ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                   onClick={() => onColorMode(m)}
                 >
-                  {m === 'type' ? t('layers.color_type') : t('layers.color_status')}
+                  {m === 'type' ? t('layers.color_type') : m === 'status' ? t('layers.color_status') : t('fdr.by_feeder')}
                 </button>
               ))}
             </div>
+            {colorMode === 'feeder' ? (
+              <div className="mt-1 text-[11px] text-gray-600">{t('fdr.editor_hint')}</div>
+            ) : (
             <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-gray-600">
               <span className="flex items-center gap-1">
                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: colorMode === 'status' ? ON_STATUS : '#6b7280' }} /> {t('layers.legend_on')}
@@ -129,6 +132,7 @@ export function LayerPanel({ types, visible, onVisible, basemap, onBasemap, labe
                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: INACTIVE_COLOR }} /> {t('layers.legend_inactive')}
               </span>
             </div>
+            )}
           </div>
         )}
       </div>

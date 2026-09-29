@@ -295,7 +295,34 @@ Migrasi `007_power_monitoring.sql` menambahkan:
   - animasi hanya berjalan selama ada penanda di area tampilan, dan dimatikan bila browser meminta
     gerak dikurangi (`prefers-reduced-motion`).
 
-  Konfigurasi:
+- **Pewarnaan per penyulang** (Pusat Operasi, tombol *Warna peta: Status | Penyulang*):
+  - setiap penyulang diberi satu dari 12 warna; penyulang yang tersambung lewat tie point, keluar dari
+    GI / trafo GI yang sama, atau berjalan berdekatan dibedakan warnanya, dan warna stabil antar-perhitungan
+    (tabel `feeder_colors`, dihitung ulang setelah pengelompokan);
+  - **Normal**: keanggotaan menurut posisi normal switch (kolom `feeder_id` di `gis_nodes` / `gis_edges`,
+    ditulis backend setelah pengelompokan, hanya yang berubah);
+  - **Aktual**: penyulang yang menyuplai saat ini. Seksi yang dilimpahkan lewat manuver (mis. tie ditutup lalu
+    kubikel penyulang asal dibuka) ikut berganti warna; dihitung inkremental hanya pada wilayah terdampak manuver
+    dan disimpan sebagai override kecil (`gis_node_feeder_live`, `gis_edge_feeder_live`);
+  - objek padam abu-abu, objek bertegangan tanpa penyulang (GI, busbar, data belum tersambung) abu kebiruan;
+  - legenda menampilkan penyulang di layar; klik untuk menyorot (yang lain diredupkan) dan memperbesar ke batas
+    penyulang; kartu objek menampilkan *Disuplai saat ini* bila objek sedang dilimpahkan;
+  - pengisian awal saat migrasi `047_feeder_coloring.sql` pertama kali berjalan menulis ±5,9 juta baris di
+    latar belakang (±4,5 menit pada data simulasi massal);
+  - tersedia juga di **Editor Peta** (tab *Layer* › Pewarnaan › *Penyulang*) dan **SLD** (Warna: *Penyulang
+    (normal)* / *Penyulang (aktual)*; legenda diagram & cetak berisi penyulang yang tampil); di ponsel legenda
+    berada di bawah kotak cari dan tertutup bawaan agar tidak tertutup panel bawah.
+- **Penanda penyulang paralel** (`GET /api/power/parallel`, Pusat Operasi & Editor Peta):
+  - dua penyulang paralel = ada saluran tertutup & bertegangan yang kedua ujungnya disuplai penyulang berbeda
+    (titik temu suplai dalam satu loop); saluran yang menempel kepala penyulang (busbar antar-kubikel GI)
+    tidak dihitung;
+  - tie penyebab = switch / arah LBS normally-open yang kini tertutup di antara kedua penyulang; penanda kuning
+    tua (cincin + label "Paralel A / B") di tie, atau di titik temu bila tie tidak dikenali;
+  - spanduk "⚠ Paralel: A ⇄ B lewat …" di bawah toolbar (klik = menuju tie) dan toast saat paralel baru terjadi;
+  - loop yang sudah ada pada posisi normal switch (mis. data impor tanpa tie bertanda normally-open) tidak
+    ditandai; jumlahnya (`normal_loops`) tampil sebagai catatan data di legenda penyulang.
+
+  Konfigurasi penanda padam:
 
   | Kunci | Bawaan | Fungsi |
   |---|---|---|
@@ -1159,6 +1186,9 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | POST | `/api/gis/maneuver` | `{node_id\|edge_id,action:open|close,kind:GANGGUAN|PEMELIHARAAN|MLS|MANUVER|BENCANA ALAM (wajib saat open),note,way_edge_id?}`; izin `power.switch_*` / `power.energize_*` |
 | GET  | `/api/power/summary` | rekap nyala/padam (GI, trafo GI, penyulang, zona, GD, pelanggan, beban) |
 | GET  | `/api/power/off-markers` | objek padam bertanda peta (tipe `monitoring.off_marker_types`) beserta kejadian padam aktifnya |
+| GET  | `/api/power/feeder-colors` | seluruh penyulang dengan indeks warna palet, GI, dan jumlah objek yang sedang dilimpahkan |
+| GET  | `/api/power/feeders/{id}/extent?live=1` | batas area penyulang (untuk memperbesar peta ke penyulang) |
+| GET  | `/api/power/parallel` | penyulang yang beroperasi paralel (tie penyebab, titik temu) + jumlah loop pada posisi normal |
 | GET  | `/api/power/feeders?state&q` | daftar penyulang beserta status |
 | GET  | `/api/power/gi?state&q` | daftar gardu induk beserta rekap penyulang |
 | GET  | `/api/power/customers?state&q&limit&offset` | daftar pelanggan nyala / padam (paging) |

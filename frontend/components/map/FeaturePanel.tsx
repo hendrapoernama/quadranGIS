@@ -227,6 +227,21 @@ export function FeaturePanel(props: Props) {
                 </dd>
               </>
             )}
+            {p.feeder_live && (
+              <>
+                <dt className="text-gray-500">{t('fdr.supplied_now')}</dt>
+                <dd>
+                  {p.feeder_live.id ? (
+                    <button className="text-amber-700 hover:underline" onClick={() => props.onSelect('node', p.feeder_live.id)}>
+                      {p.feeder_live.code || `#${p.feeder_live.id}`}
+                    </button>
+                  ) : (
+                    <span className="text-amber-700">{t('fdr.no_feeder')}</span>
+                  )}{' '}
+                  <span className="text-gray-500">{t('fdr.transferred')}</span>
+                </dd>
+              </>
+            )}
             {p.zone && (
               <>
                 <dt className="text-gray-500">{t('feature.zone')}</dt>

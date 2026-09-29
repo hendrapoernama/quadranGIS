@@ -4,8 +4,45 @@ import type { ComponentType } from '@/lib/types';
 
 export const SOURCE = 'quadran';
 
-/** Mode pewarnaan: per tipe komponen, atau status kelistrikan (nyala hijau / padam merah). */
-export type ColorMode = 'type' | 'status';
+/** Mode pewarnaan: per tipe komponen, status kelistrikan (nyala hijau / padam merah), atau per penyulang. */
+export type ColorMode = 'type' | 'status' | 'feeder';
+
+/**
+ * Palet penyulang; indeks warna per penyulang dari backend (GET /api/power/feeder-colors, penyulang
+ * bertetangga dibedakan). Tanpa hijau / merah agar tidak tertukar dengan warna status.
+ * Jumlahnya harus sama dengan FeederPaletteSize di backend.
+ */
+export const FEEDER_PALETTE = ['#2563eb', '#ea580c', '#9333ea', '#0d9488', '#db2777', '#ca8a04', '#0284c7', '#92400e', '#65a30d', '#c026d3', '#4338ca', '#22d3ee'];
+export const NO_FEEDER_COLOR = '#94a3b8'; // bertegangan tetapi di luar penyulang (mis. GI, busbar, data belum tersambung)
+
+/** Pewarnaan per penyulang: indeks warna per id kepala penyulang, normal / aktual, penyulang yang disorot. */
+export interface FeederStyle {
+  colors: Record<number, number>;
+  live: boolean;
+  highlight: number | null;
+}
+
+/** Id penyulang sebuah fitur tile: aktual (override fdl bila ada) atau normal (fdr). 0 = tanpa penyulang. */
+export function feederIdExpr(live: boolean): any {
+  return live ? ['coalesce', ['get', 'fdl'], ['get', 'fdr'], 0] : ['coalesce', ['get', 'fdr'], 0];
+}
+
+export const feederColor = (idx: number | undefined) => (idx === undefined || idx < 0 ? NO_FEEDER_COLOR : FEEDER_PALETTE[idx % FEEDER_PALETTE.length]);
+
+function feederMatch(fs: FeederStyle): any {
+  const pairs = Object.entries(fs.colors).filter(([, c]) => c >= 0);
+  if (pairs.length === 0) return NO_FEEDER_COLOR;
+  const m: any[] = ['match', feederIdExpr(fs.live)];
+  for (const [id, c] of pairs) m.push(Number(id), feederColor(c));
+  m.push(NO_FEEDER_COLOR);
+  return m;
+}
+
+/** Opasitas saat satu penyulang disorot: penyulang itu penuh, sisanya diredupkan. */
+function feederOpacity(fs: FeederStyle | undefined, on: number, off: number): any {
+  if (!fs || fs.highlight == null) return on;
+  return ['case', ['==', feederIdExpr(fs.live), fs.highlight], on, off];
+}
 
 export const OFF_COLOR = '#9ca3af'; // padam pada mode tipe (abu)
 export const ON_STATUS = '#16a34a'; // nyala pada mode status
@@ -28,11 +65,15 @@ export const SUPPORT_COLOR = '#a8a29e'; // objek pendukung (tiang) pada mode sta
 export const INACTIVE_COLOR = '#78716c'; // objek rencana / tidak operasi / bongkar (properti tile "nonaktif")
 const isInactive: any = ['==', ['get', 'nonaktif'], true];
 
-export function colorExpr(types: ComponentType[], mode: ColorMode = 'type'): any {
+export function colorExpr(types: ComponentType[], mode: ColorMode = 'type', fs?: FeederStyle): any {
   // objek pendukung (bukan topologi) tidak punya status nyala/padam
   const support = types.filter((t) => t.topology === false).map((t) => t.code);
   const isSupport = ['in', ['get', 'type_code'], ['literal', support]];
   if (mode === 'status') return ['case', isSupport, SUPPORT_COLOR, isInactive, INACTIVE_COLOR, energizedExpr(), ON_STATUS, OFF_STATUS];
+  if (mode === 'feeder') {
+    const f = fs ? feederMatch(fs) : NO_FEEDER_COLOR;
+    return ['case', isSupport, SUPPORT_COLOR, isInactive, INACTIVE_COLOR, energizedExpr(), f, OFF_COLOR];
+  }
   return ['case', isSupport, typeMatch(types), isInactive, INACTIVE_COLOR, energizedExpr(), typeMatch(types), OFF_COLOR];
 }
 
@@ -150,20 +191,33 @@ export const baseFilters: Record<string, any> = {
   'edges-off': ['!', ['coalesce', ['get', 'energized'], true]],
 };
 
-/** Menerapkan mode pewarnaan ke layer yang sudah ada. */
-export function applyColorMode(map: MLMap, types: ComponentType[], mode: ColorMode, dark = false) {
-  const color = colorExpr(types, mode);
+/** Menerapkan mode pewarnaan ke layer yang sudah ada (fs: pewarnaan per penyulang untuk mode feeder). */
+export function applyColorMode(map: MLMap, types: ComponentType[], mode: ColorMode, dark = false, fs?: FeederStyle) {
+  const color = colorExpr(types, mode, fs);
+  const f = mode === 'feeder' ? fs : undefined; // sorotan penyulang hanya pada mode feeder
   if (map.getLayer('nodes')) {
     map.setPaintProperty('nodes', 'circle-color', color);
     map.setPaintProperty('nodes', 'circle-stroke-color', nodeStrokeColorExpr(mode, dark));
+    map.setPaintProperty('nodes', 'circle-opacity', feederOpacity(f, 1, 0.15));
+    map.setPaintProperty('nodes', 'circle-stroke-opacity', feederOpacity(f, 1, 0.15));
   }
   if (map.getLayer('nodes-symbol')) {
     map.setPaintProperty('nodes-symbol', 'icon-color', color);
     map.setPaintProperty('nodes-symbol', 'icon-halo-color', nodeStrokeColorExpr(mode, dark));
+    map.setPaintProperty('nodes-symbol', 'icon-opacity', feederOpacity(f, 1, 0.15));
   }
-  if (map.getLayer('edges')) map.setPaintProperty('edges', 'line-color', color);
-  if (map.getLayer('buildings-fill')) map.setPaintProperty('buildings-fill', 'fill-color', color);
-  if (map.getLayer('buildings-outline')) map.setPaintProperty('buildings-outline', 'line-color', color);
+  if (map.getLayer('edges')) {
+    map.setPaintProperty('edges', 'line-color', color);
+    map.setPaintProperty('edges', 'line-opacity', feederOpacity(f, 0.95, 0.12));
+  }
+  if (map.getLayer('buildings-fill')) {
+    map.setPaintProperty('buildings-fill', 'fill-color', color);
+    map.setPaintProperty('buildings-fill', 'fill-opacity', feederOpacity(f, 0.3, 0.05));
+  }
+  if (map.getLayer('buildings-outline')) {
+    map.setPaintProperty('buildings-outline', 'line-color', color);
+    map.setPaintProperty('buildings-outline', 'line-opacity', feederOpacity(f, 1, 0.15));
+  }
   if (map.getLayer('edges-off')) map.setLayoutProperty('edges-off', 'visibility', mode === 'status' ? 'visible' : 'none');
 }
 

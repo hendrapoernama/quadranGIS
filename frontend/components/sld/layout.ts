@@ -22,6 +22,8 @@ export interface SLDNodeData {
   section: number;
   depth: number;
   feeder?: number;
+  /** penyulang penyuplai saat ini bila berbeda dari keanggotaan normal (dilimpahkan) */
+  feeder_live?: number;
   zone?: number;
   customers: number;
   customers_off: number;
@@ -47,6 +49,8 @@ export interface SLDSectionData {
   open: boolean;
   skipped: number;
   mixed?: boolean;
+  feeder?: number;
+  feeder_live?: number;
 }
 
 export interface SLDTieData {
