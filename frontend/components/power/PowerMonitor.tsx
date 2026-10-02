@@ -8,7 +8,23 @@ import { useTheme } from '@/lib/theme';
 import { realtime } from '@/lib/ws';
 import { bboxOf, fmtArea, fmtDistance } from '@/lib/geo';
 import { fmtDate, fmtDuration, fmtNum, fmtTime, fmtVA, fmtW } from '@/lib/format';
-import type { ComponentType, FeatureCollection, FeederStatus, GDStatus, GeoFeature, GroupReport, LoadAllocFeeder, Outage, PowerSummary, RealtimeEvent, RealtimeLoadAlloc, Reliability, ReliabilityGroup, TraceResponse, TrafoStatus } from '@/lib/types';
+import type {
+  ComponentType,
+  FeatureCollection,
+  FeederStatus,
+  GDStatus,
+  GeoFeature,
+  GroupReport,
+  LoadAllocFeeder,
+  Outage,
+  PowerSummary,
+  RealtimeEvent,
+  RealtimeLoadAlloc,
+  Reliability,
+  ReliabilityGroup,
+  TraceResponse,
+  TrafoStatus,
+} from '@/lib/types';
 import { Badge, Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import MapCanvas from '@/components/map/MapCanvas';
@@ -28,6 +44,7 @@ import { useAuth } from '@/lib/auth';
 import { ExchangePanel } from '@/components/map/ExchangePanel';
 import type { BasemapKind, DrawMode, MapHandle, MeasureResult } from '@/components/map/types';
 import { useOpsT } from '@/components/ops/i18n';
+import { BigTile, BoxesCard, CardTitle, StatusCard } from '@/components/exec/InfoWidgets';
 import { FlisrTab } from '@/components/ops/FlisrTab';
 import { PlansTab } from '@/components/ops/PlansTab';
 import { ReportsTab } from '@/components/ops/ReportsTab';
@@ -80,63 +97,9 @@ const fmtRp = (n: number) => {
   if (a >= 1e6) return `Rp ${fmtDec(n / 1e6, 2)} jt`;
   return `Rp ${fmtDec(n, 0)}`;
 };
+/** beban ringkas untuk kotak kartu (MVA tanpa desimal panjang) */
+const fmtMVA = (va: number) => (Math.abs(va) >= 1e6 ? `${fmtNum(va / 1e6, Math.abs(va) >= 1e8 ? 0 : 1)} MVA` : fmtVA(va));
 const fmtKWh = (n: number) => (Math.abs(n) >= 1e6 ? `${fmtDec(n / 1e6, 2)} GWh` : Math.abs(n) >= 1e3 ? `${fmtDec(n / 1e3, 2)} MWh` : `${fmtDec(n, 1)} kWh`);
-
-/** Kartu indeks keandalan (SAIDI, SAIFI, ENS). */
-function RelTile({ label, value, sub, title }: { label: string; value: string; sub?: string; title?: string }) {
-  return (
-    <div className="min-w-[6.5rem] flex-1 basis-0 rounded-md border border-gray-200 bg-white px-2 py-1" title={title}>
-      <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
-      <div className="truncate text-base font-semibold tabular-nums text-gray-900">{value}</div>
-      {sub && <div className="truncate text-[10px] text-gray-500">{sub}</div>}
-    </div>
-  );
-}
-
-/** Kartu ringkas pita rekap: nilai utama nyala (atau jumlah padam bila ada), total, bilah proporsi. */
-function SumTile({ label, total, off, format = fmtNum, onClick, title }: { label: string; total: number; off: number; format?: (n: number) => string; onClick?: () => void; title?: string }) {
-  const bad = off > 0;
-  const Tag = onClick ? 'button' : 'div';
-  return (
-    <Tag
-      className={`min-w-[5.5rem] flex-1 basis-0 rounded-md border px-2 py-1 text-left ${bad ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'} ${onClick ? 'hover:border-brand-600' : ''}`}
-      onClick={onClick}
-      title={title ?? label}
-    >
-      <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
-      <div className="flex items-baseline justify-between gap-1">
-        <span className={`whitespace-nowrap text-base font-semibold tabular-nums ${bad ? 'text-red-700' : 'text-emerald-700'}`}>{format(bad ? off : total - off)}</span>
-        <span className="min-w-0 truncate text-[10px] text-gray-500" title={format(total)}>/ {format(total)}</span>
-      </div>
-      <div className="mt-0.5 h-1 w-full overflow-hidden rounded bg-gray-200">
-        <div className="h-full" style={{ width: `${total > 0 ? ((total - off) / total) * 100 : 100}%`, background: ON_STATUS }} />
-      </div>
-    </Tag>
-  );
-}
-
-/** Kartu status group (nyala / sebagian / padam). */
-function StateTile({ label, c, labels, onClick }: { label: string; c?: { on: number; partial: number; off: number }; labels: [string, string, string]; onClick?: () => void }) {
-  const Tag = onClick ? 'button' : 'div';
-  const bad = (c?.off ?? 0) + (c?.partial ?? 0) > 0;
-  return (
-    <Tag className={`min-w-[10rem] flex-[2] basis-0 rounded-md border px-2 py-1 text-left ${bad ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'} ${onClick ? 'hover:border-brand-600' : ''}`} onClick={onClick} title={label}>
-      <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
-      <div className="flex justify-between gap-3">
-        {([
-          [c?.on ?? 0, labels[0], 'text-emerald-700'],
-          [c?.partial ?? 0, labels[1], 'text-amber-700'],
-          [c?.off ?? 0, labels[2], 'text-red-700'],
-        ] as const).map(([v, l, cls], i) => (
-          <div key={i}>
-            <div className={`text-sm font-semibold leading-tight tabular-nums ${i === 0 || v > 0 ? cls : 'text-gray-500'}`}>{fmtNum(v)}</div>
-            <div className="text-[10px] leading-tight text-gray-500">{l}</div>
-          </div>
-        ))}
-      </div>
-    </Tag>
-  );
-}
 
 export default function PowerMonitor() {
   const { t, pick, locale } = useT();
@@ -305,9 +268,7 @@ export default function PowerMonitor() {
 
   const loadOutages = useCallback(async () => {
     try {
-      const r = await api<{ items: Outage[]; groups: Record<string, ReliabilityGroup> }>(
-        history ? `/api/power/outages?period=${period}&limit=1000` : `/api/power/outages?active=1&limit=500`,
-      );
+      const r = await api<{ items: Outage[]; groups: Record<string, ReliabilityGroup> }>(history ? `/api/power/outages?period=${period}&limit=1000` : `/api/power/outages?active=1&limit=500`);
       setOutages(r.items);
       setOutageGroups(r.groups || {});
     } catch (e: any) {
@@ -606,7 +567,8 @@ export default function PowerMonitor() {
     const key = `power.level_${lv}` as any;
     return t(key);
   };
-  const stateBadge = (s: string) => (s === 'on' ? <Badge tone="green">{t('power.on')}</Badge> : s === 'off' ? <Badge tone="red">{t('power.off')}</Badge> : <Badge tone="amber">{t('power.partial')}</Badge>);
+  const stateBadge = (s: string) =>
+    s === 'on' ? <Badge tone="green">{t('power.on')}</Badge> : s === 'off' ? <Badge tone="red">{t('power.off')}</Badge> : <Badge tone="amber">{t('power.partial')}</Badge>;
 
   const report = (r: GroupReport | undefined | null) => {
     if (!r) return null;
@@ -663,7 +625,31 @@ export default function PowerMonitor() {
       </div>
     );
 
-  const stateLabels: [string, string, string] = [t('power.on'), t('power.partial'), t('power.off')];
+  // isi kartu status bergaya infografis: total di pil teal, kotak padam (/ sebagian) / nyala, batang % nyala
+  const onCaption = (on: number, total: number) => {
+    const p = total > 0 ? (on / total) * 100 : 100;
+    return { pct: p, caption: t('power.w_on_pct', { p: fmtNum(p, p > 0 && p < 100 ? 1 : 0) }) };
+  };
+  const split2 = (total: number, off: number, fmt: (n: number) => string = fmtNum) => ({
+    head: t('power.w_total', { n: fmt(total) }),
+    boxes: [
+      { label: t('power.off'), value: fmt(off), tone: 'red' as const },
+      { label: t('power.on'), value: fmt(total - off), tone: 'emerald' as const },
+    ],
+    ...onCaption(total - off, total),
+  });
+  const split3 = (c: { on: number; partial: number; off: number }) => {
+    const total = c.on + c.partial + c.off;
+    return {
+      head: t('power.w_total', { n: fmtNum(total) }),
+      boxes: [
+        { label: t('power.off'), value: fmtNum(c.off), tone: 'red' as const },
+        { label: t('power.partial'), value: fmtNum(c.partial), tone: 'amber' as const },
+        { label: t('power.on'), value: fmtNum(c.on), tone: 'emerald' as const },
+      ],
+      ...onCaption(c.on, total),
+    };
+  };
   const reportsOpen = (reportStats.BARU || 0) + (reportStats.DIVERIFIKASI || 0) + (reportStats.DIKERJAKAN || 0);
   const opsGroup = isOps(tab);
   const groupBtn = (ops: boolean, label: string, icon: string, count: number) => (
@@ -720,499 +706,504 @@ export default function PowerMonitor() {
   );
   const objectCard = selected ? (
     <>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-900">{typeName(selected.properties.type_code)}</span>
-            <button
-              className="text-gray-500 hover:text-gray-800"
-              onClick={() => {
-                setSelected(null);
-                mapRef.current?.setSelected(null);
-              }}
-              aria-label={t('common.close')}
-            >
-              <Icon name="x" size={14} />
-            </button>
-          </div>
-          <div className="font-mono text-[11px] text-gray-500">
-            {selected.properties.code || `#${selected.id}`} {selected.properties.name && <span className="font-sans text-gray-700">· {selected.properties.name}</span>}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {selected.properties.graph?.in_graph ? (
-              <PowerStateBadge energized={!!selected.properties.energized} attrs={selected.properties.properties} />
-            ) : (
-              <span className="text-gray-500">{t('feature.not_in_graph')}</span>
-            )}
-            {selected.properties.graph?.open && <Badge tone="amber">{t('feature.device_open')}</Badge>}
-          </div>
-          <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5">
-            {selected.properties.feeder && (
-              <>
-                <dt className="text-gray-500">{t('feature.feeder')}</dt>
-                <dd>
-                  {selected.properties.feeder.code}
-                  {selected.properties.feeder_gi && <span className="text-gray-500"> · {selected.properties.feeder_gi.code}</span>}
-                </dd>
-              </>
-            )}
-            {selected.properties.feeder_live && (
-              <>
-                <dt className="text-gray-500">{t('fdr.supplied_now')}</dt>
-                <dd>
-                  <Badge tone="amber">{selected.properties.feeder_live.code || t('fdr.no_feeder')}</Badge> <span className="text-gray-500">{t('fdr.transferred')}</span>
-                </dd>
-              </>
-            )}
-            {selected.properties.zone && (
-              <>
-                <dt className="text-gray-500">{t('feature.zone')}</dt>
-                <dd>{selected.properties.zone.code || `#${selected.properties.zone.id}`}</dd>
-              </>
-            )}
-            {selected.properties.gd && (
-              <>
-                <dt className="text-gray-500">{t('power.gd_short')}</dt>
-                <dd>
-                  <button className="text-brand-700 hover:underline" onClick={() => selectAndFly('node', selected.properties.gd.id)}>
-                    {selected.properties.gd.code || `#${selected.properties.gd.id}`}
-                  </button>
-                </dd>
-              </>
-            )}
-            {selected.properties.trafo_gd && (
-              <>
-                <dt className="text-gray-500">{t('power.trafo_gd_short')}</dt>
-                <dd>
-                  <button className="text-brand-700 hover:underline" onClick={() => selectAndFly('node', selected.properties.trafo_gd.id)}>
-                    {selected.properties.trafo_gd.code || `#${selected.properties.trafo_gd.id}`}
-                  </button>
-                </dd>
-              </>
-            )}
-            {selected.properties.route && (
-              <>
-                <dt className="text-gray-500">{t('feature.route')}</dt>
-                <dd>{selected.properties.route.code}</dd>
-              </>
-            )}
-          </dl>
-          <SectionRecap sec={selected.properties.section} />
-          {opsGroup && (
-            <div className="mt-2 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
-              {tab === 'flisr' && `${o('use_as_fault')} →`}
-              {tab === 'plans' && (canPlan ? `${o('add_open')} / ${o('add_close')} →` : o('tab_plans'))}
-              {tab === 'reports' && (canReport && /^pelanggan/.test(selected.properties.type_code || '') ? `${o('report_for_customer')} →` : o('tab_reports'))}
-              {tab === 'ai' && `${o('tab_ai')} →`}
-            </div>
-          )}
-          {canTrace && selected.properties.kind === 'node' && selected.properties.graph?.in_graph && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              <Button size="sm" variant="secondary" icon="arrow-down" onClick={() => startTrace(selected.id as number, 'down')}>
-                {t('power.downtrace')}
-              </Button>
-              <Button size="sm" variant="secondary" icon="arrow-up" onClick={() => startTrace(selected.id as number, 'up')}>
-                {t('power.uptrace')}
-              </Button>
-            </div>
-          )}
-          <div className="mt-2">
-            <OperateBox feature={selected} types={types} submit={operate} />
-          </div>
-          <div className="mt-2">
-            {selected.properties.kind === 'node' || selected.properties.kind === 'edge' ? (
-              <AssetPhotos kind={selected.properties.kind} id={selected.id as number} pos={geo.fix} />
-            ) : null}
-            <Button size="sm" variant="secondary" icon="diagram" onClick={() => router.push(`/sld?focus=${selected.properties.kind}:${selected.id}`)}>
-              {t('sld.open_sld')}
-            </Button>
-          </div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-900">{typeName(selected.properties.type_code)}</span>
+        <button
+          className="text-gray-500 hover:text-gray-800"
+          onClick={() => {
+            setSelected(null);
+            mapRef.current?.setSelected(null);
+          }}
+          aria-label={t('common.close')}
+        >
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+      <div className="font-mono text-[11px] text-gray-500">
+        {selected.properties.code || `#${selected.id}`} {selected.properties.name && <span className="font-sans text-gray-700">· {selected.properties.name}</span>}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {selected.properties.graph?.in_graph ? (
+          <PowerStateBadge energized={!!selected.properties.energized} attrs={selected.properties.properties} />
+        ) : (
+          <span className="text-gray-500">{t('feature.not_in_graph')}</span>
+        )}
+        {selected.properties.graph?.open && <Badge tone="amber">{t('feature.device_open')}</Badge>}
+      </div>
+      <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5">
+        {selected.properties.feeder && (
+          <>
+            <dt className="text-gray-500">{t('feature.feeder')}</dt>
+            <dd>
+              {selected.properties.feeder.code}
+              {selected.properties.feeder_gi && <span className="text-gray-500"> · {selected.properties.feeder_gi.code}</span>}
+            </dd>
+          </>
+        )}
+        {selected.properties.feeder_live && (
+          <>
+            <dt className="text-gray-500">{t('fdr.supplied_now')}</dt>
+            <dd>
+              <Badge tone="amber">{selected.properties.feeder_live.code || t('fdr.no_feeder')}</Badge> <span className="text-gray-500">{t('fdr.transferred')}</span>
+            </dd>
+          </>
+        )}
+        {selected.properties.zone && (
+          <>
+            <dt className="text-gray-500">{t('feature.zone')}</dt>
+            <dd>{selected.properties.zone.code || `#${selected.properties.zone.id}`}</dd>
+          </>
+        )}
+        {selected.properties.gd && (
+          <>
+            <dt className="text-gray-500">{t('power.gd_short')}</dt>
+            <dd>
+              <button className="text-brand-700 hover:underline" onClick={() => selectAndFly('node', selected.properties.gd.id)}>
+                {selected.properties.gd.code || `#${selected.properties.gd.id}`}
+              </button>
+            </dd>
+          </>
+        )}
+        {selected.properties.trafo_gd && (
+          <>
+            <dt className="text-gray-500">{t('power.trafo_gd_short')}</dt>
+            <dd>
+              <button className="text-brand-700 hover:underline" onClick={() => selectAndFly('node', selected.properties.trafo_gd.id)}>
+                {selected.properties.trafo_gd.code || `#${selected.properties.trafo_gd.id}`}
+              </button>
+            </dd>
+          </>
+        )}
+        {selected.properties.route && (
+          <>
+            <dt className="text-gray-500">{t('feature.route')}</dt>
+            <dd>{selected.properties.route.code}</dd>
+          </>
+        )}
+      </dl>
+      <SectionRecap sec={selected.properties.section} />
+      {opsGroup && (
+        <div className="mt-2 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
+          {tab === 'flisr' && `${o('use_as_fault')} →`}
+          {tab === 'plans' && (canPlan ? `${o('add_open')} / ${o('add_close')} →` : o('tab_plans'))}
+          {tab === 'reports' && (canReport && /^pelanggan/.test(selected.properties.type_code || '') ? `${o('report_for_customer')} →` : o('tab_reports'))}
+          {tab === 'ai' && `${o('tab_ai')} →`}
+        </div>
+      )}
+      {canTrace && selected.properties.kind === 'node' && selected.properties.graph?.in_graph && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          <Button size="sm" variant="secondary" icon="arrow-down" onClick={() => startTrace(selected.id as number, 'down')}>
+            {t('power.downtrace')}
+          </Button>
+          <Button size="sm" variant="secondary" icon="arrow-up" onClick={() => startTrace(selected.id as number, 'up')}>
+            {t('power.uptrace')}
+          </Button>
+        </div>
+      )}
+      <div className="mt-2">
+        <OperateBox feature={selected} types={types} submit={operate} />
+      </div>
+      <div className="mt-2">
+        {selected.properties.kind === 'node' || selected.properties.kind === 'edge' ? <AssetPhotos kind={selected.properties.kind} id={selected.id as number} pos={geo.fix} /> : null}
+        <Button size="sm" variant="secondary" icon="diagram" onClick={() => router.push(`/sld?focus=${selected.properties.kind}:${selected.id}`)}>
+          {t('sld.open_sld')}
+        </Button>
+      </div>
     </>
   ) : null;
   const panelBody = (
     <>
-
-            {tab === 'outages' && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="flex items-center gap-2 text-xs text-gray-700">
-                    <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> {t('rel.history_period')}
-                  </label>
-                  <Button size="sm" variant="secondary" icon="refresh" onClick={loadOutages}>
-                    {t('common.refresh')}
-                  </Button>
-                </div>
-                <div className="flex gap-1">
-                  <select className="input flex-1 text-xs" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} aria-label={t('rel.level')}>
-                    <option value="all">{t('rel.all_levels')}</option>
-                    {LEVELS.map((lv) => (
-                      <option key={lv} value={lv}>
-                        {levelLabel(lv)}
-                      </option>
-                    ))}
-                  </select>
-                  {history && (
-                    <select className="input w-28 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
-                      <option value="today">{t('rel.period_today')}</option>
-                      <option value="month">{t('rel.period_month')}</option>
-                      <option value="year">{t('rel.period_year')}</option>
-                    </select>
-                  )}
-                </div>
-                {shownOutages.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('power.no_outages')}</div>}
-                {shownOutages.map((grp) => (
-                  <section key={grp.level} className="space-y-1.5">
-                    <div className="sticky top-0 z-[1] -mx-1 rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700">
-                      <div className="flex items-center justify-between font-semibold uppercase tracking-wide">
-                        <span>{levelLabel(grp.level)}</span>
-                        <span className="tabular-nums">{grp.items.length}</span>
-                      </div>
-                      {outageGroups[grp.level] && (
-                        <div className="flex flex-wrap gap-x-3 tabular-nums text-gray-600">
-                          <span>SAIDI {fmtIdx(outageGroups[grp.level].saidi)}</span>
-                          <span>SAIFI {fmtIdx(outageGroups[grp.level].saifi)}</span>
-                          <span>ENS {fmtKWh(outageGroups[grp.level].ens_kwh)}</span>
-                          <span>{fmtRp(outageGroups[grp.level].ens_rp)}</span>
-                        </div>
-                      )}
-                    </div>
-                {grp.items.map((o) => (
-                  <div key={o.id} className={`rounded-md border p-2 text-xs ${o.ended_at ? 'border-gray-200' : 'border-red-200 bg-red-50/50'}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Badge tone={o.ended_at ? 'gray' : 'red'}>{levelLabel(o.level)}</Badge>
-                        <Badge tone="purple">{o.kind}</Badge>
-                        <span className="font-semibold text-gray-900">{o.group_code || o.cause_node_code || `#${o.cause_node_id}`}</span>
-                      </div>
-                      <span className="text-gray-500">#{o.id}</span>
-                    </div>
-                    <div className="mt-1 text-gray-600">
-                      {t('power.cause')}: {typeName(o.cause_node_type)} {o.cause_node_code || `#${o.cause_node_id}`}
-                      {o.cause_kind === 'edge' ? ` (${t('rel.line')})` : ''}
-                      {o.way_edge_id ? ` (way #${o.way_edge_id})` : ''}
-                    </div>
-                    <div className="text-gray-600">
-                      {t('power.started')} {fmtDate(o.started_at)} · {t('power.duration')} {fmtDuration(Math.round(o.duration_sec))}
-                      {o.ended_at ? ` · ${t('power.ended')} ${fmtDate(o.ended_at)}` : ` · ${t('power.ongoing')}`}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 rounded bg-gray-50 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-700">
-                      <span title={t('rel.cust_min_hint')}>
-                        {fmtNum(Math.round(o.customer_minutes || 0))} {t('rel.cust_min')}
-                      </span>
-                      <span title={o.ens_basis ? t(`power.ens_basis_hint_${o.ens_basis}`, { kw: fmtNum(o.load_kw || 0, 1) }) : undefined}>
-                        ENS {fmtKWh(o.ens_kwh || 0)}
-                        {loadAlloc && o.ens_basis && <span className="ml-1 text-gray-500">({t(`power.ens_basis_${o.ens_basis}`)})</span>}
-                      </span>
-                      <span>{fmtRp(o.ens_rp || 0)}</span>
-                      {o.momentary && <span className="text-amber-700">{t('rel.momentary')}</span>}
-                    </div>
-                    <div className="mt-1 text-[11px] font-semibold uppercase text-gray-500">{t('power.group_counts')}</div>
-                    {report(o.summary)}
-                    <div className="mt-1 flex gap-1">
-                      <Button size="sm" variant="secondary" icon="eye" onClick={() => showOutage(o)}>
-                        {t('power.show_on_map')}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                  </section>
-                ))}
-              </div>
+      {tab === 'outages' && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-xs text-gray-700">
+              <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> {t('rel.history_period')}
+            </label>
+            <Button size="sm" variant="secondary" icon="refresh" onClick={loadOutages}>
+              {t('common.refresh')}
+            </Button>
+          </div>
+          <div className="flex gap-1">
+            <select className="input flex-1 text-xs" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} aria-label={t('rel.level')}>
+              <option value="all">{t('rel.all_levels')}</option>
+              {LEVELS.map((lv) => (
+                <option key={lv} value={lv}>
+                  {levelLabel(lv)}
+                </option>
+              ))}
+            </select>
+            {history && (
+              <select className="input w-28 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
+                <option value="today">{t('rel.period_today')}</option>
+                <option value="month">{t('rel.period_month')}</option>
+                <option value="year">{t('rel.period_year')}</option>
+              </select>
             )}
-
-            {tab === 'gi' && (
-              <div className="space-y-2">
-                <div className="flex gap-1">
-                  <input className="input flex-1" placeholder={t('common.search')} value={giQ} onChange={(e) => setGiQ(e.target.value)} />
-                  <select className="input w-28" value={giState} onChange={(e) => setGiState(e.target.value as any)} aria-label={t('common.status')}>
-                    <option value="all">{t('power.filter_all')}</option>
-                    <option value="off">{t('power.off')}</option>
-                    <option value="partial">{t('power.partial')}</option>
-                    <option value="on">{t('power.on')}</option>
-                  </select>
+          </div>
+          {shownOutages.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('power.no_outages')}</div>}
+          {shownOutages.map((grp) => (
+            <section key={grp.level} className="space-y-1.5">
+              <div className="sticky top-0 z-[1] -mx-1 rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700">
+                <div className="flex items-center justify-between font-semibold uppercase tracking-wide">
+                  <span>{levelLabel(grp.level)}</span>
+                  <span className="tabular-nums">{grp.items.length}</span>
                 </div>
-                {giCounts && (
-                  <div className="flex flex-wrap gap-x-3 text-[11px] text-gray-600">
-                    <span>
-                      {t('power.gi')}: {fmtNum(giCounts.on + giCounts.partial + giCounts.off)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')} {giCounts.on}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="inline-block h-2 w-2 rounded-full bg-amber-500" /> {t('power.partial')} {giCounts.partial}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')} {giCounts.off}
-                    </span>
+                {outageGroups[grp.level] && (
+                  <div className="flex flex-wrap gap-x-3 tabular-nums text-gray-600">
+                    <span>SAIDI {fmtIdx(outageGroups[grp.level].saidi)}</span>
+                    <span>SAIFI {fmtIdx(outageGroups[grp.level].saifi)}</span>
+                    <span>ENS {fmtKWh(outageGroups[grp.level].ens_kwh)}</span>
+                    <span>{fmtRp(outageGroups[grp.level].ens_rp)}</span>
                   </div>
                 )}
-                {gis.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
-                <ul className="space-y-1">
-                  {gis.map((g) => (
-                    <li key={g.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
-                      <div className="flex items-center gap-2">
-                        <button className="truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', g.id)}>
-                          {g.code || `#${g.id}`}
-                        </button>
-                        <span className="flex-1 truncate text-gray-500">{g.name}</span>
-                        {stateBadge(g.state)}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
-                        <span>
-                          {t('power.trafo_gi')} {fmtNum(g.trafo_gi - g.trafo_gi_off)}/{fmtNum(g.trafo_gi)}
-                        </span>
-                        <span>
-                          {t('power.feeders')} {fmtNum(g.feeders - g.feeders_off - g.feeders_partial)}/{fmtNum(g.feeders)}
-                          {g.feeders_partial > 0 && <span className="text-amber-700"> · {t('power.partial')} {g.feeders_partial}</span>}
-                          {g.feeders_off > 0 && <span className="text-red-700"> · {t('power.off')} {g.feeders_off}</span>}
-                        </span>
-                        <span>
-                          {t('power.gd')} {fmtNum(g.gd - g.gd_off)}/{fmtNum(g.gd)}
-                        </span>
-                        <span>
-                          {t('power.customers')} {fmtNum(g.pelanggan - g.pelanggan_off)}/{fmtNum(g.pelanggan)}
-                        </span>
-                        <span>
-                          {t('power.load')} {fmtVA(g.beban_va - g.beban_off_va)}/{fmtVA(g.beban_va)}
-                        </span>
-                      </div>
-                      {g.feeders > 0 && (
-                        <button
-                          className="mt-0.5 text-[11px] text-brand-700 hover:underline"
-                          onClick={() => {
-                            setFeederQ(g.code);
-                            setFeederState('all');
-                            setTab('feeders');
-                          }}
-                        >
-                          {t('power.gi_show_feeders', { n: g.feeders })} →
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
               </div>
-            )}
+              {grp.items.map((o) => (
+                <div key={o.id} className={`rounded-md border p-2 text-xs ${o.ended_at ? 'border-gray-200' : 'border-red-200 bg-red-50/50'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge tone={o.ended_at ? 'gray' : 'red'}>{levelLabel(o.level)}</Badge>
+                      <Badge tone="purple">{o.kind}</Badge>
+                      <span className="font-semibold text-gray-900">{o.group_code || o.cause_node_code || `#${o.cause_node_id}`}</span>
+                    </div>
+                    <span className="text-gray-500">#{o.id}</span>
+                  </div>
+                  <div className="mt-1 text-gray-600">
+                    {t('power.cause')}: {typeName(o.cause_node_type)} {o.cause_node_code || `#${o.cause_node_id}`}
+                    {o.cause_kind === 'edge' ? ` (${t('rel.line')})` : ''}
+                    {o.way_edge_id ? ` (way #${o.way_edge_id})` : ''}
+                  </div>
+                  <div className="text-gray-600">
+                    {t('power.started')} {fmtDate(o.started_at)} · {t('power.duration')} {fmtDuration(Math.round(o.duration_sec))}
+                    {o.ended_at ? ` · ${t('power.ended')} ${fmtDate(o.ended_at)}` : ` · ${t('power.ongoing')}`}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 rounded bg-gray-50 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-700">
+                    <span title={t('rel.cust_min_hint')}>
+                      {fmtNum(Math.round(o.customer_minutes || 0))} {t('rel.cust_min')}
+                    </span>
+                    <span title={o.ens_basis ? t(`power.ens_basis_hint_${o.ens_basis}`, { kw: fmtNum(o.load_kw || 0, 1) }) : undefined}>
+                      ENS {fmtKWh(o.ens_kwh || 0)}
+                      {loadAlloc && o.ens_basis && <span className="ml-1 text-gray-500">({t(`power.ens_basis_${o.ens_basis}`)})</span>}
+                    </span>
+                    <span>{fmtRp(o.ens_rp || 0)}</span>
+                    {o.momentary && <span className="text-amber-700">{t('rel.momentary')}</span>}
+                  </div>
+                  <div className="mt-1 text-[11px] font-semibold uppercase text-gray-500">{t('power.group_counts')}</div>
+                  {report(o.summary)}
+                  <div className="mt-1 flex gap-1">
+                    <Button size="sm" variant="secondary" icon="eye" onClick={() => showOutage(o)}>
+                      {t('power.show_on_map')}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))}
+        </div>
+      )}
 
-            {tab === 'feeders' && (
-              <div className="space-y-2">
-                <div className="flex gap-1">
-                  <input className="input flex-1" placeholder={t('common.search')} value={feederQ} onChange={(e) => setFeederQ(e.target.value)} />
-                  <select className="input w-28" value={feederState} onChange={(e) => setFeederState(e.target.value as any)}>
-                    <option value="all">{t('power.filter_all')}</option>
-                    <option value="off">{t('power.off')}</option>
-                    <option value="partial">{t('power.partial')}</option>
-                    <option value="on">{t('power.on')}</option>
-                  </select>
+      {tab === 'gi' && (
+        <div className="space-y-2">
+          <div className="flex gap-1">
+            <input className="input flex-1" placeholder={t('common.search')} value={giQ} onChange={(e) => setGiQ(e.target.value)} />
+            <select className="input w-28" value={giState} onChange={(e) => setGiState(e.target.value as any)} aria-label={t('common.status')}>
+              <option value="all">{t('power.filter_all')}</option>
+              <option value="off">{t('power.off')}</option>
+              <option value="partial">{t('power.partial')}</option>
+              <option value="on">{t('power.on')}</option>
+            </select>
+          </div>
+          {giCounts && (
+            <div className="flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+              <span>
+                {t('power.gi')}: {fmtNum(giCounts.on + giCounts.partial + giCounts.off)}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: ON_STATUS }} /> {t('power.on')} {giCounts.on}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500" /> {t('power.partial')} {giCounts.partial}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: OFF_STATUS }} /> {t('power.off')} {giCounts.off}
+              </span>
+            </div>
+          )}
+          {gis.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
+          <ul className="space-y-1">
+            {gis.map((g) => (
+              <li key={g.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
+                <div className="flex items-center gap-2">
+                  <button className="truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', g.id)}>
+                    {g.code || `#${g.id}`}
+                  </button>
+                  <span className="flex-1 truncate text-gray-500">{g.name}</span>
+                  {stateBadge(g.state)}
                 </div>
-                {feeders.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
-                <ul className="space-y-1">
-                  {feeders.map((f) => (
-                    <li key={f.head_id} className="rounded border border-gray-200 px-2 py-1 text-xs">
-                      <div className="flex items-center gap-2">
-                        <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => select('node', f.head_id)}>
-                          {f.code || `#${f.head_id}`}
-                        </button>
-                        <span className="text-gray-400">{f.gi_code}</span>
-                        {stateBadge(f.state)}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
-                        <span>
-                          {t('power.gd')} {fmtNum(f.gd - f.gd_off)}/{fmtNum(f.gd)}
-                        </span>
-                        <span>
-                          {t('power.customers')} {fmtNum(f.pelanggan - f.pelanggan_off)}/{fmtNum(f.pelanggan)}
-                        </span>
-                        <span>
-                          {t('power.load')} {fmtVA(f.beban_va - f.beban_off_va)}/{fmtVA(f.beban_va)}
-                        </span>
-                        {f.zona > 0 && (
-                          <span>
-                            {t('power.zones')} {f.zona - f.zona_off}/{f.zona}
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {tab === 'gardu' && (
-              <div className="space-y-2">
-                <div className="flex gap-1">
-                  <input className="input flex-1" placeholder={t('power.gardu_search')} value={garduQ} onChange={(e) => setGarduQ(e.target.value)} />
-                  <select className="input w-28" value={garduState} onChange={(e) => setGarduState(e.target.value as any)}>
-                    <option value="all">{t('power.filter_all')}</option>
-                    <option value="off">{t('power.off')}</option>
-                    <option value="partial">{t('power.partial')}</option>
-                    <option value="on">{t('power.on')}</option>
-                  </select>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                  <span>
+                    {t('power.trafo_gi')} {fmtNum(g.trafo_gi - g.trafo_gi_off)}/{fmtNum(g.trafo_gi)}
+                  </span>
+                  <span>
+                    {t('power.feeders')} {fmtNum(g.feeders - g.feeders_off - g.feeders_partial)}/{fmtNum(g.feeders)}
+                    {g.feeders_partial > 0 && (
+                      <span className="text-amber-700">
+                        {' '}
+                        · {t('power.partial')} {g.feeders_partial}
+                      </span>
+                    )}
+                    {g.feeders_off > 0 && (
+                      <span className="text-red-700">
+                        {' '}
+                        · {t('power.off')} {g.feeders_off}
+                      </span>
+                    )}
+                  </span>
+                  <span>
+                    {t('power.gd')} {fmtNum(g.gd - g.gd_off)}/{fmtNum(g.gd)}
+                  </span>
+                  <span>
+                    {t('power.customers')} {fmtNum(g.pelanggan - g.pelanggan_off)}/{fmtNum(g.pelanggan)}
+                  </span>
+                  <span>
+                    {t('power.load')} {fmtVA(g.beban_va - g.beban_off_va)}/{fmtVA(g.beban_va)}
+                  </span>
                 </div>
-                <div className="text-[11px] text-gray-500">{t('power.gardu_count', { shown: fmtNum(gardu.length), total: fmtNum(garduTotal) })}</div>
-                {gardu.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
-                <ul className="space-y-1">
-                  {gardu.map((g) => (
-                    <li key={g.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
-                      <div className="flex items-center gap-2">
-                        <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', g.id)} title={g.name}>
-                          {g.code || `#${g.id}`}
-                        </button>
-                        <span className="truncate text-gray-400">
-                          {g.feeder_code}
-                          {g.gi_code ? ` · ${g.gi_code}` : ''}
-                        </span>
-                        {stateBadge(g.state)}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
-                        <span>
-                          {t('power.customers')} {fmtNum(g.pelanggan - g.pelanggan_off)}/{fmtNum(g.pelanggan)}
-                        </span>
-                        <span>
-                          {t('power.load')} {fmtVA(g.beban_va - g.beban_off_va)}/{fmtVA(g.beban_va)}
-                        </span>
-                        {g.nodes_off > 0 && (
-                          <span className="text-red-700">
-                            {fmtNum(g.nodes_off)} {t('power.objects_off')}
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {tab === 'trafo' && (
-              <div className="space-y-2">
-                <div className="flex gap-1">
-                  <input className="input flex-1" placeholder={t('power.trafo_search')} value={trafoQ} onChange={(e) => setTrafoQ(e.target.value)} />
-                  <select className="input w-28" value={trafoState} onChange={(e) => setTrafoState(e.target.value as any)}>
-                    <option value="all">{t('power.filter_all')}</option>
-                    <option value="off">{t('power.off')}</option>
-                    <option value="partial">{t('power.partial')}</option>
-                    <option value="on">{t('power.on')}</option>
-                  </select>
+                {g.feeders > 0 && (
+                  <button
+                    className="mt-0.5 text-[11px] text-brand-700 hover:underline"
+                    onClick={() => {
+                      setFeederQ(g.code);
+                      setFeederState('all');
+                      setTab('feeders');
+                    }}
+                  >
+                    {t('power.gi_show_feeders', { n: g.feeders })} →
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {tab === 'feeders' && (
+        <div className="space-y-2">
+          <div className="flex gap-1">
+            <input className="input flex-1" placeholder={t('common.search')} value={feederQ} onChange={(e) => setFeederQ(e.target.value)} />
+            <select className="input w-28" value={feederState} onChange={(e) => setFeederState(e.target.value as any)}>
+              <option value="all">{t('power.filter_all')}</option>
+              <option value="off">{t('power.off')}</option>
+              <option value="partial">{t('power.partial')}</option>
+              <option value="on">{t('power.on')}</option>
+            </select>
+          </div>
+          {feeders.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
+          <ul className="space-y-1">
+            {feeders.map((f) => (
+              <li key={f.head_id} className="rounded border border-gray-200 px-2 py-1 text-xs">
+                <div className="flex items-center gap-2">
+                  <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => select('node', f.head_id)}>
+                    {f.code || `#${f.head_id}`}
+                  </button>
+                  <span className="text-gray-400">{f.gi_code}</span>
+                  {stateBadge(f.state)}
                 </div>
-                <div className="text-[11px] text-gray-500">{t('power.trafo_count', { shown: fmtNum(trafo.length), total: fmtNum(trafoTotal) })}</div>
-                {trafo.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
-                <ul className="space-y-1">
-                  {trafo.map((x) => (
-                    <li key={x.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
-                      <div className="flex items-center gap-2">
-                        <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', x.id)} title={x.name}>
-                          {x.code || `#${x.id}`}
-                        </button>
-                        <span className="truncate text-gray-400">
-                          {x.gd_code}
-                          {x.feeder_code ? ` · ${x.feeder_code}` : ''}
-                        </span>
-                        {stateBadge(x.state)}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
-                        {x.kapasitas_kva > 0 && (
-                          <span>
-                            {t('power.capacity')} {fmtNum(x.kapasitas_kva)} kVA
-                          </span>
-                        )}
-                        <span>{t('power.routes_n', { n: fmtNum(x.jurusan) })}</span>
-                        <span>
-                          {t('power.customers')} {fmtNum(x.pelanggan - x.pelanggan_off)}/{fmtNum(x.pelanggan)}
-                        </span>
-                        <span>
-                          {t('power.load')} {fmtVA(x.beban_va - x.beban_off_va)}/{fmtVA(x.beban_va)}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div className={tab === 'soe' ? 'h-full' : 'hidden'}>
-              <SOEPanel active={tab === 'soe'} onUnread={setSoeUnread} onSelect={selectAndFly} typeName={typeName} levelLabel={levelLabel} />
-            </div>
-            {tab === 'trace' && canTrace && (
-              <TracePanel
-                types={types}
-                seed={traceSeed}
-                selectedNodeId={selected?.properties.kind === 'node' ? (selected.id as number) : null}
-                result={trace}
-                onResult={onTraceResult}
-                directions={['down', 'up']}
-                onSelect={(k, id) => {
-                  const f = trace?.geojson.features.find((x) => x.id === id && x.properties.kind === k);
-                  const b = f ? bboxOf([f]) : null;
-                  if (b) mapRef.current?.fitBBox(b);
-                  select(k, id);
-                }}
-              />
-            )}
-            {tab === 'customers' && (
-              <CustomersPanel active={tab === 'customers'} state={custState} onState={setCustState} refreshKey={custRefresh} onSelect={selectAndFly} typeName={typeName} />
-            )}
-            <div className={tab === 'flisr' ? '' : 'hidden'}>
-              <FlisrTab
-                picked={selected}
-                canPlan={canPlan}
-                refreshKey={opsKeys.outage}
-                onOverlay={overlayFlisr}
-                onSelect={opsSelect}
-                onPlanCreated={(id) => {
-                  setOpenPlanId(id);
-                  setTab('plans');
-                  setOpsKeys((k) => ({ ...k, plan: k.plan + 1 }));
-                }}
-                onAskAI={canAI ? (id) => askAI('outage', id) : undefined}
-              />
-            </div>
-            <div className={tab === 'plans' ? '' : 'hidden'}>
-              <PlansTab
-                picked={selected}
-                canPlan={canPlan}
-                canApprove={canApprove}
-                refreshKey={opsKeys.plan + opsKeys.outage}
-                openId={openPlanId}
-                onOpened={() => setOpenPlanId(null)}
-                onOverlay={overlayPlans}
-                onSelect={opsSelect}
-                onAskAI={canAI ? (id) => askAI('plan', id) : undefined}
-              />
-            </div>
-            <div className={tab === 'reports' ? '' : 'hidden'}>
-              <ReportsTab
-                picked={selected}
-                canManage={canReport}
-                refreshKey={opsKeys.report + opsKeys.outage}
-                onOverlay={overlayReports}
-                onSelect={opsSelect}
-                onFly={(lng, lat) => mapRef.current?.flyTo(lng, lat, 18)}
-                onStats={setReportStats}
-              />
-            </div>
-            {canAI && (
-              <div className={tab === 'ai' ? '' : 'hidden'}>
-                <AiOpsTab preset={aiPreset} refreshKey={opsKeys.plan + opsKeys.outage} visible={tab === 'ai'} />
-              </div>
-            )}
-            {tab === 'export' && (
-              <ExchangePanel
-                mapRef={mapRef}
-                types={types}
-                format="gdb"
-                energyFilter
-                area={area}
-                drawing={mode.kind === 'area'}
-                onDrawArea={() => setMode({ kind: 'area' })}
-                onClearArea={() => {
-                  setArea(null);
-                  mapRef.current?.setArea(null);
-                }}
-              />
-            )}
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                  <span>
+                    {t('power.gd')} {fmtNum(f.gd - f.gd_off)}/{fmtNum(f.gd)}
+                  </span>
+                  <span>
+                    {t('power.customers')} {fmtNum(f.pelanggan - f.pelanggan_off)}/{fmtNum(f.pelanggan)}
+                  </span>
+                  <span>
+                    {t('power.load')} {fmtVA(f.beban_va - f.beban_off_va)}/{fmtVA(f.beban_va)}
+                  </span>
+                  {f.zona > 0 && (
+                    <span>
+                      {t('power.zones')} {f.zona - f.zona_off}/{f.zona}
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {tab === 'gardu' && (
+        <div className="space-y-2">
+          <div className="flex gap-1">
+            <input className="input flex-1" placeholder={t('power.gardu_search')} value={garduQ} onChange={(e) => setGarduQ(e.target.value)} />
+            <select className="input w-28" value={garduState} onChange={(e) => setGarduState(e.target.value as any)}>
+              <option value="all">{t('power.filter_all')}</option>
+              <option value="off">{t('power.off')}</option>
+              <option value="partial">{t('power.partial')}</option>
+              <option value="on">{t('power.on')}</option>
+            </select>
+          </div>
+          <div className="text-[11px] text-gray-500">{t('power.gardu_count', { shown: fmtNum(gardu.length), total: fmtNum(garduTotal) })}</div>
+          {gardu.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
+          <ul className="space-y-1">
+            {gardu.map((g) => (
+              <li key={g.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
+                <div className="flex items-center gap-2">
+                  <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', g.id)} title={g.name}>
+                    {g.code || `#${g.id}`}
+                  </button>
+                  <span className="truncate text-gray-400">
+                    {g.feeder_code}
+                    {g.gi_code ? ` · ${g.gi_code}` : ''}
+                  </span>
+                  {stateBadge(g.state)}
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                  <span>
+                    {t('power.customers')} {fmtNum(g.pelanggan - g.pelanggan_off)}/{fmtNum(g.pelanggan)}
+                  </span>
+                  <span>
+                    {t('power.load')} {fmtVA(g.beban_va - g.beban_off_va)}/{fmtVA(g.beban_va)}
+                  </span>
+                  {g.nodes_off > 0 && (
+                    <span className="text-red-700">
+                      {fmtNum(g.nodes_off)} {t('power.objects_off')}
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {tab === 'trafo' && (
+        <div className="space-y-2">
+          <div className="flex gap-1">
+            <input className="input flex-1" placeholder={t('power.trafo_search')} value={trafoQ} onChange={(e) => setTrafoQ(e.target.value)} />
+            <select className="input w-28" value={trafoState} onChange={(e) => setTrafoState(e.target.value as any)}>
+              <option value="all">{t('power.filter_all')}</option>
+              <option value="off">{t('power.off')}</option>
+              <option value="partial">{t('power.partial')}</option>
+              <option value="on">{t('power.on')}</option>
+            </select>
+          </div>
+          <div className="text-[11px] text-gray-500">{t('power.trafo_count', { shown: fmtNum(trafo.length), total: fmtNum(trafoTotal) })}</div>
+          {trafo.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
+          <ul className="space-y-1">
+            {trafo.map((x) => (
+              <li key={x.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
+                <div className="flex items-center gap-2">
+                  <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', x.id)} title={x.name}>
+                    {x.code || `#${x.id}`}
+                  </button>
+                  <span className="truncate text-gray-400">
+                    {x.gd_code}
+                    {x.feeder_code ? ` · ${x.feeder_code}` : ''}
+                  </span>
+                  {stateBadge(x.state)}
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                  {x.kapasitas_kva > 0 && (
+                    <span>
+                      {t('power.capacity')} {fmtNum(x.kapasitas_kva)} kVA
+                    </span>
+                  )}
+                  <span>{t('power.routes_n', { n: fmtNum(x.jurusan) })}</span>
+                  <span>
+                    {t('power.customers')} {fmtNum(x.pelanggan - x.pelanggan_off)}/{fmtNum(x.pelanggan)}
+                  </span>
+                  <span>
+                    {t('power.load')} {fmtVA(x.beban_va - x.beban_off_va)}/{fmtVA(x.beban_va)}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className={tab === 'soe' ? 'h-full' : 'hidden'}>
+        <SOEPanel active={tab === 'soe'} onUnread={setSoeUnread} onSelect={selectAndFly} typeName={typeName} levelLabel={levelLabel} />
+      </div>
+      {tab === 'trace' && canTrace && (
+        <TracePanel
+          types={types}
+          seed={traceSeed}
+          selectedNodeId={selected?.properties.kind === 'node' ? (selected.id as number) : null}
+          result={trace}
+          onResult={onTraceResult}
+          directions={['down', 'up']}
+          onSelect={(k, id) => {
+            const f = trace?.geojson.features.find((x) => x.id === id && x.properties.kind === k);
+            const b = f ? bboxOf([f]) : null;
+            if (b) mapRef.current?.fitBBox(b);
+            select(k, id);
+          }}
+        />
+      )}
+      {tab === 'customers' && <CustomersPanel active={tab === 'customers'} state={custState} onState={setCustState} refreshKey={custRefresh} onSelect={selectAndFly} typeName={typeName} />}
+      <div className={tab === 'flisr' ? '' : 'hidden'}>
+        <FlisrTab
+          picked={selected}
+          canPlan={canPlan}
+          refreshKey={opsKeys.outage}
+          onOverlay={overlayFlisr}
+          onSelect={opsSelect}
+          onPlanCreated={(id) => {
+            setOpenPlanId(id);
+            setTab('plans');
+            setOpsKeys((k) => ({ ...k, plan: k.plan + 1 }));
+          }}
+          onAskAI={canAI ? (id) => askAI('outage', id) : undefined}
+        />
+      </div>
+      <div className={tab === 'plans' ? '' : 'hidden'}>
+        <PlansTab
+          picked={selected}
+          canPlan={canPlan}
+          canApprove={canApprove}
+          refreshKey={opsKeys.plan + opsKeys.outage}
+          openId={openPlanId}
+          onOpened={() => setOpenPlanId(null)}
+          onOverlay={overlayPlans}
+          onSelect={opsSelect}
+          onAskAI={canAI ? (id) => askAI('plan', id) : undefined}
+        />
+      </div>
+      <div className={tab === 'reports' ? '' : 'hidden'}>
+        <ReportsTab
+          picked={selected}
+          canManage={canReport}
+          refreshKey={opsKeys.report + opsKeys.outage}
+          onOverlay={overlayReports}
+          onSelect={opsSelect}
+          onFly={(lng, lat) => mapRef.current?.flyTo(lng, lat, 18)}
+          onStats={setReportStats}
+        />
+      </div>
+      {canAI && (
+        <div className={tab === 'ai' ? '' : 'hidden'}>
+          <AiOpsTab preset={aiPreset} refreshKey={opsKeys.plan + opsKeys.outage} visible={tab === 'ai'} />
+        </div>
+      )}
+      {tab === 'export' && (
+        <ExchangePanel
+          mapRef={mapRef}
+          types={types}
+          format="gdb"
+          energyFilter
+          area={area}
+          drawing={mode.kind === 'area'}
+          onDrawArea={() => setMode({ kind: 'area' })}
+          onClearArea={() => {
+            setArea(null);
+            mapRef.current?.setArea(null);
+          }}
+        />
+      )}
     </>
   );
 
   return (
     <div className="flex h-full w-full flex-col">
       {/* pita rekap */}
-      <header className="shrink-0 border-b border-gray-200 bg-white px-3 pb-2 pt-1.5">
+      <header className="shrink-0 border-b border-gray-200 bg-gray-100 px-3 pb-2 pt-1.5">
         <div className="mb-1.5 hidden flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-600 md:flex">
           <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
             <Icon name="activity" size={16} /> {t('power.title')}
@@ -1247,22 +1238,34 @@ export default function PowerMonitor() {
             </span>
           </span>
         </div>
+        {/* widget bergaya infografis: status per level (padam / sebagian / nyala) */}
         {s ? (
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            <SumTile label={t('power.gi')} total={s.gi.total} off={s.gi.off} onClick={() => openTab('gi', { off: s.gi.off, partial: 0 })} title={t('power.tab_gi')} />
-            <SumTile label={t('power.trafo_gi')} total={s.trafo_gi.total} off={s.trafo_gi.off} />
-            <StateTile label={t('power.feeders')} c={s.penyulang} labels={stateLabels} onClick={() => openTab('feeders', s.penyulang)} />
-            <StateTile label={t('power.zones')} c={s.zona} labels={stateLabels} />
-            <StateTile label={t('power.gd')} c={s.gd_state} labels={stateLabels} onClick={() => openTab('gardu', s.gd_state)} />
-            <SumTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} onClick={() => openTab('trafo', { off: s.trafo_gd.off, partial: 0 })} title={t('power.tab_trafo')} />
-            <SumTile label={t('power.customers')} total={s.pelanggan.total} off={s.pelanggan.off} onClick={() => openTab('customers', { off: s.pelanggan.off, partial: 0 })} title={t('power.tab_customers')} />
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5" data-testid="ops-widgets">
+            <StatusCard icon="home" title={t('power.gi')} {...split2(s.gi.total, s.gi.off)} onClick={() => openTab('gi', { off: s.gi.off, partial: 0 })} hint={t('power.tab_gi')} />
+            <StatusCard icon="target" title={t('power.trafo_gi')} {...split2(s.trafo_gi.total, s.trafo_gi.off)} />
+            <StatusCard icon="diagram" title={t('power.feeders')} {...split3(s.penyulang)} onClick={() => openTab('feeders', s.penyulang)} />
+            <StatusCard icon="layers" title={t('power.zones')} {...split3(s.zona)} />
+            <StatusCard icon="database" title={t('power.gd')} {...split3(s.gd_state)} onClick={() => openTab('gardu', s.gd_state)} />
+            <StatusCard
+              icon="bolt"
+              title={t('power.trafo_gd')}
+              {...split2(s.trafo_gd.total, s.trafo_gd.off)}
+              onClick={() => openTab('trafo', { off: s.trafo_gd.off, partial: 0 })}
+              hint={t('power.tab_trafo')}
+            />
+            <StatusCard
+              icon="users"
+              title={t('power.customers')}
+              {...split2(s.pelanggan.total, s.pelanggan.off)}
+              onClick={() => openTab('customers', { off: s.pelanggan.off, partial: 0 })}
+              hint={t('power.tab_customers')}
+            />
             {loadAlloc ? (
-              <SumTile
-                label={t('power.load_alloc')}
-                total={loadAlloc.total_va}
-                off={loadAlloc.off_va}
-                format={fmtVA}
-                title={t('power.load_alloc_hint', {
+              <StatusCard
+                icon="sparkles"
+                title={t('power.load_alloc')}
+                {...split2(loadAlloc.total_va, loadAlloc.off_va, fmtMVA)}
+                hint={t('power.load_alloc_hint', {
                   off: fmtVA(loadAlloc.off_va),
                   total: fmtVA(loadAlloc.total_va),
                   offw: fmtW(loadAlloc.off_w),
@@ -1276,343 +1279,349 @@ export default function PowerMonitor() {
                 })}
               />
             ) : (
-              <SumTile label={t('power.load')} total={s.beban_va} off={s.beban_off_va} format={fmtVA} />
+              <StatusCard icon="sparkles" title={t('power.load')} {...split2(s.beban_va, s.beban_off_va, fmtMVA)} />
             )}
-            <button
-              className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${activeOutages > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
-              onClick={() => openTab('outages')}
-              title={t('power.active_outages')}
-            >
-              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.active_outages')}</div>
-              <div className={`text-base font-semibold tabular-nums ${activeOutages > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{activeOutages}</div>
-            </button>
-            <button
-              className="min-w-[5rem] flex-[0.8] basis-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-left hover:border-brand-600"
-              onClick={() => openTab('plans')}
-              title={o('tab_plans')}
-            >
-              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{o('active_plans')}</div>
-              <div className="text-base font-semibold tabular-nums text-gray-800">{plansActive}</div>
-            </button>
-            <button
-              className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${reportsOpen > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
-              onClick={() => openTab('reports')}
-              title={o('tab_reports')}
-            >
-              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{o('open_reports')}</div>
-              <div className={`text-base font-semibold tabular-nums ${reportsOpen > 0 ? 'text-red-700' : 'text-gray-800'}`}>
-                {reportsOpen}
-                {(reportStats.overdue || 0) > 0 && (
-                  <span className="ml-1 text-[10px] font-normal text-red-700">
-                    {reportStats.overdue} {o('overdue')}
-                  </span>
-                )}
-              </div>
-            </button>
-            <div className="min-w-[5rem] flex-[0.8] basis-0 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('power.open_switches')}>
-              <div className="truncate text-[10px] uppercase tracking-wide text-gray-500">{t('power.open_switches')}</div>
-              <div className="text-base font-semibold tabular-nums text-gray-800">{s.open_switches}</div>
-            </div>
           </div>
         ) : (
           <div className="flex h-12 items-center gap-2 text-xs text-gray-500">
             <Spinner size={14} /> {t('common.loading')}
           </div>
         )}
-        <div className="mt-1.5 hidden items-stretch gap-1.5 overflow-x-auto pb-0.5 md:flex">
-          <div className="flex min-w-[7rem] flex-col justify-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-600">{t('rel.title')}</div>
-            <select className="input !h-6 !py-0 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
-              <option value="today">{t('rel.period_today')}</option>
-              <option value="month">{t('rel.period_month')}</option>
-              <option value="year">{t('rel.period_year')}</option>
-            </select>
-          </div>
-          {rel ? (
-            <>
-              <RelTile label="SAIDI" value={`${fmtIdx(rel.total.saidi)} ${t('rel.min_cust')}`} sub={t('rel.saidi_desc')} title={t('rel.saidi_hint')} />
-              <RelTile label="SAIFI" value={`${fmtIdx(rel.total.saifi)} ${t('rel.times_cust')}`} sub={t('rel.saifi_desc')} title={t('rel.saifi_hint')} />
-              <RelTile label="ENS (kWh)" value={fmtKWh(rel.total.ens_kwh)} sub={t('rel.ens_desc')} title={t(rel.params.load_basis === 'alokasi_penyulang' ? 'rel.ens_hint_alloc' : 'rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })} />
-              <RelTile
-                label="ENS (Rupiah)"
-                value={fmtRp(rel.total.ens_rp)}
-                sub={t('rel.tariff', { rp: fmtDec(rel.params.tariff_rp_per_kwh, 2) })}
-                title={t('rel.tariff_hint')}
-              />
-              <RelTile
-                label={t('rel.events')}
-                value={fmtNum(rel.total.outages)}
-                sub={t('rel.events_sub', { m: rel.total.momentary, c: fmtNum(rel.total.customers_out) })}
-                title={t('rel.momentary_hint', { min: rel.params.sustained_minutes })}
-              />
-              <div className="flex min-w-[14rem] flex-[2] basis-0 flex-wrap content-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1" title={t('rel.by_level')}>
-                {LEVELS.filter((lv) => rel.by_level[lv]).map((lv) => (
-                  <button
-                    key={lv}
-                    className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-700 hover:bg-gray-200"
-                    onClick={() => {
-                      setHistory(true);
-                      setLevelFilter(lv);
-                      openTab('outages');
-                    }}
-                    title={`SAIDI ${fmtIdx(rel.by_level[lv].saidi)} · SAIFI ${fmtIdx(rel.by_level[lv].saifi)} · ENS ${fmtKWh(rel.by_level[lv].ens_kwh)} / ${fmtRp(rel.by_level[lv].ens_rp)}`}
-                  >
-                    {levelLabel(lv)} <b className="tabular-nums">{rel.by_level[lv].outages}</b>
-                  </button>
-                ))}
-                {rel.total.outages === 0 && <span className="text-[11px] text-gray-500">{t('rel.no_events')}</span>}
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center gap-2 px-2 text-xs text-gray-500">
-              <Spinner size={12} /> {t('common.loading')}
+        {/* operasi (jumlah) + keandalan periode (kotak berwarna seperti infografis) */}
+        <div className="mt-1.5 flex items-stretch gap-1.5 overflow-x-auto pb-0.5">
+          <BoxesCard
+            icon="activity"
+            title={t('power.w_ops')}
+            boxes={[
+              { label: t('power.w_outages'), value: fmtNum(activeOutages), tone: activeOutages > 0 ? 'red' : 'emerald', onClick: () => openTab('outages'), hint: t('power.active_outages') },
+              { label: o('active_plans'), value: fmtNum(plansActive), tone: 'blue', onClick: () => openTab('plans'), hint: o('tab_plans') },
+              {
+                label: o('open_reports'),
+                value: fmtNum(reportsOpen),
+                tone: reportsOpen > 0 ? 'orange' : 'emerald',
+                note: (reportStats.overdue || 0) > 0 ? `${reportStats.overdue} ${o('overdue')}` : undefined,
+                onClick: () => openTab('reports'),
+                hint: o('tab_reports'),
+              },
+              { label: t('power.open_switches'), value: s ? fmtNum(s.open_switches) : '-', tone: 'amber' },
+            ]}
+          />
+          <div className="hidden md:contents">
+            <div className="card flex min-w-[7.5rem] flex-col justify-center gap-1 p-2">
+              <CardTitle icon="chart" text={t('rel.title')} />
+              <select className="input !h-7 !py-0 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label={t('rel.period')}>
+                <option value="today">{t('rel.period_today')}</option>
+                <option value="month">{t('rel.period_month')}</option>
+                <option value="year">{t('rel.period_year')}</option>
+              </select>
             </div>
-          )}
+            {rel ? (
+              <>
+                <BigTile compact cls="bg-rose-600" label="SAIDI" value={fmtIdx(rel.total.saidi)} unit={t('rel.min_cust')} sub={t('rel.saidi_desc')} title={t('rel.saidi_hint')} />
+                <BigTile compact cls="bg-cyan-600" label="SAIFI" value={fmtIdx(rel.total.saifi)} unit={t('rel.times_cust')} sub={t('rel.saifi_desc')} title={t('rel.saifi_hint')} />
+                <BigTile
+                  compact
+                  cls="bg-orange-600"
+                  label="ENS (kWh)"
+                  value={fmtKWh(rel.total.ens_kwh)}
+                  sub={t('rel.ens_desc')}
+                  title={t(rel.params.load_basis === 'alokasi_penyulang' ? 'rel.ens_hint_alloc' : 'rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })}
+                />
+                <BigTile
+                  compact
+                  cls="bg-emerald-600"
+                  label="ENS (Rupiah)"
+                  value={fmtRp(rel.total.ens_rp)}
+                  sub={t('rel.tariff', { rp: fmtDec(rel.params.tariff_rp_per_kwh, 2) })}
+                  title={t('rel.tariff_hint')}
+                />
+                <BigTile
+                  compact
+                  cls="bg-violet-600"
+                  label={t('rel.events')}
+                  value={fmtNum(rel.total.outages)}
+                  sub={t('rel.events_sub', { m: rel.total.momentary, c: fmtNum(rel.total.customers_out) })}
+                  title={t('rel.momentary_hint', { min: rel.params.sustained_minutes })}
+                />
+                <div className="card flex min-w-[11rem] flex-[1.6] basis-0 flex-col gap-1 p-2" title={t('rel.by_level')}>
+                  <CardTitle icon="list" text={t('rel.by_level')} />
+                  <div className="flex flex-wrap content-center justify-center gap-1">
+                    {LEVELS.filter((lv) => rel.by_level[lv]).map((lv) => (
+                      <button
+                        key={lv}
+                        type="button"
+                        className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-100"
+                        onClick={() => {
+                          setHistory(true);
+                          setLevelFilter(lv);
+                          openTab('outages');
+                        }}
+                        title={`SAIDI ${fmtIdx(rel.by_level[lv].saidi)} · SAIFI ${fmtIdx(rel.by_level[lv].saifi)} · ENS ${fmtKWh(rel.by_level[lv].ens_kwh)} / ${fmtRp(rel.by_level[lv].ens_rp)}`}
+                      >
+                        {levelLabel(lv)} <b className="tabular-nums">{rel.by_level[lv].outages}</b>
+                      </button>
+                    ))}
+                    {rel.total.outages === 0 && <span className="text-[11px] text-gray-500">{t('rel.no_events')}</span>}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 px-2 text-xs text-gray-500">
+                <Spinner size={12} /> {t('common.loading')}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
-      {/* peta kerja */}
-      <div className="relative min-w-0 flex-1">
-      <MapCanvas
-        ref={mapRef}
-        types={types}
-        configs={configs}
-        initialVersion={tileVersion}
-        initialBasemap={basemap}
-        initialColorMode="status"
-        mode={mode}
-        onSelect={select}
-        onCreatePoint={noop}
-        onCreatePolygon={noop}
-        onCreateLine={noop}
-        onMove={noop}
-        onReshape={noop}
-        onReshapePolygon={noop}
-        onSplit={noop}
-        onVertexCommit={noop}
-        onMeasure={setMeasure}
-        onCursor={() => {}}
-        onCancelMode={() => setMode({ kind: 'select' })}
-        onArea={(ring) => {
-          setArea(ring);
-          setMode({ kind: 'select' });
-        }}
-        onReady={() => {
-          setMapReady(true);
-          mapRef.current?.setVisibleTypes(types.map((x) => x.code));
-          mapRef.current?.setBasemap(basemap);
-          mapRef.current?.setDarkLabels(basemap === 'dark');
-          mapRef.current?.setColorMode(colorBy);
-          mapRef.current?.setEnergyFilter(energy);
-          if (isOps(tabRef.current)) mapRef.current?.setOverlay(opsOverlays.current[tabRef.current]);
-        }}
-        onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
-        onViewChanged={feeder.refreshView}
-      />
-
-      {/* judul & legenda */}
-      <div className="absolute left-3 right-12 top-3 z-10 flex flex-col gap-2 md:right-auto">
-        <div className="flex items-start gap-2 max-md:[&>div]:w-full">
-          <SearchBox
-            typeName={typeName}
-            onPick={(h) => {
-              mapRef.current?.flyTo(h.lng, h.lat, 17);
-              select(h.kind, h.id);
+        {/* peta kerja */}
+        <div className="relative min-w-0 flex-1">
+          <MapCanvas
+            ref={mapRef}
+            types={types}
+            configs={configs}
+            initialVersion={tileVersion}
+            initialBasemap={basemap}
+            initialColorMode="status"
+            mode={mode}
+            onSelect={select}
+            onCreatePoint={noop}
+            onCreatePolygon={noop}
+            onCreateLine={noop}
+            onMove={noop}
+            onReshape={noop}
+            onReshapePolygon={noop}
+            onSplit={noop}
+            onVertexCommit={noop}
+            onMeasure={setMeasure}
+            onCursor={() => {}}
+            onCancelMode={() => setMode({ kind: 'select' })}
+            onArea={(ring) => {
+              setArea(ring);
+              setMode({ kind: 'select' });
             }}
+            onReady={() => {
+              setMapReady(true);
+              mapRef.current?.setVisibleTypes(types.map((x) => x.code));
+              mapRef.current?.setBasemap(basemap);
+              mapRef.current?.setDarkLabels(basemap === 'dark');
+              mapRef.current?.setColorMode(colorBy);
+              mapRef.current?.setEnergyFilter(energy);
+              if (isOps(tabRef.current)) mapRef.current?.setOverlay(opsOverlays.current[tabRef.current]);
+            }}
+            onError={(src, msg) => toast.push(t('map.source_error', { source: src || '-', msg: msg.slice(0, 120) }), 'warning')}
+            onViewChanged={feeder.refreshView}
           />
-        </div>
-        <div className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-1 shadow-lg">
-          <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('power.filter_label')}>
-            {(['all', 'on', 'off'] as const).map((f) => (
-              <button
-                key={f}
-                className={`px-2.5 py-1 ${energy === f ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-                onClick={() => {
-                  setEnergy(f);
-                  mapRef.current?.setEnergyFilter(f);
+
+          {/* judul & legenda */}
+          <div className="absolute left-3 right-12 top-3 z-10 flex flex-col gap-2 md:right-auto">
+            <div className="flex items-start gap-2 max-md:[&>div]:w-full">
+              <SearchBox
+                typeName={typeName}
+                onPick={(h) => {
+                  mapRef.current?.flyTo(h.lng, h.lat, 17);
+                  select(h.kind, h.id);
                 }}
-                title={t('power.filter_label')}
-              >
-                {f === 'all' ? t('power.filter_all') : f === 'on' ? t('power.filter_on') : t('power.filter_off')}
-              </button>
-            ))}
-          </div>
-          <FeederFilterButton state={feederFilter} open={fdrOpen} onToggle={() => setFdrOpen(!fdrOpen)} />
-          <OffMarkerButton state={offMarks} />
-          <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('fdr.color_by')}>
-            {(['status', 'feeder'] as const).map((v) => (
-              <button
-                key={v}
-                className={`px-2.5 py-1 ${colorBy === v ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-                onClick={() => setColorBy(v)}
-                aria-pressed={colorBy === v}
-                title={t('fdr.color_by')}
-              >
-                {v === 'status' ? t('fdr.by_status') : t('fdr.by_feeder')}
-              </button>
-            ))}
-          </div>
-          {!mobile && <span className="h-5 w-px bg-gray-300" />}
-          {!mobile && ([
-            ['length', 'ruler', t('map.tool_measure_length')],
-            ['area', 'area', t('map.tool_measure_area')],
-          ] as const).map(([what, icon, title]) => {
-            const active = mode.kind === 'measure' && mode.what === what;
-            return (
-              <button
-                key={what}
-                className={`flex h-7 w-7 items-center justify-center rounded-md ${active ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-                title={title}
-                aria-label={title}
-                onClick={() => setMode(active ? { kind: 'select' } : { kind: 'measure', what })}
-              >
-                <Icon name={icon} size={16} />
-              </button>
-            );
-          })}
-          <span className="h-5 w-px bg-gray-300" />
-          <button
-            className={`flex h-7 items-center gap-1 rounded-md px-1.5 text-xs ${bndOpen ? 'bg-brand-600 text-white' : boundary.style.show ? 'text-brand-700 hover:bg-gray-100' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={t('bnd.title')}
-            aria-expanded={bndOpen}
-            onClick={() => setBndOpen(!bndOpen)}
-          >
-            <Icon name="layers" size={16} /> UP3
-          </button>
-          <span className="h-5 w-px bg-gray-300" />
-          <button
-            className={`flex h-7 w-7 items-center justify-center rounded-md ${locating ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-            title={fm('locate')}
-            aria-label={fm('locate')}
-            aria-pressed={locating}
-            onClick={() => {
-              if (locating) {
-                setLocating(false);
-                mapRef.current?.setUserLocation(null);
-              } else {
-                firstFix.current = true;
-                setLocating(true);
-                if (geo.fix) mapRef.current?.flyTo(geo.fix.lng, geo.fix.lat, 17);
-              }
-            }}
-          >
-            <Icon name="target" size={16} />
-          </button>
-          <OfflineAreaButton mapRef={mapRef} configs={configs} />
-        </div>
-        <ParallelBanner items={parallel.items} mapRef={mapRef} />
-        {mobile && colorBy === 'feeder' && <FeederLegend state={feeder} defaultOpen={false} normalLoops={parallel.normalLoops} />}
-        {fdrOpen && <FeederFilterPanel state={feederFilter} live={feeder.live} setLive={feeder.setLive} onClose={() => setFdrOpen(false)} />}
-        {bndOpen && (
-          <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
-            <BoundaryControl state={boundary} compact />
-          </div>
-        )}
-        {mode.kind === 'measure' && (
-          <div className="w-fit max-w-sm rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow">
-            {mode.what === 'length' ? t('map.mode_measure_length') : t('map.mode_measure_area')}
-            <button className="ml-2 underline" onClick={() => setMode({ kind: 'select' })}>
-              {t('common.cancel')}
-            </button>
-          </div>
-        )}
-        {shownOutage && (
-          <button
-            className="w-fit rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow hover:bg-amber-200"
-            onClick={() => {
-              mapRef.current?.setTrace(null);
-              setShownOutage(null);
-            }}
-          >
-            {t('power.clear_outage_area')}
-          </button>
-        )}
-      </div>
-
-      <div className="absolute bottom-10 left-3 z-10 flex flex-col gap-2">
-      {!mobile && colorBy === 'feeder' && <FeederLegend state={feeder} normalLoops={parallel.normalLoops} />}
-      {measure && (
-        <div className="w-72 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-900">{measure.what === 'area' ? t('measure.area_title') : t('measure.length_title')}</span>
-            <button className="text-gray-500 hover:text-gray-800" onClick={() => mapRef.current?.clearMeasure()} aria-label={t('common.clear')}>
-              <Icon name="x" size={14} />
-            </button>
-          </div>
-          <dl className="grid grid-cols-2 gap-y-0.5">
-            <dt className="text-gray-500">{measure.what === 'area' ? t('measure.perimeter') : t('measure.length')}</dt>
-            <dd className="text-right font-semibold tabular-nums">{fmtDistance(measure.lengthM)}</dd>
-            {measure.what === 'area' && (
-              <>
-                <dt className="text-gray-500">{t('measure.area')}</dt>
-                <dd className="text-right font-semibold tabular-nums">{fmtArea(measure.areaM2)}</dd>
-              </>
-            )}
-            <dt className="text-gray-500">{t('measure.vertices')}</dt>
-            <dd className="text-right tabular-nums">{measure.vertices}</dd>
-          </dl>
-          <div className="mt-1 text-[11px] text-gray-500">{measure.done ? t('measure.done_hint') : t('measure.hint')}</div>
-        </div>
-      )}
-      {/* objek terpilih */}
-      {selected && !mobile && <div className="w-80 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">{objectCard}</div>}
-
-      </div>
-      {mobile && (
-        <BottomSheet
-          snap={snap}
-          onSnap={setSnap}
-          header={
-            selected && showObject ? (
-              <div className="flex items-center gap-2 border-b border-gray-200 px-3 pb-2">
-                <button className="flex items-center gap-1 text-xs font-medium text-brand-700" onClick={() => setShowObject(false)}>
-                  <Icon name="chevron-left" size={14} /> {opsGroup ? t('power.group_operations') : t('power.group_monitoring')}
-                </button>
-                <span className="ml-auto truncate text-[11px] uppercase tracking-wide text-gray-500">{fm('object')}</span>
-              </div>
-            ) : (
-              <>
-                <div className="flex gap-1 border-b border-gray-200 px-2 pb-1">{groupButtons}</div>
-                <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">{tabButtons}</div>
-                {selected && (
+              />
+            </div>
+            <div className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-1 shadow-lg">
+              <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('power.filter_label')}>
+                {(['all', 'on', 'off'] as const).map((f) => (
                   <button
-                    className="flex w-full items-center gap-2 border-b border-gray-200 bg-brand-50 px-3 py-1.5 text-left text-xs text-brand-800"
+                    key={f}
+                    className={`px-2.5 py-1 ${energy === f ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
                     onClick={() => {
-                      setShowObject(true);
-                      setSnap((x) => (x === 'peek' ? 'half' : x));
+                      setEnergy(f);
+                      mapRef.current?.setEnergyFilter(f);
                     }}
+                    title={t('power.filter_label')}
                   >
-                    <Icon name="point" size={13} />
-                    <span className="truncate font-medium">{selected.properties.code || `#${selected.id}`}</span>
-                    <span className="truncate text-brand-700/80">{typeName(selected.properties.type_code)}</span>
-                    <Icon name="chevron-right" size={13} className="ml-auto" />
+                    {f === 'all' ? t('power.filter_all') : f === 'on' ? t('power.filter_on') : t('power.filter_off')}
                   </button>
-                )}
-              </>
-            )
-          }
-        >
-          {selected && <div className={selected && showObject ? 'p-3 text-xs text-gray-800' : 'hidden'}>{objectCard}</div>}
-          <div className={selected && showObject ? 'hidden' : 'p-3 text-sm'}>{panelBody}</div>
-        </BottomSheet>
-      )}
+                ))}
+              </div>
+              <FeederFilterButton state={feederFilter} open={fdrOpen} onToggle={() => setFdrOpen(!fdrOpen)} />
+              <OffMarkerButton state={offMarks} />
+              <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('fdr.color_by')}>
+                {(['status', 'feeder'] as const).map((v) => (
+                  <button
+                    key={v}
+                    className={`px-2.5 py-1 ${colorBy === v ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                    onClick={() => setColorBy(v)}
+                    aria-pressed={colorBy === v}
+                    title={t('fdr.color_by')}
+                  >
+                    {v === 'status' ? t('fdr.by_status') : t('fdr.by_feeder')}
+                  </button>
+                ))}
+              </div>
+              {!mobile && <span className="h-5 w-px bg-gray-300" />}
+              {!mobile &&
+                (
+                  [
+                    ['length', 'ruler', t('map.tool_measure_length')],
+                    ['area', 'area', t('map.tool_measure_area')],
+                  ] as const
+                ).map(([what, icon, title]) => {
+                  const active = mode.kind === 'measure' && mode.what === what;
+                  return (
+                    <button
+                      key={what}
+                      className={`flex h-7 w-7 items-center justify-center rounded-md ${active ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                      title={title}
+                      aria-label={title}
+                      onClick={() => setMode(active ? { kind: 'select' } : { kind: 'measure', what })}
+                    >
+                      <Icon name={icon} size={16} />
+                    </button>
+                  );
+                })}
+              <span className="h-5 w-px bg-gray-300" />
+              <button
+                className={`flex h-7 items-center gap-1 rounded-md px-1.5 text-xs ${bndOpen ? 'bg-brand-600 text-white' : boundary.style.show ? 'text-brand-700 hover:bg-gray-100' : 'text-gray-700 hover:bg-gray-100'}`}
+                title={t('bnd.title')}
+                aria-expanded={bndOpen}
+                onClick={() => setBndOpen(!bndOpen)}
+              >
+                <Icon name="layers" size={16} /> UP3
+              </button>
+              <span className="h-5 w-px bg-gray-300" />
+              <button
+                className={`flex h-7 w-7 items-center justify-center rounded-md ${locating ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                title={fm('locate')}
+                aria-label={fm('locate')}
+                aria-pressed={locating}
+                onClick={() => {
+                  if (locating) {
+                    setLocating(false);
+                    mapRef.current?.setUserLocation(null);
+                  } else {
+                    firstFix.current = true;
+                    setLocating(true);
+                    if (geo.fix) mapRef.current?.flyTo(geo.fix.lng, geo.fix.lat, 17);
+                  }
+                }}
+              >
+                <Icon name="target" size={16} />
+              </button>
+              <OfflineAreaButton mapRef={mapRef} configs={configs} />
+            </div>
+            <ParallelBanner items={parallel.items} mapRef={mapRef} />
+            {mobile && colorBy === 'feeder' && <FeederLegend state={feeder} defaultOpen={false} normalLoops={parallel.normalLoops} />}
+            {fdrOpen && <FeederFilterPanel state={feederFilter} live={feeder.live} setLive={feeder.setLive} onClose={() => setFdrOpen(false)} />}
+            {bndOpen && (
+              <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
+                <BoundaryControl state={boundary} compact />
+              </div>
+            )}
+            {mode.kind === 'measure' && (
+              <div className="w-fit max-w-sm rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow">
+                {mode.what === 'length' ? t('map.mode_measure_length') : t('map.mode_measure_area')}
+                <button className="ml-2 underline" onClick={() => setMode({ kind: 'select' })}>
+                  {t('common.cancel')}
+                </button>
+              </div>
+            )}
+            {shownOutage && (
+              <button
+                className="w-fit rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900 shadow hover:bg-amber-200"
+                onClick={() => {
+                  mapRef.current?.setTrace(null);
+                  setShownOutage(null);
+                }}
+              >
+                {t('power.clear_outage_area')}
+              </button>
+            )}
+          </div>
 
-      </div>
-
-      {/* panel tab info: kejadian padam, penyulang, gardu (desktop) */}
-      {!mobile && (
-      <aside className={`flex shrink-0 flex-col border-l border-gray-200 bg-white transition-all ${panelOpen ? (opsGroup ? 'w-[30rem]' : 'w-[26rem]') : 'w-10'}`}>
-        {panelOpen && <div className="flex gap-1 border-b border-gray-200 p-1">{groupButtons}</div>}
-        <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">
-          {panelOpen && tabButtons}
-          <button className="sticky right-0 shrink-0 bg-white p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')} title={t('map.collapse_panel')}>
-            <Icon name={panelOpen ? 'chevron-right' : 'chevron-left'} size={16} />
-          </button>
+          <div className="absolute bottom-10 left-3 z-10 flex flex-col gap-2">
+            {!mobile && colorBy === 'feeder' && <FeederLegend state={feeder} normalLoops={parallel.normalLoops} />}
+            {measure && (
+              <div className="w-72 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-900">{measure.what === 'area' ? t('measure.area_title') : t('measure.length_title')}</span>
+                  <button className="text-gray-500 hover:text-gray-800" onClick={() => mapRef.current?.clearMeasure()} aria-label={t('common.clear')}>
+                    <Icon name="x" size={14} />
+                  </button>
+                </div>
+                <dl className="grid grid-cols-2 gap-y-0.5">
+                  <dt className="text-gray-500">{measure.what === 'area' ? t('measure.perimeter') : t('measure.length')}</dt>
+                  <dd className="text-right font-semibold tabular-nums">{fmtDistance(measure.lengthM)}</dd>
+                  {measure.what === 'area' && (
+                    <>
+                      <dt className="text-gray-500">{t('measure.area')}</dt>
+                      <dd className="text-right font-semibold tabular-nums">{fmtArea(measure.areaM2)}</dd>
+                    </>
+                  )}
+                  <dt className="text-gray-500">{t('measure.vertices')}</dt>
+                  <dd className="text-right tabular-nums">{measure.vertices}</dd>
+                </dl>
+                <div className="mt-1 text-[11px] text-gray-500">{measure.done ? t('measure.done_hint') : t('measure.hint')}</div>
+              </div>
+            )}
+            {/* objek terpilih */}
+            {selected && !mobile && <div className="w-80 rounded-lg border border-gray-200 bg-white/95 p-3 text-xs text-gray-800 shadow-xl">{objectCard}</div>}
+          </div>
+          {mobile && (
+            <BottomSheet
+              snap={snap}
+              onSnap={setSnap}
+              header={
+                selected && showObject ? (
+                  <div className="flex items-center gap-2 border-b border-gray-200 px-3 pb-2">
+                    <button className="flex items-center gap-1 text-xs font-medium text-brand-700" onClick={() => setShowObject(false)}>
+                      <Icon name="chevron-left" size={14} /> {opsGroup ? t('power.group_operations') : t('power.group_monitoring')}
+                    </button>
+                    <span className="ml-auto truncate text-[11px] uppercase tracking-wide text-gray-500">{fm('object')}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex gap-1 border-b border-gray-200 px-2 pb-1">{groupButtons}</div>
+                    <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">{tabButtons}</div>
+                    {selected && (
+                      <button
+                        className="flex w-full items-center gap-2 border-b border-gray-200 bg-brand-50 px-3 py-1.5 text-left text-xs text-brand-800"
+                        onClick={() => {
+                          setShowObject(true);
+                          setSnap((x) => (x === 'peek' ? 'half' : x));
+                        }}
+                      >
+                        <Icon name="point" size={13} />
+                        <span className="truncate font-medium">{selected.properties.code || `#${selected.id}`}</span>
+                        <span className="truncate text-brand-700/80">{typeName(selected.properties.type_code)}</span>
+                        <Icon name="chevron-right" size={13} className="ml-auto" />
+                      </button>
+                    )}
+                  </>
+                )
+              }
+            >
+              {selected && <div className={selected && showObject ? 'p-3 text-xs text-gray-800' : 'hidden'}>{objectCard}</div>}
+              <div className={selected && showObject ? 'hidden' : 'p-3 text-sm'}>{panelBody}</div>
+            </BottomSheet>
+          )}
         </div>
-        {panelOpen && <div className="flex-1 overflow-y-auto p-3 text-sm">{panelBody}</div>}
-      </aside>
-      )}
+
+        {/* panel tab info: kejadian padam, penyulang, gardu (desktop) */}
+        {!mobile && (
+          <aside className={`flex shrink-0 flex-col border-l border-gray-200 bg-white transition-all ${panelOpen ? (opsGroup ? 'w-[30rem]' : 'w-[26rem]') : 'w-10'}`}>
+            {panelOpen && <div className="flex gap-1 border-b border-gray-200 p-1">{groupButtons}</div>}
+            <div className="flex items-center overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">
+              {panelOpen && tabButtons}
+              <button
+                className="sticky right-0 shrink-0 bg-white p-2 text-gray-500 hover:text-gray-800"
+                onClick={() => setPanelOpen(!panelOpen)}
+                aria-label={t('map.collapse_panel')}
+                title={t('map.collapse_panel')}
+              >
+                <Icon name={panelOpen ? 'chevron-right' : 'chevron-left'} size={16} />
+              </button>
+            </div>
+            {panelOpen && <div className="flex-1 overflow-y-auto p-3 text-sm">{panelBody}</div>}
+          </aside>
+        )}
       </div>
     </div>
   );

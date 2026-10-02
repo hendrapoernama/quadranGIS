@@ -288,7 +288,7 @@ const features = (
       title="Administrasi & Keamanan"
       items={[
         'Pengguna, peran & izin granular, menu dinamis bertingkat',
-        'Identitas aplikasi: nama, deskripsi, logo',
+        'Identitas aplikasi: nama, deskripsi, logo, header di semua menu (bisa disembunyikan)',
         'Login captcha, JWT HttpOnly, HTTPS, audit log',
         'Tema terang/gelap (termasuk menu samping), Bahasa ID/EN',
       ]}
@@ -476,7 +476,7 @@ docker compose up -d --build`}</Pre>
     <Table
       head={['Tab', 'Contoh kunci', 'Fungsi']}
       rows={[
-        ['Identitas aplikasi', <C key="0">app.name, app.description, app.logo</C>, 'Nama, deskripsi & logo aplikasi (formulir khusus, bukan tabel kunci)'],
+        ['Identitas aplikasi', <C key="0">app.name, app.description, app.logo, app.page_banner</C>, 'Nama, deskripsi & logo aplikasi, serta header bergaya infografis (logo PLN, nama unit, judul menu, logo Danantara) di semua menu — tampil / sembunyi lewat sakelar "Tampilkan header di semua menu" (formulir khusus, bukan tabel kunci)'],
         [
           'Umum',
           <C key="1">app.map_center, app.basemap_url, map.boundary_opacity, sld.max_elements, unit.default_code, topology.snap_tolerance_m, ai.*.api_key</C>,
@@ -987,9 +987,10 @@ const guide: { group: string; items: GuideItem[] }[] = [
           'Pilih jenis kejadian (Semua, Gangguan, Pemeliharaan, Bencana Alam), rentang tanggal, atau satu nomor kejadian.',
           'Terdampak = isi kejadian awal; Padam = yang masih padam sekarang; Nyala = sudah pulih. Pemulihan % = nyala ÷ terdampak.',
           'Log event terdampak: tab GI, trafo GI, penyulang, zona, gardu distribusi, trafo distribusi (gardu & kVA), dan pelanggan (nama, IDPEL, gardu, daya) dengan waktu padam / nyala, durasi, wilayah, dan status. Cari nama / kode objek (pelanggan juga IDPEL) dan pindah halaman dengan tombol « ‹ › »; jumlah baris per halaman 10 / 25 / 50.',
-          'Peta kejadian menampilkan titik penyebab per jenis, gardu induk (kotak GI: merah padam, hijau pulih, biru GI induk yang menyuplai penyulang terdampak, abu-abu lainnya), gardu distribusi padam (berkedip) / nyala, serta saluran JTM, JTR, SR, trafo distribusi, dan pelanggan yang sedang padam (garis merah / oranye / merah muda putus-putus, simbol trafo merah). JTR, SR, trafo, dan pelanggan baru tampil saat peta diperbesar sampai zoom minimum tipenya (tertulis di legenda, mis. z≥15).',
+          'Peta kejadian menampilkan titik penyebab per jenis, gardu induk (kotak GI: merah padam, hijau pulih, biru GI induk yang menyuplai penyulang terdampak, abu-abu lainnya), gardu distribusi padam (berkedip) / nyala dengan label kode gardu (mulai zoom 12; nama gardu ikut tampil mulai zoom 16), serta saluran JTM, JTR, SR, trafo distribusi, dan pelanggan yang sedang padam (garis merah / oranye / merah muda putus-putus, simbol trafo merah). Trafo GI terdampak tampil sebagai bulatan bersimbol trafo (merah padam, hijau pulih). JTR, SR, trafo, dan pelanggan baru tampil saat peta diperbesar sampai zoom minimum tipenya (tertulis di legenda, mis. z≥15). Label pelanggan (IDPEL) muncul mulai zoom label tipenya di Pengaturan Layer (mis. pelanggan TR z≥18, TM z≥16) dan nama pelanggan ikut tampil satu tingkat zoom sesudahnya.',
+          'Klik gardu induk, trafo GI, gardu distribusi, trafo distribusi, pelanggan, atau titik penyebab di peta untuk membuka info objek seperti baris log event terdampak: kode & nama, jenis, GI / gardu / penyulang induk, UP3, kapasitas (kVA / MVA) atau daya pelanggan, alamat, kondisi kini, dan riwayat padam per event (padam → nyala, durasi, status) pada periode & filter yang sama. Bila beberapa objek bertumpuk di satu titik (mis. trafo di dalam gardunya), pilih objeknya lewat tombol di atas popup.',
           'Detail pelanggan terdampak: pelanggan prioritas & TT/TM lebih dulu, yang masih padam di atas; cari nama / IDPEL dan pindah halaman (10 / 25 / 50 baris).',
-          'Atur muat ulang otomatis untuk layar pantau; halaman juga diperbarui sesudah manuver.',
+          'Muat ulang otomatis untuk layar pantau: "Saat ada perubahan" (bawaan) memuat ulang hanya bila ada kejadian padam baru / berakhir, manuver, atau perubahan jaringan — diperiksa seketika sesudah manuver dan tiap 30 detik; pilihan 1 / 2 / 5 / 10 menit memuat ulang berkala dan juga saat ada perubahan; Mati menghentikan semuanya.',
           'Cetak / PDF menyimpan halaman sebagai berkas Infografis-Pemulihan-<tanggal>_<jam>.',
         ],
         tips: ['Kartu Prioritas Pelanggan memakai atribut "Prioritas" pelanggan (VVIP / VIP / KTT / Prioritas); pelanggan TT otomatis dihitung KTT.'],

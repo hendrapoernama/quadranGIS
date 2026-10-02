@@ -20,4 +20,6 @@ Sejak 30 Sep 2026 QuadranGIS berjalan di server **10.3.187.7** (Ubuntu 24.04, 16
 
 **Why:** pengguna meminta deploy ke server ini; detail di atas makan waktu untuk ditemukan.
 
+- Identitas aplikasi di dev (2 Okt 2026): nama "PORTAL UP2D", deskripsi "UP2D JAKARTA RAYA" (diisi pengguna) dan logo PLN (diunggah lewat PUT /api/admin/branding dari frontend/public/brand/pln-logo.png). Tersimpan di app_configs DB dev saja — saat deploy server, unggah logo yang sama lewat Administrasi › Konfigurasi › Identitas aplikasi (tanyakan dulu nama aplikasi untuk server).
+
 **How to apply:** untuk deploy ulang/pembaruan, ikuti langkah di atas. Cek `free -h` dan jumlah `pgrep -fc sync_ems.py` dulu. Terkait: [[quadrangis-bulk-sim-state]], [[quadrangis-host-ports]], [[quadrangis-dev-env-quirks]].

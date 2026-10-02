@@ -147,6 +147,9 @@ func (s *Server) me(c *gin.Context) {
 		"has_logo":        strings.HasPrefix(s.d.Configs.Str("app.logo", ""), "data:"),
 		"default_locale":  s.d.Configs.Str("app.default_locale", "id"),
 		"default_theme":   s.d.Configs.Str("app.default_theme", "system"),
+		// header bergaya infografis di atas semua menu + nama unit induk untuk isinya
+		"page_banner": s.d.Configs.Bool("app.page_banner", true),
+		"org":         s.infoOrg(ctx),
 	})
 }
 

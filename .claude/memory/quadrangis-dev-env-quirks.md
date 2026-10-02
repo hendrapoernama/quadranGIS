@@ -25,3 +25,5 @@ Kekhasan mesin dev Windows ini untuk proyek QuadranGIS (D:\Aplikasi\qikb\quadran
 **Why:** Semua ini sempat memakan waktu debugging pada sesi 25 Sep 2026 (tiga butir terakhir 27 Sep 2026).
 
 **How to apply:** Cek dulu hal-hal di atas sebelum menyimpulkan ada bug di kode. Terkait: [[quadrangis-host-ports]].
+
+Build Docker kadang gagal diam-diam (2 Okt 2026: "failed to receive status: rpc error ... EOF", VM Docker hanya 4 GB): `docker compose build x | tail -1` bisa kosong lalu `up -d` menjalankan image lama. Selalu cek `docker images quadrangis-<x> --format {{.CreatedAt}}` sesudah build; ulangi build bila belum berubah. Bandingkan dengan waktu image SEBELUM build (bukan "sekarang − 6 menit": build gagal tepat sesudah build sukses sebelumnya lolos cek itu, terjadi 2 Okt 2026). Engine Docker juga bisa mati (API 500) sesudah EOF — tunggu `docker version` pulih; build Next.js yang macet >15 menit dihentikan (proses docker-compose) lalu diulang.

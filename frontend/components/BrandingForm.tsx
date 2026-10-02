@@ -14,9 +14,10 @@ const ACCEPT = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
 export function BrandingForm() {
   const { t } = useT();
   const toast = useToast();
-  const { appName, appDescription, hasLogo, logoVersion, refresh } = useAuth();
+  const { appName, appDescription, hasLogo, logoVersion, pageBanner, refresh } = useAuth();
   const [name, setName] = useState(appName);
   const [desc, setDesc] = useState(appDescription);
+  const [banner, setBanner] = useState(pageBanner);
   const [logo, setLogo] = useState<string>(''); // '' = tidak diubah, '-' = hapus, data URL = baru
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -25,6 +26,7 @@ export function BrandingForm() {
     setName(appName);
     setDesc(appDescription);
   }, [appName, appDescription]);
+  useEffect(() => setBanner(pageBanner), [pageBanner]);
 
   const pick = (f: File | undefined) => {
     if (!f) return;
@@ -40,7 +42,7 @@ export function BrandingForm() {
   const save = async () => {
     setSaving(true);
     try {
-      await api('/api/admin/branding', { method: 'PUT', body: { name, description: desc, logo } });
+      await api('/api/admin/branding', { method: 'PUT', body: { name, description: desc, logo, page_banner: banner } });
       toast.push(t('brand.saved'), 'success');
       setLogo('');
       await refresh();
@@ -51,7 +53,7 @@ export function BrandingForm() {
     }
   };
 
-  const changed = name !== appName || desc !== appDescription || logo !== '';
+  const changed = name !== appName || desc !== appDescription || logo !== '' || banner !== pageBanner;
   const previewSrc = logo && logo !== '-' ? logo : null;
 
   return (
@@ -88,6 +90,16 @@ export function BrandingForm() {
               )}
               <span className="text-[11px] text-gray-500">{t('brand.logo_hint')}</span>
             </div>
+          </div>
+          <div>
+            <span className="label">{t('brand.page_banner')}</span>
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-700">
+              <input type="checkbox" className="mt-0.5 h-4 w-4" checked={banner} onChange={(e) => setBanner(e.target.checked)} />
+              <span>
+                {t('brand.page_banner_show')}
+                <span className="block text-[11px] text-gray-500">{t('brand.page_banner_hint')}</span>
+              </span>
+            </label>
           </div>
           <Button icon="check" loading={saving} disabled={!changed || !name.trim()} onClick={save}>
             {t('common.save')}

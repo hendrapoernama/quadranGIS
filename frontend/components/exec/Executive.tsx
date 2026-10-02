@@ -7,12 +7,15 @@ import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
 import { fmtNum } from '@/lib/format';
 import { realtime } from '@/lib/ws';
-import { Button, Modal, PageHeader, Spinner, useToast } from '@/components/ui';
+import { Button, Modal, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import { BarChart } from '@/components/charts/BarChart';
 import { AiOpsPanel } from '@/components/ai/AiOpsPanel';
 import { useExecT } from './i18n';
-import { Delta, InsightList, KpiTile, ShareBar, TargetBadge, fmtIdx, fmtMin, fmtRp } from './common';
+import { InsightList, ShareBar, TargetBadge, fmtIdx, fmtMin, fmtRp } from './common';
+import { BigTile, Pill, SectionTitle, SplitCard, TileBadge, TileDelta, ValueCard } from './InfoWidgets';
+import { KIND_COLOR } from './InfographicMap';
+import { usePageBanner } from '@/components/PageBanner';
 import { PeriodicReports } from './PeriodicReports';
 import type { Dashboard, Insight } from './types';
 
@@ -39,10 +42,7 @@ export default function Executive() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [d, ins] = await Promise.all([
-        api<Dashboard>(`/api/exec/dashboard?period=${period}`),
-        api<{ items: Insight[] }>('/api/ops/insights').catch(() => ({ items: [] as Insight[] })),
-      ]);
+      const [d, ins] = await Promise.all([api<Dashboard>(`/api/exec/dashboard?period=${period}`), api<{ items: Insight[] }>('/api/ops/insights').catch(() => ({ items: [] as Insight[] }))]);
       setData(d);
       setInsights(ins.items);
     } catch (err: any) {
@@ -82,22 +82,18 @@ export default function Executive() {
     ['year', e('period_year')],
   ];
 
+  usePageBanner({ title: e('exec_title'), subtitle: e('exec_subtitle') });
+
   return (
-    <div className="exec-scroll h-full overflow-y-auto p-4 md:p-6">
-      <div className="no-print">
-        <PageHeader
-          title={e('exec_title')}
-          subtitle={e('exec_subtitle')}
-          actions={
-            <div className="flex rounded-md border border-gray-300 bg-white p-0.5 text-xs">
-              {(['summary', 'reports'] as const).map((tb) => (
-                <button key={tb} className={`rounded px-3 py-1 font-medium ${tab === tb ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`} onClick={() => setTab(tb)}>
-                  {tb === 'summary' ? e('tab_summary') : e('tab_reports')}
-                </button>
-              ))}
-            </div>
-          }
-        />
+    <div className="exec-scroll h-full overflow-y-auto bg-gray-100 p-4 md:p-6">
+      <div className="no-print mb-4 space-y-3">
+        <div className="flex w-fit rounded-md border border-gray-300 bg-white p-0.5 text-xs">
+          {(['summary', 'reports'] as const).map((tb) => (
+            <button key={tb} className={`rounded px-3 py-1 font-medium ${tab === tb ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`} onClick={() => setTab(tb)}>
+              {tb === 'summary' ? e('tab_summary') : e('tab_reports')}
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === 'reports' ? (
@@ -107,7 +103,11 @@ export default function Executive() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex rounded-md border border-gray-300 bg-white p-0.5 text-xs">
               {periods.map(([k, label]) => (
-                <button key={k} className={`rounded px-3 py-1 ${period === k ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900' : 'text-gray-600 hover:bg-gray-100'}`} onClick={() => setPeriod(k)}>
+                <button
+                  key={k}
+                  className={`rounded px-3 py-1 ${period === k ? 'bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900' : 'text-gray-600 hover:bg-gray-100'}`}
+                  onClick={() => setPeriod(k)}
+                >
                   {label}
                 </button>
               ))}
@@ -159,6 +159,11 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
     return new Date(y, mm - 1, 1).toLocaleDateString(locale === 'en' ? 'en-GB' : 'id-ID', { month: 'long', year: 'numeric' });
   };
   const dayLabel = (d: string) => d.slice(8, 10);
+  const pctOf = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
+  const custOnPct = pctOf(n.customers.total - n.customers.off, n.customers.total);
+  const reportsOkPct = n.reports_open > 0 ? pctOf(n.reports_open - n.reports_overdue, n.reports_open) : 100;
+  const feedersTotal = n.feeders.on + n.feeders.partial + n.feeders.off;
+  const feedersOkPct = pctOf(feedersTotal - n.feeders_high_load, feedersTotal);
 
   return (
     <>
@@ -171,78 +176,94 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
 
       {/* kondisi saat ini */}
       <section>
-        <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">{e('now_title')}</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <KpiTile
-            label={e('customers_served')}
-            value={fmtNum(n.customers.total)}
-            sub={
-              <span className={n.customers.off > 0 ? 'font-medium text-red-600' : ''}>
-                {fmtNum(n.customers.off)} {e('customers_off')}
-              </span>
-            }
+        <SectionTitle icon="monitor" text={e('now_title')} />
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+          <SplitCard
+            icon="users"
+            title={e('w_customers')}
+            head={`${e('w_served')}: ${fmtNum(n.customers.total)}`}
+            left={{ label: e('w_off'), value: fmtNum(n.customers.off) }}
+            right={{ label: e('w_on'), value: fmtNum(n.customers.total - n.customers.off) }}
+            caption={{ pct: custOnPct, text: e('w_on_pct', { p: fmtNum(custOnPct, custOnPct > 0 && custOnPct < 100 ? 2 : 0) }) }}
           />
-          <KpiTile label={e('active_outages')} value={fmtNum(n.active_outages)} status={n.active_outages > 0 ? <Icon name="alert" size={14} className="text-red-600" /> : undefined} />
-          <KpiTile
-            label={e('reports_open')}
-            value={fmtNum(n.reports_open)}
-            sub={
-              <span className={n.reports_overdue > 0 ? 'font-medium text-red-600' : ''}>
-                {fmtNum(n.reports_overdue)} {e('overdue')}
-              </span>
-            }
+          <ValueCard
+            icon="alert"
+            title={e('active_outages')}
+            head={n.active_outages > 0 ? e('w_needs_action') : e('w_all_on')}
+            value={fmtNum(n.active_outages)}
+            tone={n.active_outages > 0 ? 'red' : 'emerald'}
           />
-          <KpiTile label={e('plans_active')} value={fmtNum(n.plans_active)} />
-          <KpiTile label={e('feeders_high')} value={fmtNum(n.feeders_high_load)} sub={`${fmtNum(n.feeders.on + n.feeders.partial + n.feeders.off)} ${e('feeder').toLowerCase()}`} />
+          <SplitCard
+            icon="bell"
+            title={e('w_reports')}
+            head={`${e('w_open')}: ${fmtNum(n.reports_open)}`}
+            left={{ label: e('w_overdue'), value: fmtNum(n.reports_overdue) }}
+            right={{ label: e('w_in_sla'), value: fmtNum(Math.max(0, n.reports_open - n.reports_overdue)) }}
+            caption={{ pct: reportsOkPct, text: n.reports_open > 0 ? e('w_in_sla_pct', { p: fmtNum(reportsOkPct, 0) }) : e('w_no_open') }}
+          />
+          <ValueCard icon="list" title={e('plans_active')} head={e('w_switching_plans')} value={fmtNum(n.plans_active)} tone="blue" />
+          <SplitCard
+            icon="diagram"
+            title={e('w_feeders')}
+            head={`${e('w_total')}: ${fmtNum(feedersTotal)}`}
+            left={{ label: e('w_high'), value: fmtNum(n.feeders_high_load), tone: 'orange' }}
+            right={{ label: e('w_normal'), value: fmtNum(Math.max(0, feedersTotal - n.feeders_high_load)) }}
+            caption={{ pct: feedersOkPct, text: e('w_normal_pct', { p: fmtNum(feedersOkPct, feedersOkPct > 0 && feedersOkPct < 100 ? 1 : 0) }) }}
+          />
         </div>
       </section>
 
       {/* kinerja periode */}
       <section>
-        <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">{e('period_title')}</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <KpiTile
+        <SectionTitle icon="chart" text={e('period_title')} />
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <BigTile
+            cls="bg-rose-600"
             label={e('saidi')}
             value={fmtIdx(t.saidi)}
             unit={e('unit_saidi')}
-            status={<TargetBadge value={t.saidi} target={tg.saidi_period} />}
+            badge={tg.saidi_period ? <TileBadge ok={t.saidi <= tg.saidi_period} okText={e('on_track')} badText={e('off_track')} /> : undefined}
             sub={
               <>
-                <Delta cur={t.saidi} prev={prev?.saidi} /> · {e('target_pro')} {fmtIdx(tg.saidi_period)}
+                <TileDelta cur={t.saidi} prev={prev?.saidi} /> · {e('target_pro')} {fmtIdx(tg.saidi_period)}
               </>
             }
           />
-          <KpiTile
+          <BigTile
+            cls="bg-cyan-600"
             label={e('saifi')}
             value={fmtIdx(t.saifi)}
             unit={e('unit_saifi')}
-            status={<TargetBadge value={t.saifi} target={tg.saifi_period} />}
+            badge={tg.saifi_period ? <TileBadge ok={t.saifi <= tg.saifi_period} okText={e('on_track')} badText={e('off_track')} /> : undefined}
             sub={
               <>
-                <Delta cur={t.saifi} prev={prev?.saifi} /> · {e('target_pro')} {fmtIdx(tg.saifi_period)}
+                <TileDelta cur={t.saifi} prev={prev?.saifi} /> · {e('target_pro')} {fmtIdx(tg.saifi_period)}
               </>
             }
           />
-          <KpiTile
+          <BigTile
+            cls="bg-orange-600"
             label={e('ens')}
             value={fmtRp(t.ens_rp)}
             sub={
               <>
-                {fmtNum(t.ens_kwh, 1)} kWh · <Delta cur={t.ens_rp} prev={prev?.ens_rp} />
+                {fmtNum(t.ens_kwh, 1)} kWh · <TileDelta cur={t.ens_rp} prev={prev?.ens_rp} />
               </>
             }
           />
-          <KpiTile
+          <BigTile
+            cls="bg-violet-600"
             label={e('outages')}
             value={fmtNum(t.outages)}
             sub={
               <>
-                {fmtNum(t.momentary)} {e('momentary')} · <Delta cur={t.outages} prev={prev?.outages} />
+                {fmtNum(t.momentary)} {e('momentary')} · <TileDelta cur={t.outages} prev={prev?.outages} />
               </>
             }
           />
-          <KpiTile label={e('mttr')} value={fmtMin(r.mttr_min)} sub={<Delta cur={r.mttr_min} prev={r.previous?.mttr_min} />} />
-          <KpiTile
+          <BigTile cls="bg-indigo-600" label={e('mttr')} value={fmtMin(r.mttr_min)} sub={<TileDelta cur={r.mttr_min} prev={r.previous?.mttr_min} />} />
+          <BigTile
+            cls="bg-emerald-600"
             label={e('report_sla')}
             value={slaPct === null ? '-' : `${fmtNum(slaPct, 0)}%`}
             sub={`${fmtNum(r.ops.reports)} ${e('rep_reports').toLowerCase()} · ${fmtNum(r.ops.reports_overdue)} ${e('overdue')}`}
@@ -254,7 +275,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
       {/* tahun berjalan vs target */}
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-gray-900">{e('ytd_title')}</h3>
+          <SectionTitle icon="target" text={e('ytd_title')} inline />
           <span className="text-[11px] text-gray-500">{e('ytd_elapsed', { pct: fmtNum(data.ytd.elapsed * 100, 0) })}</span>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
@@ -298,6 +319,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
         <BarChart
           title={e('trend_saidi')}
           name={e('saidi')}
+          color="#e11d48"
           labels={data.trend.map((m) => m.month)}
           values={data.trend.map((m) => m.saidi)}
           reference={{ value: data.ytd.targets.saidi_year / 12, label: e('monthly_target') }}
@@ -310,6 +332,8 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
           <BarChart
             title={e('daily_title')}
             name={e('daily_faults')}
+            color="#dc2626"
+            color2="#7c3aed"
             labels={r.daily.map((d) => d.date)}
             values={r.daily.map((d) => d.faults)}
             stacked={{ name: e('outages').toLowerCase(), values: r.daily.map((d) => d.outages - d.faults) }}
@@ -322,6 +346,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
           <BarChart
             title={e('trend_saifi')}
             name={e('saifi')}
+            color="#0891b2"
             labels={data.trend.map((m) => m.month)}
             values={data.trend.map((m) => m.saifi)}
             reference={{ value: data.ytd.targets.saifi_year / 12, label: e('monthly_target') }}
@@ -336,7 +361,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
       <section className="grid gap-4 xl:grid-cols-3">
         {/* per kategori */}
         <div className="card p-3">
-          <h3 className="mb-2 text-sm font-semibold text-gray-900">{e('by_kind')}</h3>
+          <SectionTitle icon="list" text={e('by_kind')} />
           {kinds.length === 0 ? (
             <div className="py-6 text-center text-xs text-gray-500">{e('no_data')}</div>
           ) : (
@@ -344,12 +369,15 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
               {kinds.map(([k, g]) => (
                 <li key={k}>
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="font-medium text-gray-800">{k}</span>
+                    <span className="flex items-center gap-1.5 font-medium text-gray-800">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: KIND_COLOR[k.toUpperCase()] || 'var(--series-1)' }} />
+                      {k}
+                    </span>
                     <span className="tabular-nums text-gray-600">
                       {fmtNum(g.outages)} × · SAIDI {fmtIdx(g.saidi)}
                     </span>
                   </div>
-                  <ShareBar value={totalCM > 0 ? g.customer_minutes / totalCM : 0} />
+                  <ShareBar value={totalCM > 0 ? g.customer_minutes / totalCM : 0} color={KIND_COLOR[k.toUpperCase()] || 'var(--series-1)'} />
                 </li>
               ))}
               <li className="text-[10px] text-gray-500">{e('share_cm')}</li>
@@ -358,7 +386,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
         </div>
         {/* penyulang */}
         <div className="card p-3">
-          <h3 className="mb-2 text-sm font-semibold text-gray-900">{e('top_feeders')}</h3>
+          <SectionTitle icon="diagram" text={e('top_feeders')} />
           {r.top_feeders.length === 0 ? (
             <div className="py-6 text-center text-xs text-gray-500">{e('no_data')}</div>
           ) : (
@@ -376,8 +404,12 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
                 {r.top_feeders.slice(0, 8).map((f) => (
                   <tr key={f.id} className="border-t border-gray-100">
                     <td className="py-1 font-medium text-gray-800">{f.code}</td>
-                    <td className="py-1 text-right tabular-nums">{fmtNum(f.outages)}</td>
-                    <td className="py-1 text-right tabular-nums">{fmtNum(f.faults)}</td>
+                    <td className="py-1 text-right">
+                      <Pill cls="bg-blue-50 text-blue-800">{fmtNum(f.outages)}</Pill>
+                    </td>
+                    <td className="py-1 text-right">
+                      <Pill cls={f.faults > 0 ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}>{fmtNum(f.faults)}</Pill>
+                    </td>
                     <td className="py-1 text-right tabular-nums">{fmtNum(f.customer_minutes, 0)}</td>
                     <td className="py-1 text-right tabular-nums">{fmtRp(f.ens_rp)}</td>
                   </tr>
@@ -389,7 +421,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
         {/* wilayah */}
         <div className="card p-3">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">{e('top_regions')}</h3>
+            <SectionTitle icon="globe" text={e('top_regions')} inline />
             <a className="text-[11px] text-brand-700 hover:underline" href="/reliability">
               {e('see_all')}
             </a>
@@ -413,7 +445,9 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
                       <div className="font-medium text-gray-800">{x.name}</div>
                       <div className="text-[10px] text-gray-500">UP3 {x.parent}</div>
                     </td>
-                    <td className={`py-1 text-right tabular-nums ${x.rel.saidi > r.targets.saidi_period ? 'font-semibold text-red-600' : ''}`}>{fmtIdx(x.rel.saidi)}</td>
+                    <td className="py-1 text-right">
+                      <Pill cls={x.rel.saidi > r.targets.saidi_period ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}>{fmtIdx(x.rel.saidi)}</Pill>
+                    </td>
                     <td className="py-1 text-right tabular-nums">{fmtIdx(x.rel.saifi)}</td>
                     <td className="py-1 text-right tabular-nums">{fmtNum(x.rel.outages)}</td>
                   </tr>
@@ -427,7 +461,7 @@ function DashboardBody({ data, insights, onAi, onRegion }: { data: Dashboard; in
       {/* temuan */}
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-gray-900">{e('insights_title')}</h3>
+          <SectionTitle icon="sparkles" text={e('insights_title')} inline />
           {onAi && (
             <Button size="sm" variant="secondary" icon="sparkles" onClick={onAi}>
               {e('insights_ai')}

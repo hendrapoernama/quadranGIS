@@ -11,6 +11,7 @@ import { useIsMobile } from '@/lib/mobile';
 import { MobileShell } from '@/components/pwa/MobileShell';
 import { usePwa } from '@/components/pwa/PwaProvider';
 import { useFieldT } from '@/components/field/i18n';
+import { PageBanner, PageBannerProvider, type BannerOpts } from '@/components/PageBanner';
 
 const HIDDEN_KEY = 'qgis_sidebar_hidden';
 
@@ -19,6 +20,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useT();
   const router = useRouter();
   const [hidden, setHidden] = useState(false);
+  const [banner, setBanner] = useState<BannerOpts | null>(null);
   const mobile = useIsMobile();
   const pwa = usePwa();
   const f = useFieldT();
@@ -68,22 +70,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (mobile) return <MobileShell>{children}</MobileShell>;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {!hidden && <Sidebar onHide={toggle} />}
-      {hidden && (
-        <button
-          className="fixed left-0 top-1/2 z-40 flex h-16 w-5 -translate-y-1/2 items-center justify-center rounded-r-md bg-gray-900/90 text-gray-200 shadow-lg hover:bg-brand-600 hover:text-white"
-          onClick={toggle}
-          title={t('nav.show_sidebar')}
-          aria-label={t('nav.show_sidebar')}
-        >
-          <Icon name="chevron-right" size={14} />
-        </button>
-      )}
-      <main className="relative flex flex-1 flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
-        {!pwa.online && <div className="shrink-0 bg-amber-100 px-3 py-1 text-xs text-amber-900">{f('offline_banner')}</div>}
-        <div className="relative min-h-0 flex-1">{children}</div>
-      </main>
-    </div>
+    <PageBannerProvider value={setBanner}>
+      <div className="flex h-screen overflow-hidden">
+        {!hidden && <Sidebar onHide={toggle} />}
+        {hidden && (
+          <button
+            className="fixed left-0 top-1/2 z-40 flex h-16 w-5 -translate-y-1/2 items-center justify-center rounded-r-md bg-gray-900/90 text-gray-200 shadow-lg hover:bg-brand-600 hover:text-white"
+            onClick={toggle}
+            title={t('nav.show_sidebar')}
+            aria-label={t('nav.show_sidebar')}
+          >
+            <Icon name="chevron-right" size={14} />
+          </button>
+        )}
+        <main className="relative flex flex-1 flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
+          {!pwa.online && <div className="shrink-0 bg-amber-100 px-3 py-1 text-xs text-amber-900">{f('offline_banner')}</div>}
+          <PageBanner opts={banner} />
+          <div className="relative min-h-0 flex-1">{children}</div>
+        </main>
+      </div>
+    </PageBannerProvider>
   );
 }

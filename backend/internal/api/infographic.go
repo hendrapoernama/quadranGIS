@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"quadrangis/internal/gis"
+	"quadrangis/internal/middleware"
 )
 
 // ---------------------------------------------------------------------
@@ -428,6 +429,105 @@ func (s *Server) execInfographicCustomers(c *gin.Context) {
 	ok(c, gin.H{"items": items, "total": len(list), "page": page, "pages": pages, "size": size, "truncated": len(rows) >= limit})
 }
 
+// GET /api/exec/infographic/object?from=&to=&kind=&outage=&id= — info objek di peta kejadian (popup): identitas, induk,
+// UP3, daya / kapasitas, dan riwayat padam–nyala di dalam kejadian terpilih (seperti baris log event terdampak).
+func (s *Server) execInfographicObject(c *gin.Context) {
+	ctx := c.Request.Context()
+	id, err := strconv.ParseInt(c.Query("id"), 10, 64)
+	if err != nil || id <= 0 {
+		failT(c, http.StatusBadRequest, "common.invalid_id")
+		return
+	}
+	is, err := s.infoSelect(c)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	names, err := s.infoUP3Names(ctx)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	var o struct {
+		code, name, typ, address string
+		gi                       string
+		power                    float64
+		energized                bool
+		up3                      int64
+	}
+	err = s.d.Pool.QueryRow(ctx, `SELECT n.code, n.name, n.type_code, COALESCE(n.properties->>'alamat', ''),
+		COALESCE(qgis_num(n.properties->>'daya_va'), qgis_num(n.properties->>'daya_kva') * 1000, qgis_num(n.properties->>'daya_mva') * 1000000, 0),
+		n.energized, `+infoUP3SQL+`,
+		-- trafo GI: gardu induk tempatnya (GI terdekat ≤ 500 m), karena sebagian trafo GI hasil impor tanpa kode
+		CASE WHEN n.type_code = 'trafo_gi' THEN COALESCE((SELECT NULLIF(g.code, '') FROM gis_nodes g WHERE g.type_code = 'gi'
+			AND ST_DWithin(g.geom::geography, n.geom::geography, 500) ORDER BY g.geom <-> n.geom LIMIT 1), '') ELSE '' END
+		FROM gis_nodes n WHERE n.id = $1`, id).Scan(&o.code, &o.name, &o.typ, &o.address, &o.power, &o.energized, &o.up3, &o.gi)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	// kejadian terpilih yang memuat objek → digabung per event induk (mulai, nyala, durasi, status)
+	rows, err := s.d.Pool.Query(ctx, `SELECT id FROM outages WHERE id = ANY($1::bigint[]) AND $2 = ANY(affected_nodes)`, is.selIDs, id)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	oids, err := collectIDs64(rows)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	objRows := make([]infoObj, 0, len(oids))
+	for _, oid := range oids {
+		objRows = append(objRows, infoObj{EventID: oid, ID: id, Code: o.code, Name: o.name})
+	}
+	type ev struct {
+		EventID   int64      `json:"event_id"`
+		Kind      string     `json:"kind"`
+		StartedAt time.Time  `json:"started_at"`
+		EndedAt   *time.Time `json:"ended_at"`
+		Minutes   float64    `json:"minutes"`
+		Active    bool       `json:"active"`
+	}
+	evs := []ev{}
+	for _, x := range is.merge(objRows, func(int64) string { return "" }) {
+		evs = append(evs, ev{EventID: x.EventID, Kind: is.evByID[x.EventID].Kind, StartedAt: x.StartedAt, EndedAt: x.EndedAt, Minutes: x.Minutes, Active: x.Active})
+	}
+	gd, feeder := s.d.Graph.SinkGroups([]int64{id})
+	codes, _ := s.d.Power.NodeCodes(ctx, []int64{gd[0], feeder[0]})
+	typeName := o.typ
+	if ct, ok := s.d.Types.Get(o.typ); ok {
+		typeName = ct.Name
+		if middleware.GetLang(c) == "en" && ct.NameEN != "" {
+			typeName = ct.NameEN
+		}
+	}
+	gdCode := codes[gd[0]].Code
+	if gd[0] == id {
+		gdCode = ""
+	}
+	ok(c, gin.H{"id": id, "code": o.code, "name": o.name, "type_code": o.typ, "type_name": typeName, "address": o.address, "power_va": o.power,
+		"energized": o.energized, "up3": names[o.up3], "gi_code": o.gi, "gd_code": gdCode, "feeder_code": codes[feeder[0]].Code, "events": evs})
+}
+
+func collectIDs64(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+	Close()
+}) ([]int64, error) {
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // infoPage memotong daftar menurut page & size (5–100, bawaan 10); page dibatasi ke halaman terakhir.
 func infoPage(c *gin.Context, list []infoObj) (items []infoObj, page, pages, size int) {
 	size = queryInt(c, "size", 10)
@@ -497,6 +597,9 @@ func (s *Server) execInfographic(c *gin.Context) {
 		return
 	}
 	rc, idx, sel, sums, events, selIDs, activeRoot, now := is.rc, is.idx, is.sel, is.sums, is.events, is.selIDs, is.activeRoot, is.now
+	if events == nil {
+		events = []infoEvent{} // periode tanpa kejadian: kirim [] (bukan null) agar halaman tidak galat
+	}
 	period, from, to, kind, outageID, roots := is.period, rc.from, rc.to, is.kind, is.outageID, is.roots
 
 	// angka per level
@@ -574,7 +677,7 @@ func (s *Server) execInfographic(c *gin.Context) {
 
 	// jumlah baris log per level (isi log dimuat per halaman lewat /api/exec/infographic/log)
 	logTotals := map[string]int{}
-	var gds []infoObj
+	var gds, tgis []infoObj
 	for _, lv := range []string{"gi", "trafo_gi", "penyulang", "zona", "gd", "trafo"} {
 		l, _, err := s.infoLog(ctx, is, lv, "", up3Name, 0)
 		if err != nil {
@@ -582,8 +685,11 @@ func (s *Server) execInfographic(c *gin.Context) {
 			return
 		}
 		logTotals[lv] = len(l)
-		if lv == "gd" {
+		switch lv {
+		case "gd":
 			gds = l
+		case "trafo_gi":
+			tgis = l
 		}
 	}
 	if logTotals["pelanggan"], err = s.infoCountAffected(ctx, is.rootSel, infoLogWhere["pelanggan"]); err != nil {
@@ -595,11 +701,13 @@ func (s *Server) execInfographic(c *gin.Context) {
 	type mapPt struct {
 		ID     int64   `json:"id"`
 		Code   string  `json:"code"`
+		Name   string  `json:"name,omitempty"`
 		Lng    float64 `json:"lng"`
 		Lat    float64 `json:"lat"`
 		Active bool    `json:"active"`
 		Kind   string  `json:"kind,omitempty"`
 		Event  int64   `json:"event_id,omitempty"`
+		Target string  `json:"target_kind,omitempty"` // edge: penyebab berupa saluran
 	}
 	gdPts := []mapPt{}
 	seenGD := map[int64]bool{}
@@ -612,11 +720,20 @@ func (s *Server) execInfographic(c *gin.Context) {
 		}
 		if !seenGD[g.ID] && len(gdPts) < 3000 {
 			seenGD[g.ID] = true
-			gdPts = append(gdPts, mapPt{ID: g.ID, Code: g.Code, Lng: g.lng, Lat: g.lat, Active: g.Active})
+			gdPts = append(gdPts, mapPt{ID: g.ID, Code: g.Code, Name: g.Name, Lng: g.lng, Lat: g.lat, Active: g.Active})
 		}
 	}
 	for _, u := range up3 {
 		u.GD.finish()
+	}
+	// trafo GI terdampak (padam = masih ada kejadian aktif yang memuatnya)
+	tgiPts := []mapPt{}
+	seenTGI := map[int64]bool{}
+	for _, x := range tgis {
+		if !seenTGI[x.ID] {
+			seenTGI[x.ID] = true
+			tgiPts = append(tgiPts, mapPt{ID: x.ID, Code: x.Code, Lng: x.lng, Lat: x.lat, Active: x.Active})
+		}
 	}
 	causes := []mapPt{}
 	edgeCause := []int64{}
@@ -641,7 +758,7 @@ func (s *Server) execInfographic(c *gin.Context) {
 				continue
 			}
 			if p, ok := ep[o.CauseNodeID]; ok {
-				causes = append(causes, mapPt{ID: o.CauseNodeID, Code: o.CauseNodeCode, Lng: p.lng, Lat: p.lat, Active: activeRoot[e.ID], Kind: e.Kind, Event: e.ID})
+				causes = append(causes, mapPt{ID: o.CauseNodeID, Code: o.CauseNodeCode, Lng: p.lng, Lat: p.lat, Active: activeRoot[e.ID], Kind: e.Kind, Event: e.ID, Target: "edge"})
 			}
 		}
 	}
@@ -709,7 +826,7 @@ func (s *Server) execInfographic(c *gin.Context) {
 		"org": s.infoOrg(ctx), "roots": roots, "kinds": kinds, "levels": levels, "rel": rel, "events": events,
 		"priority": prio, "up3": up3, "log_totals": logTotals,
 		"customers_total": levels["pelanggan"].Terdampak,
-		"map":             gin.H{"gd": gdPts, "causes": causes, "gi": giPts, "lines": offNet.Lines, "customers": offNet.Customers, "trafo": offNet.Trafo, "truncated": offNet.Truncated, "zoom": offNet.Zoom},
+		"map":             gin.H{"gd": gdPts, "tgi": tgiPts, "causes": causes, "gi": giPts, "lines": offNet.Lines, "customers": offNet.Customers, "trafo": offNet.Trafo, "truncated": offNet.Truncated, "zoom": offNet.Zoom, "label_zoom": offNet.LabelZoom},
 		"pending_regions": countPending(sub),
 	})
 }
@@ -720,6 +837,25 @@ func keys(m map[int64]bool) []int64 {
 		out = append(out, k)
 	}
 	return out
+}
+
+// GET /api/exec/infographic/version — penanda perubahan yang murah untuk muat ulang "saat ada perubahan": berubah bila
+// ada kejadian padam baru / berakhir / wilayahnya selesai dihitung, atau jaringan berubah (manuver, editing, impor →
+// versi tile naik).
+func (s *Server) execInfographicVersion(c *gin.Context) {
+	ctx := c.Request.Context()
+	var n, maxID, active, pending int64
+	var lastEnd float64
+	err := s.d.Pool.QueryRow(ctx, `SELECT count(*), COALESCE(max(id), 0), count(*) FILTER (WHERE ended_at IS NULL),
+		COALESCE(extract(epoch FROM max(ended_at)), 0)::float8, count(*) FILTER (WHERE regions IS NULL) FROM outages`).Scan(&n, &maxID, &active, &lastEnd, &pending)
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	ok(c, gin.H{"version": strings.Join([]string{
+		strconv.FormatInt(s.d.Tiles.Version(ctx), 10), strconv.FormatInt(n, 10), strconv.FormatInt(maxID, 10),
+		strconv.FormatInt(active, 10), strconv.FormatFloat(lastEnd, 'f', 3, 64), strconv.FormatInt(pending, 10),
+	}, ".")})
 }
 
 func countPending(rc *relCalc) int {
@@ -840,6 +976,11 @@ func (s *Server) infoAffected(ctx context.Context, outageIDs []int64, where, q s
 	return out, rows.Err()
 }
 
+// GET /api/exec/org — nama UID & UP2D untuk kepala halaman Dashboard (Infografis, Keandalan & Operasi).
+func (s *Server) execOrg(c *gin.Context) {
+	ok(c, s.infoOrg(c.Request.Context()))
+}
+
 // infoOrg: nama unit induk untuk kepala infografis (UID & UP2D).
 func (s *Server) infoOrg(ctx context.Context) gin.H {
 	out := gin.H{"uid": "", "up2d": ""}
@@ -867,6 +1008,8 @@ type infoOffNet struct {
 	Truncated bool     `json:"truncated"`
 	// zoom minimum tampil (Pengaturan Layer) per kelas saluran (jtm / jtr / sr), per tipe pelanggan, dan trafo_distribusi
 	Zoom map[string]int `json:"zoom"`
+	// zoom minimum label (Pengaturan Layer, label_zoom) per tipe pelanggan
+	LabelZoom map[string]int `json:"label_zoom"`
 }
 
 type infoFC struct {
@@ -884,6 +1027,7 @@ type infoFeature struct {
 type infoPt struct {
 	ID   int64   `json:"id"`
 	Code string  `json:"code"`
+	Name string  `json:"name,omitempty"`
 	Type string  `json:"type_code"`
 	Lng  float64 `json:"lng"`
 	Lat  float64 `json:"lat"`
@@ -892,7 +1036,7 @@ type infoPt struct {
 const infoOffLimit = 30000
 
 func (s *Server) infoOffNetwork(ctx context.Context, outageIDs []int64) (infoOffNet, error) {
-	out := infoOffNet{Lines: infoFC{Type: "FeatureCollection", Features: []infoFeature{}}, Customers: []infoPt{}, Trafo: []infoPt{}, Zoom: map[string]int{}}
+	out := infoOffNet{Lines: infoFC{Type: "FeatureCollection", Features: []infoFeature{}}, Customers: []infoPt{}, Trafo: []infoPt{}, Zoom: map[string]int{}, LabelZoom: map[string]int{}}
 	zr, err := s.d.Pool.Query(ctx, `SELECT CASE WHEN code LIKE 'pelanggan%' OR code = 'trafo_distribusi' THEN code WHEN voltage_kv >= 1 THEN 'jtm' WHEN code = 'sr' THEN 'sr' ELSE 'jtr' END, min(min_zoom)
 		FROM component_types WHERE code LIKE 'pelanggan%' OR code = 'trafo_distribusi' OR (geom_kind = 'line' AND category = 'jaringan') GROUP BY 1`)
 	if err != nil {
@@ -906,6 +1050,16 @@ func (s *Server) infoOffNetwork(ctx context.Context, outageIDs []int64) (infoOff
 		}
 	}
 	zr.Close()
+	if lr, err := s.d.Pool.Query(ctx, `SELECT code, label_zoom FROM component_types WHERE code LIKE 'pelanggan%'`); err == nil {
+		for lr.Next() {
+			var k string
+			var z int
+			if lr.Scan(&k, &z) == nil {
+				out.LabelZoom[k] = z
+			}
+		}
+		lr.Close()
+	}
 	if len(outageIDs) == 0 {
 		return out, nil
 	}
@@ -937,7 +1091,7 @@ func (s *Server) infoOffNetwork(ctx context.Context, outageIDs []int64) (infoOff
 		return out, err
 	}
 	rows, err = s.d.Pool.Query(ctx, `WITH a AS (SELECT DISTINCT unnest(affected_nodes) AS id FROM outages WHERE id = ANY($1::bigint[]) AND ended_at IS NULL)
-		SELECT n.id, n.code, n.type_code, ST_X(n.geom), ST_Y(n.geom) FROM gis_nodes n
+		SELECT n.id, n.code, n.name, n.type_code, ST_X(n.geom), ST_Y(n.geom) FROM gis_nodes n
 		WHERE n.id IN (SELECT id FROM a) AND (n.type_code LIKE 'pelanggan%' OR n.type_code = 'trafo_distribusi') AND NOT n.energized AND NOT `+gis.SQLNonOperating+`
 		ORDER BY n.type_code = 'trafo_distribusi' DESC LIMIT $2`, outageIDs, infoOffLimit+1)
 	if err != nil {
@@ -946,7 +1100,7 @@ func (s *Server) infoOffNetwork(ctx context.Context, outageIDs []int64) (infoOff
 	defer rows.Close()
 	for rows.Next() {
 		var x infoPt
-		if err := rows.Scan(&x.ID, &x.Code, &x.Type, &x.Lng, &x.Lat); err != nil {
+		if err := rows.Scan(&x.ID, &x.Code, &x.Name, &x.Type, &x.Lng, &x.Lat); err != nil {
 			return out, err
 		}
 		dst := &out.Customers

@@ -176,6 +176,13 @@ dan logo.
 - Identitas ini tampil di sidebar, halaman masuk, header mobile, judul tab & favicon, dan kepala laporan.
 - API publik: `GET /api/branding` dan `GET /api/branding/logo`. SVG disajikan dengan CSP tanpa skrip.
 - Ubah lewat `PUT /api/admin/branding` (izin `admin.config`).
+- **Header halaman** (`app.page_banner`, bawaan aktif; sakelar "Tampilkan header di semua menu" di formulir yang sama):
+  header bergaya infografis di atas setiap menu — logo PLN + "PT. PLN (Persero) <UID>" / UP2D (org_units), judul = nama
+  menu aktif (tanpa nama UID, sudah tertulis di kiri), subjudul = menu induk, logo Danantara di kanan. Dashboard › Infografis memakai judulnya sendiri (+ nama UID seperti contoh PDF)
+  dengan waktu kondisi sebagai subjudul dan header-nya selalu ikut tercetak (juga saat header dimatikan; waktu kondisi
+  lalu tampil di baris filter); Keandalan & Operasi memakai judul & subjudulnya sendiri. Berlaku langsung tanpa muat
+  ulang; nama unit & status header dikirim di `GET /api/auth/me` (`page_banner`, `org`) sehingga tersedia bagi semua
+  pengguna. Tidak tampil di tampilan ponsel (PWA) yang punya bilah atas sendiri.
 
 ### Trace kelistrikan
 - Graf jaringan dimuat di memori (id, tipe, status, konektivitas). Jarak hop dari
@@ -411,6 +418,11 @@ Migrasi `012_reliability.sql`:
   *Kejadian padam* dikelompokkan per level (subtotal SAIDI/SAIFI/ENS tiap level),
   punya filter level, dan tiap kejadian menampilkan pelanggan·menit, ENS kWh, dan
   ENS Rupiah. *Riwayat periode* menampilkan kejadian pada periode terpilih.
+- Widget pita rekap Pusat Operasi bergaya infografis (komponen bersama `components/exec/InfoWidgets.tsx`): kartu status
+  per level (GI, trafo GI, penyulang, zona, gardu distribusi, trafo distribusi, pelanggan, beban) dengan pil teal total,
+  kotak PADAM / SEBAGIAN / NYALA, dan batang % nyala; kartu *Operasi* (kejadian aktif, rencana aktif, laporan terbuka,
+  switch terbuka — masing-masing bisa diklik); keandalan periode sebagai kotak berwarna (SAIDI rose, SAIFI cyan, ENS
+  oranye, Rupiah hijau, kejadian ungu). Di layar < ±1.500 px pita digulir mendatar.
 
 ### Rak TR, switch jurusan TR, simbol standar & operasi per role
 
@@ -816,7 +828,9 @@ untuk menyusun/menghapus laporan dan menulis ringkasan. Target keandalan diatur 
 `reliability.target_saidi_year` (bawaan 120 menit/pelanggan) dan `reliability.target_saifi_year`
 (bawaan 2 kali/pelanggan). Target periode dihitung pro-rata terhadap panjang periode.
 
-**Dasbor eksekutif** (`GET /api/exec/dashboard?period=today|month|30d|year`) berisi:
+**Dasbor eksekutif** (`GET /api/exec/dashboard?period=today|month|30d|year`; tampilan widget sama dengan Infografis —
+`components/exec/InfoWidgets.tsx`: kartu dua kotak dengan pil teal & batang persentase, kotak indeks berwarna solid,
+judul bagian berikon) berisi:
 
 - kondisi saat ini: pelanggan padam, padam aktif, laporan terbuka/melewati SLA, rencana aktif,
   penyulang dengan beban ≥ 80%;
@@ -850,12 +864,17 @@ bulanan di tabel `periodic_reports`:
 
 **Dashboard › Infografis** (`/infographic`, izin `exec.view`; migrasi `051_infographic.sql`;
 `GET /api/exec/infographic?from&to&kind&outage`, `api/infographic.go`, `components/exec/Infographic.tsx`):
-infografis pemulihan kelistrikan satu halaman (dapat dicetak / disimpan PDF). Kepala memakai logo PLN di kiri dan
+infografis pemulihan kelistrikan satu halaman (dapat dicetak / disimpan PDF). Kepala (`components/exec/OrgBanner.tsx`, juga dipakai
+Dashboard › Keandalan & Operasi; nama UID/UP2D dari `GET /api/exec/org`) memakai logo PLN di kiri dan
 logo Danantara Indonesia di kanan (`frontend/public/brand/pln-logo.png`, `danantara-logo.png` berlatar transparan;
 folder `brand` dikecualikan dari middleware login).
 
 - Filter: jenis kejadian (Semua / Gangguan / Pemeliharaan / Bencana Alam, + MLS / Manuver bila ada), rentang
-  tanggal, satu nomor kejadian, muat ulang otomatis (mati / 1–10 menit; juga otomatis sesudah manuver).
+  tanggal, satu nomor kejadian, muat ulang otomatis: **Saat ada perubahan** (bawaan; penanda murah
+  `GET /api/exec/infographic/version` = versi tile + jumlah / id terakhir / aktif / selesai terakhir / wilayah tertunda
+  kejadian, diperiksa tiap 30 detik dan seketika sesudah event realtime `maneuver`, `switch.event`, `topology.rebuilt`,
+  `changeset.release`; data dimuat ulang hanya bila penandanya berganti), 1 / 2 / 5 / 10 menit (berkala + saat ada
+  perubahan), atau Mati (tidak ada pemeriksaan).
 - Satu event = kejadian induk + kejadian lanjutannya (sisa padam sesudah pemulihan sebagian). **Terdampak** = isi
   kejadian induk, **padam** = isi kejadian yang masih aktif, **nyala** = terdampak − padam, pemulihan % = nyala ÷
   terdampak. Kartu: jumlah event per jenis, beban (MW: alokasi penyulang bila tersedia, selain itu kontrak × faktor
@@ -863,10 +882,17 @@ folder `brand` dikecualikan dari middleware login).
 - **Prioritas pelanggan**: atribut SSOT baru `prioritas` (VVIP / VIP / KTT / Prioritas) pada tipe pelanggan;
   pelanggan TT dihitung KTT walau atribut kosong. Angkanya 0 sampai atribut diisi.
 - **Gardu UP3 terdampak** (gardu terdampak per poligon UP3), **peta kejadian** (titik penyebab per jenis, gardu induk
-  — kotak "GI": padam / pulih / induk yang menyuplai penyulang terdampak / lain —, gardu distribusi padam (berkedip dua keadaan 700 ms selama terlihat di layar) / nyala, serta saluran JTM / JTR / SR,
+  — kotak "GI": padam / pulih / induk yang menyuplai penyulang terdampak / lain —, gardu distribusi padam (berkedip dua keadaan 700 ms selama terlihat di layar) / nyala
+  berlabel kode mulai zoom 12 dan + nama gardu mulai zoom 16 (label bertabrakan disembunyikan, gardu padam didahulukan), serta saluran JTM / JTR / SR,
   trafo distribusi (simbol dua lingkaran), dan pelanggan yang sedang padam dari kejadian aktif terpilih — saluran tidak bertegangan yang menyentuh node terdampak,
   maks. 30.000 per jenis; JTR, SR, trafo distribusi, dan pelanggan tampil mulai zoom minimum tipenya di Pengaturan Layer,
-  mis. trafo z≥13, JTR z≥14, SR & pelanggan TR z≥15, ditulis di legenda), **log event terdampak** per GI / trafo GI / penyulang / zona / gardu distribusi / trafo distribusi
+  mis. trafo z≥13, JTR z≥14, SR & pelanggan TR z≥15, ditulis di legenda; label pelanggan padam = kode / IDPEL mulai
+  `label_zoom` tipenya di Pengaturan Layer (bawaan TT z14, TM & kolektif z16, TR z18; tidak lebih awal dari titiknya) dan nama
+  pelanggan di baris kedua satu tingkat zoom sesudahnya; trafo GI terdampak = bulatan bersimbol trafo merah / hijau).
+  Klik objek peta (GI, trafo GI, gardu, trafo, pelanggan, titik penyebab) → popup info seperti baris log: kode & nama, jenis,
+  GI (untuk trafo GI: GI terdekat ≤ 500 m) / gardu / penyulang induk, UP3, kapasitas atau daya, alamat, kondisi kini, dan riwayat
+  padam → nyala per event (`GET /api/exec/infographic/object?id&…` + filter yang sama); objek bertumpuk di satu titik dipilih lewat
+  tombol di popup. **Log event terdampak** per GI / trafo GI / penyulang / zona / gardu distribusi / trafo distribusi
   (gardu & kapasitas kVA) / pelanggan (nama, IDPEL/kode, gardu, daya) — waktu padam & nyala, durasi H:JJ:MM, wilayah,
   status; yang masih padam lebih dulu, jumlah total di judul tab). Log dimuat per halaman (10 / 25 / 50 baris) lewat
   `GET /api/exec/infographic/log?level&q&page&size` (+ filter yang sama) dengan pencarian nama / kode objek (gardu, trafo,

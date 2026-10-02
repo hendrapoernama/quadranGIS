@@ -431,6 +431,24 @@ func (s *Server) execManeuver(ctx context.Context, req maneuverReq, a maneuverAc
 		}
 	} else if !open {
 		closedOutages, _ = s.d.Power.CloseOutages(pctx, targetKind, targetID, wayEdge, mid, reportJSON, a.At)
+		// pemulihan lewat jalur lain (mis. menutup kubikel / tie penyulang lain sementara alat penyebab masih terbuka):
+		// kejadian aktif yang sebagian / seluruh nodenya kini bertegangan diakhiri pada manuver ini; sisa yang masih
+		// padam dicatat sebagai kejadian lanjutan (openContinuations) seperti pemulihan sebagian biasa
+		if ids, _ := s.d.Power.ActiveOutagesTouching(pctx, diff.NodesOn); len(ids) > 0 {
+			done := map[int64]bool{}
+			for _, id := range closedOutages {
+				done[id] = true
+			}
+			other := []int64{}
+			for _, id := range ids {
+				if !done[id] {
+					other = append(other, id)
+				}
+			}
+			if more, _ := s.d.Power.CloseOutageIDs(pctx, other, mid, reportJSON, a.At); len(more) > 0 {
+				closedOutages = append(closedOutages, more...)
+			}
+		}
 		if len(closedOutages) > 0 {
 			_ = s.d.Power.LinkManeuverOutage(pctx, mid, closedOutages[0])
 			// sisa padam (pemulihan sebagian): dicatat sebagai kejadian lanjutan per switch isolasi

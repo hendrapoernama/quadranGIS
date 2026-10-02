@@ -221,6 +221,36 @@ func (p *Power) CloseOutages(ctx context.Context, causeKind string, causeNodeID 
 	return collectIDs(rows)
 }
 
+// ActiveOutagesTouching mengembalikan kejadian padam aktif yang memuat salah satu node (mis. node yang baru nyala).
+func (p *Power) ActiveOutagesTouching(ctx context.Context, nodeIDs []int64) ([]int64, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := p.pool.Query(ctx, `SELECT id FROM outages WHERE ended_at IS NULL AND affected_nodes && $1::bigint[] ORDER BY id`, nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return collectIDs(rows)
+}
+
+// CloseOutageIDs menutup kejadian padam aktif tertentu (pemulihan lewat jalur lain, bukan oleh alat penyebabnya).
+func (p *Power) CloseOutageIDs(ctx context.Context, ids []int64, closeManeuverID int64, restored json.RawMessage, at *time.Time) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if len(restored) == 0 {
+		restored = json.RawMessage("{}")
+	}
+	rows, err := p.pool.Query(ctx, `UPDATE outages SET ended_at=GREATEST(started_at, COALESCE($4, now())), close_maneuver_id=$2, restored=$3
+		WHERE id = ANY($1::bigint[]) AND ended_at IS NULL RETURNING id`, ids, closeManeuverID, []byte(restored), at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return collectIDs(rows)
+}
+
 const outageCols = `id, kind, level, group_code, cause_node_id, cause_node_code, cause_node_type, way_edge_id, open_maneuver_id, close_maneuver_id,
 	started_at, ended_at, summary, restored, cardinality(affected_nodes), EXTRACT(EPOCH FROM COALESCE(ended_at, now()) - started_at), cause_kind, parent_id, regions`
 

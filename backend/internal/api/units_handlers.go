@@ -159,7 +159,8 @@ var logoTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/sv
 func (s *Server) branding(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	ok(c, gin.H{"name": s.d.Configs.Str("app.name", "QuadranGIS"), "description": s.d.Configs.Str("app.description", "GIS Kelistrikan"),
-		"has_logo": strings.HasPrefix(s.d.Configs.Str("app.logo", ""), "data:"), "logo_version": s.d.Configs.Int("app.logo_version", 0)})
+		"has_logo": strings.HasPrefix(s.d.Configs.Str("app.logo", ""), "data:"), "logo_version": s.d.Configs.Int("app.logo_version", 0),
+		"page_banner": s.d.Configs.Bool("app.page_banner", true)})
 }
 
 // GET /api/branding/logo (tanpa login)
@@ -195,12 +196,14 @@ func decodeDataURL(v string) (string, []byte, bool) {
 	return mime, data, true
 }
 
-// PUT /api/admin/branding {name, description, logo} — logo: data URL baru, "" = tidak diubah, "-" = hapus
+// PUT /api/admin/branding {name, description, logo, page_banner?} — logo: data URL baru, "" = tidak diubah, "-" = hapus;
+// page_banner: header di atas semua menu (kosong = tidak diubah)
 func (s *Server) brandingSave(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		Logo        string `json:"logo"`
+		PageBanner  *bool  `json:"page_banner"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		failT(c, http.StatusBadRequest, "common.bad_payload")
@@ -213,6 +216,10 @@ func (s *Server) brandingSave(c *gin.Context) {
 		return
 	}
 	items := []models.Config{{Key: "app.name", Value: req.Name}, {Key: "app.description", Value: req.Description}}
+	if req.PageBanner != nil {
+		items = append(items, models.Config{Key: "app.page_banner", Value: strconv.FormatBool(*req.PageBanner), ValueType: "bool", Group: "branding",
+			Description: "Tampilkan header (logo PLN, nama unit, judul menu, logo Danantara) di bagian atas semua menu"})
+	}
 	switch req.Logo {
 	case "":
 	case "-":
@@ -230,6 +237,6 @@ func (s *Server) brandingSave(c *gin.Context) {
 		return
 	}
 	p := s.person(c)
-	s.d.Audit.Log(&p.UserID, p.Username, "config.branding", "config", "app", gin.H{"name": req.Name, "logo_changed": req.Logo != ""}, clientIP(c))
+	s.d.Audit.Log(&p.UserID, p.Username, "config.branding", "config", "app", gin.H{"name": req.Name, "logo_changed": req.Logo != "", "page_banner": req.PageBanner}, clientIP(c))
 	s.branding(c)
 }

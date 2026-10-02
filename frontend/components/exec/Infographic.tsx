@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
@@ -11,8 +11,10 @@ import type { ReliabilityGroup } from '@/lib/types';
 import { Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import { fmtIdx, fmtRp } from './common';
-import { GI_COLOR, InfographicMap, KIND_COLOR, NET_COLOR, OFF_COLOR, ON_COLOR, type InfoGI, type InfoPoint, type OffNetwork } from './InfographicMap';
+import { custLabelZoom, GI_COLOR, InfographicMap, KIND_COLOR, NET_COLOR, OFF_COLOR, ON_COLOR, type InfoGI, type InfoPoint, type InfoTarget, type OffNetwork } from './InfographicMap';
 import { useInfoT } from './infographicI18n';
+import { usePageBanner } from '@/components/PageBanner';
+import { BigTile, CardTitle, Pill, SectionTitle, SplitCard } from './InfoWidgets';
 
 interface Count {
   terdampak: number;
@@ -63,7 +65,13 @@ interface InfoResp {
   to: string;
   at: string;
   org: { uid: string; up2d: string };
-  roots: { id: number; kind: string; cause_code: string; started_at: string; active: boolean }[];
+  roots: {
+    id: number;
+    kind: string;
+    cause_code: string;
+    started_at: string;
+    active: boolean;
+  }[];
   kinds: Record<string, number>;
   levels: Record<'beban' | 'gi' | 'trafo_gi' | 'penyulang' | 'zona' | 'gd' | 'pelanggan', Count>;
   rel: ReliabilityGroup;
@@ -73,7 +81,13 @@ interface InfoResp {
   /** jumlah baris log sebelum dibatasi 300 */
   log_totals?: Record<string, number>;
   customers_total: number;
-  map: { gd: InfoPoint[]; causes: InfoPoint[]; gi: InfoGI[]; truncated: boolean } & OffNetwork;
+  map: {
+    gd: InfoPoint[];
+    tgi?: InfoPoint[];
+    causes: InfoPoint[];
+    gi: InfoGI[];
+    truncated: boolean;
+  } & OffNetwork;
   pending_regions: number;
 }
 
@@ -85,10 +99,21 @@ const KIND_BOX: Record<string, string> = {
   MLS: 'bg-purple-100 text-purple-800',
   MANUVER: 'bg-gray-100 text-gray-700',
 };
-const PRIORITY_STYLE: Record<string, string> = { VVIP: 'bg-rose-600', VIP: 'bg-orange-500', KTT: 'bg-blue-600', Prioritas: 'bg-emerald-600' };
+const PRIORITY_STYLE: Record<string, string> = {
+  VVIP: 'bg-rose-600',
+  VIP: 'bg-orange-500',
+  KTT: 'bg-blue-600',
+  Prioritas: 'bg-emerald-600',
+};
 const LOG_TABS = ['gi', 'trafo_gi', 'penyulang', 'zona', 'gd', 'trafo', 'pelanggan'] as const;
 type LogTab = (typeof LOG_TABS)[number];
 const REFRESH_KEY = 'qgis_info_refresh';
+/** muat ulang otomatis: 0 = mati, -1 = saat ada perubahan, n = tiap n menit (+ saat ada perubahan) */
+const REFRESH_CHANGE = -1;
+const REFRESH_OPTIONS = [0, REFRESH_CHANGE, 1, 2, 5, 10];
+/** jeda pemeriksaan penanda perubahan (detik) & jenis event realtime yang memicu pemeriksaan seketika */
+const CHANGE_POLL_S = 30;
+const CHANGE_EVENTS = ['maneuver', 'switch.event', 'topology.rebuilt', 'changeset.release'];
 
 function localDate(d = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -111,7 +136,7 @@ export default function Infographic() {
   const { locale } = useT();
   const { resolved } = useTheme();
   const dark = resolved === 'dark';
-  const { appName } = useAuth();
+  const { appName, pageBanner, org } = useAuth();
   const toast = useToast();
   const [kind, setKind] = useState('');
   const [from, setFrom] = useState(() => localDate());
@@ -119,10 +144,11 @@ export default function Infographic() {
   const [outage, setOutage] = useState(0);
   const [refreshMin, setRefreshMin] = useState<number>(() => {
     try {
-      const v = Number(window.localStorage.getItem(REFRESH_KEY));
-      return Number.isFinite(v) && v >= 0 ? v || 0 : 2;
+      const raw = window.localStorage.getItem(REFRESH_KEY);
+      const v = Number(raw);
+      return raw !== null && REFRESH_OPTIONS.includes(v) ? v : REFRESH_CHANGE;
     } catch {
-      return 2;
+      return REFRESH_CHANGE;
     }
   });
   const [data, setData] = useState<InfoResp | null>(null);
@@ -130,7 +156,16 @@ export default function Infographic() {
   const [configs, setConfigs] = useState<Record<string, string> | null>(null);
   const [logTab, setLogTab] = useState<LogTab>('gi');
   const loc = locale === 'en' ? 'en-GB' : 'id-ID';
-  const fmtDT = (s: string | null | undefined) => (s ? new Date(s).toLocaleString(loc, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-');
+  const fmtDT = (s: string | null | undefined) =>
+    s
+      ? new Date(s).toLocaleString(loc, {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '-';
 
   useEffect(() => {
     api<{ configs: Record<string, string> }>('/api/config/public')
@@ -138,7 +173,16 @@ export default function Infographic() {
       .catch(() => setConfigs({}));
   }, []);
 
-  const query = useMemo(() => new URLSearchParams({ from, to, kind, outage: String(outage) }).toString(), [from, to, kind, outage]);
+  const query = useMemo(
+    () =>
+      new URLSearchParams({
+        from,
+        to,
+        kind,
+        outage: String(outage),
+      }).toString(),
+    [from, to, kind, outage],
+  );
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -153,20 +197,45 @@ export default function Infographic() {
     load();
   }, [load, locale]);
 
-  // muat ulang otomatis + realtime (manuver / energize) dengan jeda
+  // muat ulang otomatis. "Saat ada perubahan": penanda perubahan server (kejadian baru / berakhir / wilayah selesai
+  // dihitung, versi jaringan) diperiksa tiap 30 detik dan seketika sesudah manuver / perubahan jaringan; data dimuat
+  // ulang hanya bila penandanya berganti. Pilihan menit: dimuat ulang berkala dan juga saat ada perubahan.
+  const lastVersion = useRef('');
   useEffect(() => {
+    if (refreshMin === 0) return;
+    let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await api<{ version: string }>('/api/exec/infographic/version');
+        if (!alive) return;
+        const changed = lastVersion.current !== '' && r.version !== lastVersion.current;
+        lastVersion.current = r.version;
+        if (changed) load();
+      } catch {
+        /* koneksi putus: dicoba lagi pada pemeriksaan berikutnya */
+      }
+    };
     realtime.connect();
     const unsub = realtime.subscribe((ev) => {
-      if (!['maneuver', 'energized'].includes(ev.type) || timer) return;
+      if (!CHANGE_EVENTS.includes(ev.type) || timer) return;
+      // beri waktu backend menutup / membuka kejadian sesudah manuver
       timer = setTimeout(() => {
         timer = null;
-        load();
-      }, 4000);
+        check();
+      }, 3000);
     });
+    const onVisible = () => !document.hidden && check();
+    document.addEventListener('visibilitychange', onVisible);
+    check();
+    const poll = setInterval(check, CHANGE_POLL_S * 1000);
     const iv = refreshMin > 0 ? setInterval(load, refreshMin * 60000) : null;
     return () => {
+      alive = false;
       unsub();
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(poll);
       if (iv) clearInterval(iv);
       if (timer) clearTimeout(timer);
     };
@@ -194,36 +263,16 @@ export default function Infographic() {
     }, 300);
   };
 
-  const region = data?.org.uid || '';
+  // header bersama (layout): judul infografis + waktu kondisi; selalu ikut tercetak
+  const conditionText = `${it('condition_at')}: ${data ? new Date(data.at).toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'medium' }) : '-'}`;
+  // judul laporan infografis tetap memuat nama UID (seperti contoh PDF)
+  usePageBanner({ title: [it('title'), org.uid].filter(Boolean).join(' '), subtitle: conditionText, print: true });
+
   const kindTabs = ['', ...KINDS.filter((k) => k === 'GANGGUAN' || k === 'PEMELIHARAAN' || k === 'BENCANA ALAM' || (data?.kinds[k] || 0) > 0 || kind === k)];
 
   return (
     <div className="exec-scroll h-full overflow-y-auto bg-gray-100 p-3 md:p-4">
-      <div className="mx-auto max-w-[1800px] space-y-3">
-        {/* kepala */}
-        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-gradient-to-r from-teal-700 via-cyan-600 to-teal-600 px-4 py-3 text-white shadow">
-          <div className="order-1 flex items-center gap-2 md:min-w-[12rem]">
-            {/* logo PLN (aset statis public/brand/pln-logo.png) */}
-            <img src="/brand/pln-logo.png" alt="PLN" width={44} height={44} className="h-11 w-11 shrink-0 rounded-sm shadow ring-1 ring-white/50" />
-            <div className="leading-tight">
-              <div className="text-sm font-bold">{['PT. PLN (Persero)', data?.org.uid].filter(Boolean).join(' ')}</div>
-              <div className="text-[11px] opacity-90">{data?.org.up2d || ''}</div>
-            </div>
-          </div>
-          <div className="order-3 w-full text-center md:order-2 md:w-auto md:flex-1">
-            <h1 className="text-base font-bold uppercase tracking-wide md:text-xl">
-              {it('title')} {region}
-            </h1>
-            <div className="text-xs opacity-90">
-              {it('condition_at')}: {data ? new Date(data.at).toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'medium' }) : '-'}
-            </div>
-          </div>
-          {/* logo Danantara Indonesia (aset statis public/brand/danantara-logo.png); di ponsel sebaris dengan logo PLN */}
-          <div className="order-2 ml-auto flex justify-end md:order-3 md:ml-0 md:min-w-[12rem]">
-            <img src="/brand/danantara-logo.png" alt="Danantara Indonesia" width={116} height={32} className="h-7 w-auto md:h-8" />
-          </div>
-        </div>
-
+      <div className="space-y-3">
         {/* filter */}
         <div className="no-print flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap rounded-md border border-gray-300 bg-white p-0.5 text-xs">
@@ -241,13 +290,14 @@ export default function Infographic() {
             ))}
           </div>
           <div className="flex-1" />
+          {/* header disembunyikan (Konfigurasi): waktu kondisi tetap terlihat di baris filter */}
+          {!pageBanner && <span className="text-xs text-gray-500">{conditionText}</span>}
           <label className="flex items-center gap-1 text-xs text-gray-600">
             {it('auto_refresh')}
-            <select className="input w-24 py-1 text-xs" value={refreshMin} onChange={(e) => setRefresh(Number(e.target.value))}>
-              <option value={0}>{it('refresh_off')}</option>
-              {[1, 2, 5, 10].map((n) => (
+            <select className="input w-auto py-1 text-xs" value={refreshMin} onChange={(e) => setRefresh(Number(e.target.value))} title={it('refresh_hint')}>
+              {REFRESH_OPTIONS.map((n) => (
                 <option key={n} value={n}>
-                  {it('refresh_min', { n })}
+                  {n === 0 ? it('refresh_off') : n === REFRESH_CHANGE ? it('refresh_change') : it('refresh_min', { n })}
                 </option>
               ))}
             </select>
@@ -349,7 +399,11 @@ function InfoBody({
             <SectionTitle icon="alert" text={it('priority_title')} />
             <div className="grid grid-cols-2 gap-2">
               {['VVIP', 'VIP', 'KTT', 'Prioritas'].map((k) => {
-                const c = data.priority[k] || { terdampak: 0, padam: 0, nyala: 0 };
+                const c = data.priority[k] || {
+                  terdampak: 0,
+                  padam: 0,
+                  nyala: 0,
+                };
                 const p = pct(c);
                 return (
                   <div key={k} className={`rounded-lg p-2.5 text-white ${PRIORITY_STYLE[k]}`}>
@@ -431,11 +485,25 @@ function InfoBody({
                     {it(`map_gi_${r}`)}
                   </span>
                 ))}
+              {([true, false] as const)
+                .filter((a) => (data.map.tgi || []).some((x) => x.active === a))
+                .map((a) => (
+                  <span key={String(a)} className="flex items-center gap-1">
+                    <TgiMark color={a ? OFF_COLOR : ON_COLOR} />
+                    {it(a ? 'map_tgi_off' : 'map_tgi_on')}
+                  </span>
+                ))}
               {(['jtm', 'jtr', 'sr'] as const)
                 .filter((k) => data.map.lines.features.some((f) => f.properties.cls === k))
                 .map((k) => (
                   <span key={k} className="flex items-center gap-1">
-                    <span className="inline-block w-4 border-t-[3px]" style={{ borderColor: NET_COLOR[k], borderStyle: k === 'sr' ? 'dashed' : 'solid' }} />
+                    <span
+                      className="inline-block w-4 border-t-[3px]"
+                      style={{
+                        borderColor: NET_COLOR[k],
+                        borderStyle: k === 'sr' ? 'dashed' : 'solid',
+                      }}
+                    />
                     {it(`map_${k}_off`)}
                     {k !== 'jtm' && data.map.zoom?.[k] != null && <span className="text-gray-400">z≥{data.map.zoom[k]}</span>}
                   </span>
@@ -454,7 +522,12 @@ function InfoBody({
                 <span className="flex items-center gap-1">
                   <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: NET_COLOR.pelanggan }} />
                   {it('map_cust_off', { n: fmtNum(data.map.customers.length) })}
-                  <span className="text-gray-400">z≥{Math.min(...data.map.customers.map((c) => data.map.zoom?.[c.type_code] ?? 15))}</span>
+                  <span className="text-gray-400">
+                    z≥
+                    {Math.min(...data.map.customers.map((c) => data.map.zoom?.[c.type_code] ?? 15))}
+                    {' · '}
+                    {it('map_cust_label', { z: Math.min(...data.map.customers.map((c) => custLabelZoom(data.map, c.type_code))) })}
+                  </span>
                 </span>
               )}
               <span className="flex items-center gap-1">
@@ -469,8 +542,20 @@ function InfoBody({
           </div>
           {data.map.truncated && <div className="mb-1 text-[11px] text-amber-700">{it('map_truncated')}</div>}
           <div className="relative min-h-[24rem] flex-1 overflow-hidden rounded-md border border-gray-200">
-            {configs && <InfographicMap configs={configs} dark={dark} gd={data.map.gd} causes={data.map.causes} net={data.map} gi={data.map.gi} />}
+            {configs && (
+              <InfographicMap
+                configs={configs}
+                dark={dark}
+                gd={data.map.gd}
+                causes={data.map.causes}
+                net={data.map}
+                gi={data.map.gi}
+                tgi={data.map.tgi || []}
+                renderInfo={(ts, relayout) => <ObjectPopup targets={ts} query={query} it={it} relayout={relayout} />}
+              />
+            )}
           </div>
+          <div className="mt-1 text-[11px] text-gray-500">{it('map_click_hint')}</div>
         </div>
 
         <LogPanel query={query} at={data.at} totals={data.log_totals || {}} it={it} tab={logTab} setTab={setLogTab} />
@@ -491,14 +576,14 @@ function InfoBody({
             </span>
           </div>
         </div>
-        <LoadCurve events={data.events} from={data.from} to={data.to} at={data.at} />
+        <LoadCurve events={data.events || []} from={data.from} to={data.to} at={data.at} />
       </div>
 
       {/* indeks keandalan */}
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <BigTile cls="bg-rose-600" label={it('saidi')} value={fmtIdx(data.rel.saidi)} unit={it('saidi_unit')} />
         <BigTile cls="bg-cyan-600" label={it('saifi')} value={fmtIdx(data.rel.saifi)} unit={it('saifi_unit')} />
-        <BigTile cls="bg-orange-500" label={it('ens')} value={fmtNum(data.rel.ens_kwh, 2)} unit="kWh" />
+        <BigTile cls="bg-orange-600" label={it('ens')} value={fmtNum(data.rel.ens_kwh, 2)} unit="kWh" />
         <BigTile cls="bg-emerald-600" label={it('rupiah')} value={fmtRp(data.rel.ens_rp)} />
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
@@ -543,7 +628,12 @@ function InfoBody({
       {/* detail pelanggan */}
       <CustomersPanel query={query} at={data.at} it={it} fmtDT={fmtDT} />
 
-      <div className="py-2 text-center text-[11px] text-gray-500">{it('footer', { year: new Date(data.at).getFullYear(), org: [appName, data.org.up2d].filter(Boolean).join(' · ') })}</div>
+      <div className="py-2 text-center text-[11px] text-gray-500">
+        {it('footer', {
+          year: new Date(data.at).getFullYear(),
+          org: [appName, data.org.up2d].filter(Boolean).join(' · '),
+        })}
+      </div>
     </div>
   );
 }
@@ -694,7 +784,15 @@ function Pager({ res, size, setSize, page, go, it }: { res: LogPage | null; size
     <>
       {res?.truncated && <div className="mt-1 text-[11px] text-amber-700">{it('log_truncated')}</div>}
       <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[11px] text-gray-600">
-        <span className="flex-1">{res ? it('log_range', { from: fmtNum(from), to: fmtNum(to), total: fmtNum(res.total) }) : '…'}</span>
+        <span className="flex-1">
+          {res
+            ? it('log_range', {
+                from: fmtNum(from),
+                to: fmtNum(to),
+                total: fmtNum(res.total),
+              })
+            : '…'}
+        </span>
         <select className="input w-auto py-0.5 text-[11px]" value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label={it('log_page_size')}>
           {[10, 25, 50].map((n) => (
             <option key={n} value={n}>
@@ -708,7 +806,12 @@ function Pager({ res, size, setSize, page, go, it }: { res: LogPage | null; size
         <button className={btn} disabled={!res || res.page <= 1} onClick={() => go(page - 1)} aria-label={it('log_prev')} title={it('log_prev')}>
           ‹
         </button>
-        <span className="tabular-nums">{it('log_page', { p: fmtNum(res?.page ?? 1), n: fmtNum(res?.pages ?? 1) })}</span>
+        <span className="tabular-nums">
+          {it('log_page', {
+            p: fmtNum(res?.page ?? 1),
+            n: fmtNum(res?.pages ?? 1),
+          })}
+        </span>
         <button className={btn} disabled={!res || res.page >= res.pages} onClick={() => go(page + 1)} aria-label={it('log_next')} title={it('log_next')}>
           ›
         </button>
@@ -797,26 +900,200 @@ function CustomersPanel({ query, at, it, fmtDT }: { query: string; at: string; i
   );
 }
 
-function CardTitle({ icon, text }: { icon: string; text: string }) {
+/** Lambang trafo GI di legenda (sama dengan ikon peta: lingkaran berwarna, simbol trafo putih). */
+function TgiMark({ color }: { color: string }) {
   return (
-    <div className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
-      <Icon name={icon as any} size={13} />
-      <span className="truncate">{text}</span>
+    <svg width="14" height="14" viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx="10" cy="10" r="9.5" fill={color} stroke="#fff" strokeWidth="1" />
+      <circle cx="7.6" cy="10" r="3.6" fill="none" stroke="#fff" strokeWidth="1.4" />
+      <circle cx="12.4" cy="10" r="3.6" fill="none" stroke="#fff" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+interface ObjInfo {
+  id: number;
+  code: string;
+  name: string;
+  type_code: string;
+  type_name: string;
+  address: string;
+  power_va: number;
+  energized: boolean;
+  up3: string;
+  gi_code?: string;
+  gd_code: string;
+  feeder_code: string;
+  events: {
+    event_id: number;
+    kind: string;
+    started_at: string;
+    ended_at: string | null;
+    minutes: number;
+    active: boolean;
+  }[];
+}
+
+/** Kapasitas trafo / gardu (kVA, MVA bila besar). */
+function fmtCapacity(va: number): string {
+  return va >= 1e6 ? `${fmtNum(va / 1e6, va % 1e6 === 0 ? 0 : 1)} MVA` : `${fmtNum(va / 1000)} kVA`;
+}
+
+/** Label jenis objek peta untuk popup. */
+function targetLabel(t: InfoTarget, it: T): string {
+  if (t.layer.startsWith('cust-')) return it('obj_customer');
+  if (t.layer.startsWith('net-')) return it(`map_${t.cls || t.layer.slice(4)}_off`);
+  const m: Record<string, string> = { gi: it('gi'), tgi: it('trafo_gi'), gd: it('gd'), trafo: it('log_trafo'), causes: it('obj_cause') };
+  return m[t.layer] || t.layer;
+}
+
+/** Popup Peta Kejadian: beberapa objek di titik klik (mis. trafo di dalam gardu) dipilih lewat tombol, lalu info objek terpilih. */
+function ObjectPopup({ targets, query, it, relayout }: { targets: InfoTarget[]; query: string; it: T; relayout: () => void }) {
+  const [sel, setSel] = useState(0);
+  const t = targets[Math.min(sel, targets.length - 1)];
+  useEffect(() => {
+    relayout();
+  }, [sel, relayout]);
+  // lebar mengikuti lebar peta (--info-pop-w diisi InfographicMap), paling lebar 320 px
+  return (
+    <div className="w-[min(320px,var(--info-pop-w,320px))]">
+      {targets.length > 1 && (
+        <div className="mb-1.5 pr-5">
+          <div className="mb-1 text-[10px] text-gray-500">{it('obj_here', { n: targets.length })}</div>
+          <div className="flex flex-wrap gap-1" role="tablist">
+            {targets.map((x, i) => (
+              <button
+                key={`${x.layer}-${x.id}`}
+                type="button"
+                role="tab"
+                aria-selected={i === sel}
+                onClick={() => setSel(i)}
+                className={`max-w-[10rem] truncate rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                  i === sel ? 'border-teal-600 bg-teal-600 text-white' : 'border-gray-300 text-gray-700 hover:bg-gray-100'
+                }`}
+                title={`${targetLabel(x, it)} ${x.code || x.name || ''}`}
+              >
+                {targetLabel(x, it)}
+                {x.code || x.name ? ` · ${x.code || x.name}` : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <ObjectInfo key={`${t.layer}-${t.id}`} target={t} query={query} it={it} relayout={relayout} />
     </div>
   );
 }
 
-function SectionTitle({ icon, text, inline }: { icon: string; text: string; inline?: boolean }) {
-  return (
-    <h3 className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-gray-800 ${inline ? '' : 'mb-2'}`}>
-      <Icon name={icon as any} size={14} />
-      {text}
-    </h3>
-  );
-}
+/**
+ * Isi popup objek di Peta Kejadian: identitas, induk (gardu / penyulang), UP3, kapasitas / daya, alamat, kondisi kini,
+ * dan riwayat padam–nyala per event seperti baris Log Event Terdampak (periode & filter sama dengan halaman).
+ */
+function ObjectInfo({ target, query, it, relayout }: { target: InfoTarget; query: string; it: T; relayout: () => void }) {
+  const isNode = !target.layer.startsWith('net-') && target.target_kind !== 'edge';
+  const [info, setInfo] = useState<ObjInfo | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!isNode) return;
+    let alive = true;
+    api<ObjInfo>(`/api/exec/infographic/object?${query}&id=${target.id}`)
+      .then((r) => alive && setInfo(r))
+      .catch((e: any) => alive && setErr(e.message || String(e)));
+    return () => {
+      alive = false;
+    };
+  }, [isNode, query, target.id]);
+  useEffect(() => {
+    relayout();
+  }, [info, err, relayout]);
 
-function Pill({ cls, children }: { cls: string; children: React.ReactNode }) {
-  return <span className={`inline-block min-w-[2.25rem] rounded px-1.5 py-0.5 text-center text-[11px] font-semibold tabular-nums ${cls}`}>{children}</span>;
+  const isCust = target.layer.startsWith('cust-');
+  const label = targetLabel(target, it);
+  const code = info?.code || target.code;
+  const name = info?.name || target.name || '';
+  // pelanggan dikenali dari namanya (seperti log), objek lain dari kodenya
+  const title = (isCust ? name || code : code || name) || `#${target.id}`;
+  const sub = isCust ? (name ? code : '') : code && name && name !== code ? name : '';
+  const rows: [string, React.ReactNode][] = [];
+  if (target.role) rows.push([it('obj_role'), it(`map_gi_${target.role}`)]);
+  if (target.layer === 'causes' && target.kind) rows.push([it('obj_event'), `#${target.event_id ?? '-'} · ${it(`kind_${target.kind}`)}`]);
+  if (info) {
+    if (info.type_name) rows.push([it('obj_type'), info.type_name]);
+    if (info.gi_code) rows.push([it('gi'), info.gi_code]);
+    if (info.gd_code) rows.push([it('obj_gd'), info.gd_code]);
+    if (info.feeder_code) rows.push([it('obj_feeder'), info.feeder_code]);
+    if (info.up3) rows.push([it('up3'), info.up3]);
+    if (info.power_va > 0) rows.push(isCust ? [it('obj_power'), fmtVA(info.power_va)] : [it('obj_capacity'), fmtCapacity(info.power_va)]);
+    if (info.address) rows.push([it('obj_address'), info.address]);
+    rows.push([it('obj_now'), <StatusPill key="now" active={!info.energized} it={it} />]);
+  }
+
+  return (
+    <div className="text-xs text-gray-700">
+      <div className="pr-5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
+      <div className="break-words pr-5 font-semibold text-gray-900">{title}</div>
+      {sub && <div className="break-words text-[11px] text-gray-500">{sub}</div>}
+      {rows.length > 0 && (
+        <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+          {rows.map(([k, v]) => (
+            <React.Fragment key={k}>
+              <dt className="text-gray-500">{k}</dt>
+              <dd className="break-words text-gray-800">{v}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      )}
+      {isNode && !info && !err && (
+        <div className="mt-2 flex items-center gap-2 text-gray-500">
+          <Spinner size={12} /> {it('obj_loading')}
+        </div>
+      )}
+      {err && <div className="mt-2 text-red-700">{err}</div>}
+      {info && !(target.layer === 'causes' && info.events.length === 0) && (
+        <div className="mt-2 border-t border-gray-200 pt-1.5">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{it('obj_events', { n: fmtNum(info.events.length) })}</div>
+          {info.events.length === 0 ? (
+            <div className="text-gray-500">{it('obj_no_events')}</div>
+          ) : (
+            <div className="max-h-44 overflow-y-auto">
+              <table className="w-full text-[11px]">
+                <thead className="text-left text-[10px] uppercase text-gray-500">
+                  <tr>
+                    <th className="py-0.5 font-semibold">{it('obj_event')}</th>
+                    <th className="font-semibold">{it('log_time')}</th>
+                    <th className="font-semibold" title={it('log_duration_hint')}>
+                      {it('log_duration')}
+                    </th>
+                    <th className="font-semibold">{it('log_status')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {info.events.map((e) => (
+                    <tr key={e.event_id}>
+                      <td className="py-0.5 pr-1">
+                        <div className="font-medium text-gray-800">#{e.event_id}</div>
+                        <div className="text-[10px] text-gray-500">{it(`kind_${e.kind}`)}</div>
+                      </td>
+                      <td className="whitespace-nowrap pr-1 tabular-nums">
+                        <div className="text-red-700">{fmtShort(e.started_at)}</div>
+                        <div className={e.active ? 'text-gray-400' : 'text-emerald-700'}>{e.active ? '-' : fmtShort(e.ended_at)}</div>
+                      </td>
+                      <td className="pr-1 tabular-nums text-gray-700" title={it('log_duration_hint')}>
+                        {fmtDHM(e.minutes)}
+                      </td>
+                      <td>
+                        <StatusPill active={e.active} it={it} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StatusPill({ active, it }: { active: boolean; it: T }) {
@@ -826,40 +1103,17 @@ function StatusPill({ active, it }: { active: boolean; it: T }) {
 function LevelCard({ icon, title, c, it, fmt = (v: number) => fmtNum(v) }: { icon: string; title: string; c: Count; it: T; fmt?: (v: number) => string }) {
   const p = pct(c);
   return (
-    <div className="card flex flex-col gap-2 p-3">
-      <CardTitle icon={icon} text={title} />
-      <div className="truncate rounded-full bg-teal-600 px-2 py-1 text-center text-xs font-semibold text-white">
-        {it('affected')}: {fmt(c.terdampak)}
-      </div>
-      <div className="grid grid-cols-2 gap-1">
-        <div className="rounded-md bg-red-50 px-1 py-1.5 text-center text-red-700">
-          <div className="text-[10px] font-semibold uppercase">{it('off')}</div>
-          <div className="text-base font-bold leading-tight tabular-nums [overflow-wrap:anywhere]">{fmt(c.padam)}</div>
-        </div>
-        <div className="rounded-md bg-emerald-50 px-1 py-1.5 text-center text-emerald-700">
-          <div className="text-[10px] font-semibold uppercase">{it('on')}</div>
-          <div className="text-base font-bold leading-tight tabular-nums [overflow-wrap:anywhere]">{fmt(c.nyala)}</div>
-        </div>
-      </div>
-      <div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-red-100">
-          <div className="h-full bg-emerald-500" style={{ width: `${c.terdampak > 0 ? p : 0}%` }} />
-        </div>
-        <div className="mt-1 text-center text-[11px] text-gray-500">{c.terdampak > 0 ? it('recovery_on', { p: fmtNum(p, p > 0 && p < 100 ? 1 : 0) }) : `${it('recovery')}: -`}</div>
-      </div>
-    </div>
-  );
-}
-
-function BigTile({ cls, label, value, unit }: { cls: string; label: string; value: string; unit?: string }) {
-  return (
-    <div className={`rounded-lg px-4 py-3 text-white shadow ${cls}`}>
-      <div className="text-xs font-semibold uppercase tracking-wide opacity-90">{label}</div>
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-        <span className="text-xl font-bold tabular-nums md:text-2xl">{value}</span>
-        {unit && <span className="text-xs opacity-90">{unit}</span>}
-      </div>
-    </div>
+    <SplitCard
+      icon={icon}
+      title={title}
+      head={`${it('affected')}: ${fmt(c.terdampak)}`}
+      left={{ label: it('off'), value: fmt(c.padam) }}
+      right={{ label: it('on'), value: fmt(c.nyala) }}
+      caption={{
+        pct: c.terdampak > 0 ? p : 0,
+        text: c.terdampak > 0 ? it('recovery_on', { p: fmtNum(p, p > 0 && p < 100 ? 1 : 0) }) : `${it('recovery')}: -`,
+      }}
+    />
   );
 }
 
