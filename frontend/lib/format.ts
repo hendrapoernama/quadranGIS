@@ -40,6 +40,14 @@ export function fmtVA(va: number | undefined | null): string {
   return `${fmtNum(va, 0)} VA`;
 }
 
+/** Daya aktif dalam W -> W / kW / MW. */
+export function fmtW(w: number | undefined | null): string {
+  if (w === undefined || w === null || Number.isNaN(w)) return '-';
+  if (w >= 1e6) return `${fmtNum(w / 1e6, 2)} MW`;
+  if (w >= 1e3) return `${fmtNum(w / 1e3, 1)} kW`;
+  return `${fmtNum(w, 0)} W`;
+}
+
 export function fmtBytesMB(mb: number): string {
   if (mb >= 1024) return `${fmtNum(mb / 1024, 2)} GB`;
   return `${fmtNum(mb, 0)} MB`;

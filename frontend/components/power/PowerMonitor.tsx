@@ -7,8 +7,8 @@ import { useT } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { realtime } from '@/lib/ws';
 import { bboxOf, fmtArea, fmtDistance } from '@/lib/geo';
-import { fmtDate, fmtDuration, fmtNum, fmtTime, fmtVA } from '@/lib/format';
-import type { ComponentType, FeatureCollection, FeederStatus, GDStatus, GeoFeature, GroupReport, Outage, PowerSummary, RealtimeEvent, Reliability, ReliabilityGroup, TraceResponse } from '@/lib/types';
+import { fmtDate, fmtDuration, fmtNum, fmtTime, fmtVA, fmtW } from '@/lib/format';
+import type { ComponentType, FeatureCollection, FeederStatus, GDStatus, GeoFeature, GroupReport, LoadAllocFeeder, Outage, PowerSummary, RealtimeEvent, RealtimeLoadAlloc, Reliability, ReliabilityGroup, TraceResponse, TrafoStatus } from '@/lib/types';
 import { Badge, Button, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import MapCanvas from '@/components/map/MapCanvas';
@@ -20,6 +20,7 @@ import { CustomersPanel, type CustomerState } from './CustomersPanel';
 import { BoundaryControl, useBoundaryOverlay } from '@/components/map/BoundaryOverlay';
 import { OffBlinkDot, OffMarkerButton, useOffMarkers } from '@/components/map/useOffMarkers';
 import { FeederLegend, useFeederColoring } from '@/components/map/FeederColoring';
+import { FeederFilterButton, FeederFilterPanel, useFeederFilter } from '@/components/map/FeederFilter';
 import { ParallelBanner, useParallelFeeders } from '@/components/map/ParallelFeeders';
 import { OperateBox, type ManeuverBody } from './OperateBox';
 import { TracePanel, type TraceSeed } from '@/components/map/TracePanel';
@@ -38,10 +39,10 @@ import { AssetPhotos } from '@/components/field/AssetPhotos';
 import { OfflineAreaButton } from '@/components/field/OfflineAreaButton';
 import { PowerStateBadge } from '@/components/map/PowerStateBadge';
 
-type MonTab = 'outages' | 'soe' | 'trace' | 'gi' | 'feeders' | 'gardu' | 'customers' | 'export';
+type MonTab = 'outages' | 'soe' | 'trace' | 'gi' | 'feeders' | 'gardu' | 'trafo' | 'customers' | 'export';
 type OpsTab = 'flisr' | 'plans' | 'reports' | 'ai';
 type Tab = MonTab | OpsTab;
-const MON_TABS: MonTab[] = ['outages', 'soe', 'trace', 'gi', 'feeders', 'gardu', 'customers', 'export'];
+const MON_TABS: MonTab[] = ['outages', 'soe', 'trace', 'gi', 'feeders', 'gardu', 'trafo', 'customers', 'export'];
 const OPS_TABS: OpsTab[] = ['flisr', 'plans', 'reports', 'ai'];
 const isOps = (t: Tab): t is OpsTab => (OPS_TABS as Tab[]).includes(t);
 
@@ -150,6 +151,7 @@ export default function PowerMonitor() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [summary, setSummary] = useState<PowerSummary | null>(null);
+  const [loadAlloc, setLoadAlloc] = useState<RealtimeLoadAlloc | null>(null);
   const [graph, setGraph] = useState<Record<string, any> | null>(null);
   const [activeOutages, setActiveOutages] = useState(0);
   const [feedersOff, setFeedersOff] = useState<FeederStatus[]>([]);
@@ -173,6 +175,11 @@ export default function PowerMonitor() {
   const [garduState, setGarduState] = useState<'all' | 'off' | 'partial' | 'on'>('all');
   const [garduQ, setGarduQ] = useState('');
   const [garduQd, setGarduQd] = useState(''); // kata kunci setelah jeda ketik
+  const [trafo, setTrafo] = useState<TrafoStatus[]>([]);
+  const [trafoTotal, setTrafoTotal] = useState(0);
+  const [trafoState, setTrafoState] = useState<'all' | 'off' | 'partial' | 'on'>('all');
+  const [trafoQ, setTrafoQ] = useState('');
+  const [trafoQd, setTrafoQd] = useState('');
   const [tab, setTab] = useState<Tab>('outages');
   // tab aktif selalu terlihat walau bar tab lebih lebar dari panel (mis. dibuka dari widget rekap)
   useEffect(() => {
@@ -284,8 +291,9 @@ export default function PowerMonitor() {
 
   const loadSummary = useCallback(async () => {
     try {
-      const r = await api<{ summary: PowerSummary; active_outages: number; feeders_off: FeederStatus[]; graph: any }>('/api/power/summary');
+      const r = await api<{ summary: PowerSummary; active_outages: number; feeders_off: FeederStatus[]; graph: any; load_alloc?: RealtimeLoadAlloc }>('/api/power/summary');
       setSummary(r.summary);
+      setLoadAlloc(r.load_alloc ?? null);
       setActiveOutages(r.active_outages);
       setFeedersOff(r.feeders_off);
       setGraph(r.graph);
@@ -329,6 +337,21 @@ export default function PowerMonitor() {
       toast.push(e.message, 'error');
     }
   }, [garduState, garduQd, toast]);
+
+  useEffect(() => {
+    const tm = setTimeout(() => setTrafoQd(trafoQ.trim()), 300);
+    return () => clearTimeout(tm);
+  }, [trafoQ]);
+
+  const loadTrafo = useCallback(async () => {
+    try {
+      const r = await api<{ items: TrafoStatus[]; total: number }>(`/api/power/trafo?state=${trafoState}&q=${encodeURIComponent(trafoQd)}&limit=300`);
+      setTrafo(r.items);
+      setTrafoTotal(r.total);
+    } catch (e: any) {
+      toast.push(e.message, 'error');
+    }
+  }, [trafoState, trafoQd, toast]);
 
   const loadGI = useCallback(async () => {
     try {
@@ -400,6 +423,9 @@ export default function PowerMonitor() {
   useEffect(() => {
     if (loaded && tab === 'gardu') loadGardu();
   }, [loaded, tab, loadGardu]);
+  useEffect(() => {
+    if (loaded && tab === 'trafo') loadTrafo();
+  }, [loaded, tab, loadTrafo]);
 
   useEffect(() => {
     realtime.connect();
@@ -417,6 +443,7 @@ export default function PowerMonitor() {
           if (tab === 'gi') loadGI();
           if (tab === 'customers') setCustRefresh((x) => x + 1);
           if (tab === 'gardu') loadGardu();
+          if (tab === 'trafo') loadTrafo();
         }, 600);
         if (ev.type === 'maneuver' && ev.data?.message) toast.push(ev.data.message, ev.data.action === 'open' ? 'warning' : 'success');
         clearTimeout(opsTimer);
@@ -436,7 +463,7 @@ export default function PowerMonitor() {
       clearTimeout(opsTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadSummary, loadOutages, loadReliability, loadFeeders, loadGI, loadGardu, tab]);
+  }, [loadSummary, loadOutages, loadReliability, loadFeeders, loadGI, loadGardu, loadTrafo, tab]);
 
   useEffect(() => {
     mapRef.current?.setBasemap(basemap);
@@ -520,6 +547,8 @@ export default function PowerMonitor() {
     }
   };
   const feeder = useFeederColoring(mapRef, mapReady, colorBy === 'feeder');
+  const [fdrOpen, setFdrOpen] = useState(false);
+  const feederFilter = useFeederFilter(mapRef, mapReady, feeder.live, fdrOpen);
   const parallel = useParallelFeeders(mapRef, configs, mapReady);
   useEffect(() => {
     if (mapReady) mapRef.current?.setColorMode(colorBy);
@@ -591,6 +620,13 @@ export default function PowerMonitor() {
       [t('power.customers'), fmtNum(r.pelanggan)],
       [t('power.load'), fmtVA(r.beban_va)],
     ];
+    if (r.beban_alokasi) {
+      const a = r.beban_alokasi;
+      const src = Object.entries(a.sumber || {})
+        .map(([k, n]) => `${t(`power.src_${k as LoadAllocFeeder['sumber']}`)} ${n}`)
+        .join(', ');
+      cells.push([t('power.alloc_row'), `${fmtVA(a.va)} · ${fmtW(a.w)}${src ? ` (${src})` : ''}`]);
+    }
     return (
       <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5 text-[11px]">
         {cells.map(([k, v]) => (
@@ -651,6 +687,7 @@ export default function PowerMonitor() {
     const f = st.off > 0 ? 'off' : st.partial > 0 ? 'partial' : 'all';
     if (tb === 'feeders') setFeederState(f);
     if (tb === 'gardu') setGarduState(f);
+    if (tb === 'trafo') setTrafoState(f);
     if (tb === 'gi') setGiState(f);
     if (tb === 'customers') setCustState(f === 'off' ? 'off' : 'all');
   };
@@ -676,6 +713,7 @@ export default function PowerMonitor() {
       {tabBtn('gi', t('power.tab_gi'), s ? s.gi.off : 0)}
       {tabBtn('feeders', t('power.tab_feeders'), s ? s.penyulang.off + s.penyulang.partial : 0)}
       {tabBtn('gardu', t('power.tab_gardu'), s?.gd_state ? s.gd_state.off + s.gd_state.partial : 0)}
+      {tabBtn('trafo', t('power.tab_trafo'), s ? s.trafo_gd.off : 0)}
       {tabBtn('customers', t('power.tab_customers'), s ? s.pelanggan.off : 0)}
       {tabBtn('export', t('power.tab_export'))}
     </>
@@ -859,7 +897,10 @@ export default function PowerMonitor() {
                       <span title={t('rel.cust_min_hint')}>
                         {fmtNum(Math.round(o.customer_minutes || 0))} {t('rel.cust_min')}
                       </span>
-                      <span>ENS {fmtKWh(o.ens_kwh || 0)}</span>
+                      <span title={o.ens_basis ? t(`power.ens_basis_hint_${o.ens_basis}`, { kw: fmtNum(o.load_kw || 0, 1) }) : undefined}>
+                        ENS {fmtKWh(o.ens_kwh || 0)}
+                        {loadAlloc && o.ens_basis && <span className="ml-1 text-gray-500">({t(`power.ens_basis_${o.ens_basis}`)})</span>}
+                      </span>
                       <span>{fmtRp(o.ens_rp || 0)}</span>
                       {o.momentary && <span className="text-amber-700">{t('rel.momentary')}</span>}
                     </div>
@@ -1039,6 +1080,51 @@ export default function PowerMonitor() {
                 </ul>
               </div>
             )}
+            {tab === 'trafo' && (
+              <div className="space-y-2">
+                <div className="flex gap-1">
+                  <input className="input flex-1" placeholder={t('power.trafo_search')} value={trafoQ} onChange={(e) => setTrafoQ(e.target.value)} />
+                  <select className="input w-28" value={trafoState} onChange={(e) => setTrafoState(e.target.value as any)}>
+                    <option value="all">{t('power.filter_all')}</option>
+                    <option value="off">{t('power.off')}</option>
+                    <option value="partial">{t('power.partial')}</option>
+                    <option value="on">{t('power.on')}</option>
+                  </select>
+                </div>
+                <div className="text-[11px] text-gray-500">{t('power.trafo_count', { shown: fmtNum(trafo.length), total: fmtNum(trafoTotal) })}</div>
+                {trafo.length === 0 && <div className="py-4 text-center text-xs text-gray-500">{t('common.no_data')}</div>}
+                <ul className="space-y-1">
+                  {trafo.map((x) => (
+                    <li key={x.id} className="rounded border border-gray-200 px-2 py-1 text-xs">
+                      <div className="flex items-center gap-2">
+                        <button className="flex-1 truncate text-left font-medium text-brand-700 hover:underline" onClick={() => selectAndFly('node', x.id)} title={x.name}>
+                          {x.code || `#${x.id}`}
+                        </button>
+                        <span className="truncate text-gray-400">
+                          {x.gd_code}
+                          {x.feeder_code ? ` · ${x.feeder_code}` : ''}
+                        </span>
+                        {stateBadge(x.state)}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-gray-600">
+                        {x.kapasitas_kva > 0 && (
+                          <span>
+                            {t('power.capacity')} {fmtNum(x.kapasitas_kva)} kVA
+                          </span>
+                        )}
+                        <span>{t('power.routes_n', { n: fmtNum(x.jurusan) })}</span>
+                        <span>
+                          {t('power.customers')} {fmtNum(x.pelanggan - x.pelanggan_off)}/{fmtNum(x.pelanggan)}
+                        </span>
+                        <span>
+                          {t('power.load')} {fmtVA(x.beban_va - x.beban_off_va)}/{fmtVA(x.beban_va)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className={tab === 'soe' ? 'h-full' : 'hidden'}>
               <SOEPanel active={tab === 'soe'} onUnread={setSoeUnread} onSelect={selectAndFly} typeName={typeName} levelLabel={levelLabel} />
             </div>
@@ -1168,9 +1254,30 @@ export default function PowerMonitor() {
             <StateTile label={t('power.feeders')} c={s.penyulang} labels={stateLabels} onClick={() => openTab('feeders', s.penyulang)} />
             <StateTile label={t('power.zones')} c={s.zona} labels={stateLabels} />
             <StateTile label={t('power.gd')} c={s.gd_state} labels={stateLabels} onClick={() => openTab('gardu', s.gd_state)} />
-            <SumTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} />
+            <SumTile label={t('power.trafo_gd')} total={s.trafo_gd.total} off={s.trafo_gd.off} onClick={() => openTab('trafo', { off: s.trafo_gd.off, partial: 0 })} title={t('power.tab_trafo')} />
             <SumTile label={t('power.customers')} total={s.pelanggan.total} off={s.pelanggan.off} onClick={() => openTab('customers', { off: s.pelanggan.off, partial: 0 })} title={t('power.tab_customers')} />
-            <SumTile label={t('power.load')} total={s.beban_va} off={s.beban_off_va} format={fmtVA} />
+            {loadAlloc ? (
+              <SumTile
+                label={t('power.load_alloc')}
+                total={loadAlloc.total_va}
+                off={loadAlloc.off_va}
+                format={fmtVA}
+                title={t('power.load_alloc_hint', {
+                  off: fmtVA(loadAlloc.off_va),
+                  total: fmtVA(loadAlloc.total_va),
+                  offw: fmtW(loadAlloc.off_w),
+                  totalw: fmtW(loadAlloc.total_w),
+                  coff: fmtVA(s.beban_off_va),
+                  ctotal: fmtVA(s.beban_va),
+                  src:
+                    Object.entries(loadAlloc.sumber || {})
+                      .map(([k, n]) => `${t(`power.src_${k as LoadAllocFeeder['sumber']}`)} ${n}`)
+                      .join(', ') || '-',
+                })}
+              />
+            ) : (
+              <SumTile label={t('power.load')} total={s.beban_va} off={s.beban_off_va} format={fmtVA} />
+            )}
             <button
               className={`min-w-[5rem] flex-[0.8] basis-0 rounded-md border px-2 py-1 text-left hover:border-brand-600 ${activeOutages > 0 ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'}`}
               onClick={() => openTab('outages')}
@@ -1225,7 +1332,7 @@ export default function PowerMonitor() {
             <>
               <RelTile label="SAIDI" value={`${fmtIdx(rel.total.saidi)} ${t('rel.min_cust')}`} sub={t('rel.saidi_desc')} title={t('rel.saidi_hint')} />
               <RelTile label="SAIFI" value={`${fmtIdx(rel.total.saifi)} ${t('rel.times_cust')}`} sub={t('rel.saifi_desc')} title={t('rel.saifi_hint')} />
-              <RelTile label="ENS (kWh)" value={fmtKWh(rel.total.ens_kwh)} sub={t('rel.ens_desc')} title={t('rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })} />
+              <RelTile label="ENS (kWh)" value={fmtKWh(rel.total.ens_kwh)} sub={t('rel.ens_desc')} title={t(rel.params.load_basis === 'alokasi_penyulang' ? 'rel.ens_hint_alloc' : 'rel.ens_hint', { lf: rel.params.load_factor, pf: rel.params.power_factor })} />
               <RelTile
                 label="ENS (Rupiah)"
                 value={fmtRp(rel.total.ens_rp)}
@@ -1331,6 +1438,7 @@ export default function PowerMonitor() {
               </button>
             ))}
           </div>
+          <FeederFilterButton state={feederFilter} open={fdrOpen} onToggle={() => setFdrOpen(!fdrOpen)} />
           <OffMarkerButton state={offMarks} />
           <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('fdr.color_by')}>
             {(['status', 'feeder'] as const).map((v) => (
@@ -1395,6 +1503,7 @@ export default function PowerMonitor() {
         </div>
         <ParallelBanner items={parallel.items} mapRef={mapRef} />
         {mobile && colorBy === 'feeder' && <FeederLegend state={feeder} defaultOpen={false} normalLoops={parallel.normalLoops} />}
+        {fdrOpen && <FeederFilterPanel state={feederFilter} live={feeder.live} setLive={feeder.setLive} onClose={() => setFdrOpen(false)} />}
         {bndOpen && (
           <div className="w-64 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg">
             <BoundaryControl state={boundary} compact />

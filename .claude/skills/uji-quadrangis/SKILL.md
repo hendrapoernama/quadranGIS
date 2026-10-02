@@ -45,6 +45,14 @@ atau konfigurasi WAJIB dipulihkan (blok `finally` + pengawas waktu) dan jejaknya
   kepala GMB-03 `{"node_id":29,"action":"open","kind":"PEMELIHARAAN"}`. Seluruh GMB-03 kini disuplai GMB-05
   (±218 node dilimpahkan, tanpa kejadian padam). Pulihkan dengan urutan terbalik: tutup id 29, lalu buka
   kembali arah 2702648 (`"kind":"MANUVER"`). Cek `GET /api/power/feeder-colors` → `live_nodes` 0.
+- Snapshot atribut sebelum uji yang mengubah atribut: ambil kolom `properties` langsung dari DB
+  (`select properties from gis_nodes where id=...`). Di `GET /api/gis/features/node/:id` atribut SSOT ada di
+  `properties.properties`; `properties` tingkat atas berisi field turunan (penyulang, GI, section) yang akan
+  ikut tertulis bila dikirim balik lewat PUT.
+- Baca nilai konfigurasi asli (`GET /api/admin/configs`) sebelum mengubahnya; jangan menganggap nilainya
+  (mis. `gis.approval_enabled` di dev = `false`).
+- Perubahan `gis_nodes` lewat SQL langsung tidak terlihat oleh graf di memori (posisi normal, keanggotaan
+  penyulang). Setelah memperbaiki data lewat SQL, restart backend lalu tunggu log `[graph] penyulang:`.
 
 ## 4. Uji AI dengan server LLM tiruan
 
@@ -82,6 +90,9 @@ atau konfigurasi WAJIB dipulihkan (blok `finally` + pengawas waktu) dan jejaknya
   - jangan menunggu event `idle` MapLibre — tidak pernah terjadi selama ada penanda padam berkedip di layar;
   - ukur kinerja di dalam halaman (event `render`, jeda `setInterval`), bukan dari waktu `evaluate`;
   - `page.evaluate` bisa macet bermenit-menit, maka pasang pengawas waktu.
+- Meniru respons API dengan `page.route` memerlukan konteks `serviceWorkers: 'block'` (opsi ke-5 `login`);
+  tanpa itu permintaan lewat service worker PWA dan tidak tercegat. Cara ini menguji tampilan tanpa
+  memanuver jaringan.
 - Setiap UI baru dicek di mode gelap (`colorScheme: 'dark'` + `localStorage.qgis_theme='dark'`) dan terang.
   Kelas Tailwind baru yang berwarna perlu padanan `.dark` di `frontend/app/globals.css`.
 

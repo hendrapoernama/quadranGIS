@@ -72,6 +72,9 @@ type OutageRecord struct {
 	ENSkWh          float64 `json:"ens_kwh"`
 	ENSRp           float64 `json:"ens_rp"`
 	Momentary       bool    `json:"momentary"`
+	// beban dasar ENS: kontrak (daya kontrak × faktor beban × cos φ) | alokasi (beban penyulang dibagi ke pelanggan)
+	ENSBasis string  `json:"ens_basis,omitempty"`
+	LoadKW   float64 `json:"load_kw,omitempty"` // daya aktif padam yang dipakai ENS (kW)
 }
 
 func chunks(ids []int64, size int) [][]int64 {
@@ -299,6 +302,8 @@ type OffMarker struct {
 	OutageID   *int64     `json:"outage_id"`   // kejadian padam aktif tertua yang mencakup objek ini
 	OutageKind *string    `json:"outage_kind"` // GANGGUAN | PEMELIHARAAN | ...
 	Since      *time.Time `json:"since"`
+	Feeder     int64      `json:"fdr"`           // penyulang normal (0 = tanpa penyulang); untuk filter penyulang di peta
+	FeederLive *int64     `json:"fdl,omitempty"` // penyulang penyuplai saat ini bila berbeda dari normal
 }
 
 // OffMarkers mengembalikan objek bertipe tertentu yang sedang padam (tanpa objek rencana / tidak
@@ -309,8 +314,9 @@ func (p *Power) OffMarkers(ctx context.Context, types []string, limit int) ([]Of
 		return out, 0, nil
 	}
 	rows, err := p.pool.Query(ctx, `WITH off AS (
-		SELECT n.id, n.type_code, n.code, n.name, ST_X(n.geom) AS lng, ST_Y(n.geom) AS lat, count(*) OVER () AS total
-		  FROM gis_nodes n
+		SELECT n.id, n.type_code, n.code, n.name, ST_X(n.geom) AS lng, ST_Y(n.geom) AS lat, count(*) OVER () AS total,
+		       coalesce(n.feeder_id, 0) AS fdr, lf.feeder_id AS fdl
+		  FROM gis_nodes n LEFT JOIN gis_node_feeder_live lf ON lf.id = n.id
 		 WHERE NOT n.energized AND n.type_code = ANY($1::text[]) AND NOT `+SQLNonOperating+`
 		 ORDER BY n.id LIMIT $2),
 	act AS (
@@ -318,7 +324,7 @@ func (p *Power) OffMarkers(ctx context.Context, types []string, limit int) ([]Of
 		  FROM outages o CROSS JOIN LATERAL unnest(o.affected_nodes) AS a(nid)
 		 WHERE o.ended_at IS NULL AND a.nid IN (SELECT id FROM off)
 		 ORDER BY a.nid, o.started_at)
-	SELECT off.id, off.type_code, off.code, off.name, off.lng, off.lat, off.total, act.id, act.kind, act.started_at
+	SELECT off.id, off.type_code, off.code, off.name, off.lng, off.lat, off.total, act.id, act.kind, act.started_at, off.fdr, off.fdl
 	  FROM off LEFT JOIN act ON act.nid = off.id ORDER BY off.id`, types, limit)
 	if err != nil {
 		return nil, 0, err
@@ -327,7 +333,7 @@ func (p *Power) OffMarkers(ctx context.Context, types []string, limit int) ([]Of
 	total := 0
 	for rows.Next() {
 		var m OffMarker
-		if err := rows.Scan(&m.ID, &m.TypeCode, &m.Code, &m.Name, &m.Lng, &m.Lat, &total, &m.OutageID, &m.OutageKind, &m.Since); err != nil {
+		if err := rows.Scan(&m.ID, &m.TypeCode, &m.Code, &m.Name, &m.Lng, &m.Lat, &total, &m.OutageID, &m.OutageKind, &m.Since, &m.Feeder, &m.FeederLive); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, m)
@@ -493,7 +499,12 @@ type ReliabilityParams struct {
 	LoadFactor       float64 `json:"load_factor"`
 	PowerFactor      float64 `json:"power_factor"`
 	SustainedMinutes float64 `json:"sustained_minutes"`
+	// kontrak | alokasi_penyulang (monitoring.load_basis): ENS memakai beban teralokasi yang dibekukan saat padam dimulai
+	LoadBasis string `json:"load_basis"`
 }
+
+// LoadBasisAlloc adalah nilai monitoring.load_basis untuk alokasi beban penyulang ke pelanggan.
+const LoadBasisAlloc = "alokasi_penyulang"
 
 // ReliabilityGroup adalah akumulasi indeks untuk satu kelompok (total / level / jenis).
 type ReliabilityGroup struct {
@@ -512,6 +523,9 @@ func ApplyReliability(o *OutageRecord, from, to time.Time, rp ReliabilityParams)
 	var sum struct {
 		Customers int     `json:"pelanggan"`
 		LoadVA    float64 `json:"beban_va"`
+		Alloc     *struct {
+			W float64 `json:"w"`
+		} `json:"beban_alokasi"`
 	}
 	_ = json.Unmarshal(o.Summary, &sum)
 	end := time.Now()
@@ -532,7 +546,11 @@ func ApplyReliability(o *OutageRecord, from, to time.Time, rp ReliabilityParams)
 	o.Customers = sum.Customers
 	o.Momentary = o.ParentID == nil && o.EndedAt != nil && o.DurationSec/60 < rp.SustainedMinutes
 	o.CustomerMinutes = float64(sum.Customers) * minutes
-	o.ENSkWh = sum.LoadVA / 1000 * rp.LoadFactor * rp.PowerFactor * minutes / 60
+	o.ENSBasis, o.LoadKW = "kontrak", sum.LoadVA/1000*rp.LoadFactor*rp.PowerFactor
+	if rp.LoadBasis == LoadBasisAlloc && sum.Alloc != nil {
+		o.ENSBasis, o.LoadKW = "alokasi", sum.Alloc.W/1000
+	}
+	o.ENSkWh = o.LoadKW * minutes / 60
 	o.ENSRp = o.ENSkWh * rp.TariffRpPerKWh
 }
 

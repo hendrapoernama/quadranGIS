@@ -3,10 +3,12 @@ package gis
 import (
 	"container/heap"
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +65,7 @@ type Graph struct {
 	sumFeed  []FeederStatus
 	sumGD    []GDStatus
 	sumSec   map[int64]SectionStat // kunci: id switch kepala zona / gardu / kepala penyulang
+	sumBase  map[int64]float64     // daya kontrak pelanggan beroperasi per penyulang penyuplai saat ini (0 = tanpa penyulang)
 	sumAt    time.Time
 
 	bulkN map[int64]uint32   // jumlah pelanggan node pelanggan kolektif (hanya node ber-flagBulk)
@@ -231,6 +234,7 @@ type nodeRow struct {
 	loadVA      float64
 	openWays    []int64
 	normal      *string
+	normalWays  *string  // atribut normal_open_ways (LBS multi-arah): JSON array id saluran yang normalnya terbuka
 	zone        *string  // atribut pembatas_zona (alat switching)
 	cust        *float64 // atribut jumlah_pelanggan (pelanggan kolektif)
 	nonOp       bool     // status_operasi rencana / tidak operasi / bongkar: bukan sink, dilewati rekap
@@ -302,6 +306,7 @@ const nodeLoadSQL = `SELECT n.id, n.type_code, n.status, n.energized,
 	CASE WHEN t.is_sink AND NOT ` + SQLNonOperating + ` THEN COALESCE(qgis_num(n.properties->>'daya_va'), qgis_num(n.properties->>'daya_kva')*1000, qgis_num(n.properties->>'daya_mva')*1000000, $1) ELSE 0 END,
 	CASE WHEN t.is_switch AND cardinality(n.open_ways) > 0 THEN n.open_ways ELSE NULL END,
 	CASE WHEN t.is_switch THEN n.properties->>'normal' ELSE NULL END,
+	CASE WHEN t.is_switch AND jsonb_typeof(n.properties->'normal_open_ways') = 'array' THEN n.properties->>'normal_open_ways' ELSE NULL END,
 	CASE WHEN t.is_switch THEN n.properties->>'pembatas_zona' ELSE NULL END,
 	CASE WHEN t.is_sink AND NOT ` + SQLNonOperating + ` THEN qgis_num(n.properties->>'jumlah_pelanggan') ELSE NULL END,
 	` + SQLNonOperating + `, COALESCE(n.feeder_id, 0)
@@ -311,6 +316,28 @@ const nodeLoadSQL = `SELECT n.id, n.type_code, n.status, n.energized,
 // Rencana, Non aktif, Tidak operasi, atau Bongkar (mis. gardu rencana, gardu / pelanggan INACTIVE di GDB, pelanggan tanpa SR). Tidak dihitung di rekap nyala / padam
 // (gardu, trafo, pelanggan, beban, SAIDI / SAIFI, wilayah) dan tampil abu-abu di peta.
 const SQLNonOperating = `(n.properties ? 'status_operasi' AND lower(n.properties->>'status_operasi') IN ('rencana', 'non aktif', 'nonaktif', 'tidak operasi', 'bongkar'))`
+
+// parseWays membaca atribut normal_open_ways (JSON array id saluran); ok = atribut ada.
+func parseWays(raw *string) (ids []int64, ok bool) {
+	if raw == nil {
+		return nil, false
+	}
+	var v []any
+	if json.Unmarshal([]byte(*raw), &v) != nil {
+		return nil, false
+	}
+	for _, x := range v {
+		switch t := x.(type) {
+		case float64:
+			ids = append(ids, int64(t))
+		case string:
+			if n, err := strconv.ParseInt(t, 10, 64); err == nil {
+				ids = append(ids, n)
+			}
+		}
+	}
+	return ids, true
+}
 
 func waysSet(ids []int64) map[int64]struct{} {
 	if len(ids) == 0 {
@@ -361,7 +388,7 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	for rows.Next() {
 		var id int64
 		var r nodeRow
-		if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp, &r.feeder); err != nil {
+		if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.normalWays, &r.zone, &r.cust, &r.nonOp, &r.feeder); err != nil {
 			rows.Close()
 			return err
 		}
@@ -374,6 +401,13 @@ func (g *Graph) Load(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		if len(r.openWays) > 0 {
 			openWays[id] = waysSet(r.openWays)
+		}
+		// arah normal LBS multi-arah: atribut normal_open_ways bila ada; bila tidak, posisi saat dimuat
+		if nw, ok := parseWays(r.normalWays); ok {
+			if len(nw) > 0 {
+				normalWays[id] = waysSet(nw)
+			}
+		} else if len(r.openWays) > 0 {
 			normalWays[id] = waysSet(r.openWays)
 		}
 	}
@@ -441,7 +475,7 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 		for rows.Next() {
 			var id int64
 			var r nodeRow
-			if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.zone, &r.cust, &r.nonOp, &r.feeder); err != nil {
+			if err := rows.Scan(&id, &r.typ, &r.status, &r.energized, &r.loadVA, &r.openWays, &r.normal, &r.normalWays, &r.zone, &r.cust, &r.nonOp, &r.feeder); err != nil {
 				rows.Close()
 				return err
 			}
@@ -490,14 +524,22 @@ func (g *Graph) Refresh(ctx context.Context, pool *pgxpool.Pool, nodeIDs, edgeID
 			g.setNonOpLocked(id, r.nonOp)
 			if len(r.openWays) > 0 {
 				g.openWays[id] = waysSet(r.openWays)
+			} else {
+				delete(g.openWays, id)
+			}
+			if nw, ok := parseWays(r.normalWays); ok {
+				// atribut normal_open_ways (mis. ditetapkan dari posisi aktual) selalu diikuti
+				if len(nw) > 0 {
+					g.normalOpenWays[id] = waysSet(nw)
+				} else {
+					delete(g.normalOpenWays, id)
+				}
+			} else if len(r.openWays) > 0 {
 				if _, ok := g.normalOpenWays[id]; !ok || old == nil {
 					g.normalOpenWays[id] = waysSet(r.openWays)
 				}
-			} else {
-				delete(g.openWays, id)
-				if old == nil {
-					delete(g.normalOpenWays, id)
-				}
+			} else if old == nil {
+				delete(g.normalOpenWays, id)
 			}
 		} else {
 			delete(g.nodes, id)
@@ -1399,13 +1441,16 @@ type GroupSummary struct {
 	TrafoGD     int            `json:"trafo_gd"`
 	Customers   int            `json:"pelanggan"`
 	LoadVA      float64        `json:"beban_va"`
+	// daya kontrak terdampak per penyulang penyuplai (bagian padam: penyulang normal); kunci 0 = tanpa penyulang
+	LoadByFeeder map[int64]float64 `json:"beban_per_penyulang,omitempty"`
 }
 
 // Summarize merangkum node-node (dan jumlah edge) per group kelistrikan.
 func (g *Graph) Summarize(nodeIDs []int64, edges int) GroupSummary {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	s := GroupSummary{Nodes: len(nodeIDs), Edges: edges, CountByType: map[string]int{}, GI: []int64{}, TrafoGI: []int64{}, ParentGI: []int64{}, Feeders: []int64{}, Zones: []int64{}}
+	s := GroupSummary{Nodes: len(nodeIDs), Edges: edges, CountByType: map[string]int{}, GI: []int64{}, TrafoGI: []int64{}, ParentGI: []int64{}, Feeders: []int64{}, Zones: []int64{},
+		LoadByFeeder: map[int64]float64{}}
 	giIdx, hasGI := g.typeIndex["gi"]
 	trafoIdx, hasTrafo := g.typeIndex["trafo_gi"]
 	gdIdx, hasGD := g.typeIndex["gd"]
@@ -1435,6 +1480,7 @@ func (g *Graph) Summarize(nodeIDs []int64, edges int) GroupSummary {
 		if n.sink() {
 			s.Customers += g.custLocked(id, n)
 			s.LoadVA += float64(n.loadVA)
+			s.LoadByFeeder[g.liveOfLocked(id)] += float64(n.loadVA)
 		}
 		if n.feeder != 0 {
 			feeders[n.feeder] = struct{}{}
@@ -1614,6 +1660,7 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 	lvSwitch := map[int64]int64{}        // switch jurusan TR -> jurusan
 	raks := []int64{}
 	s := PowerSummary{At: time.Now(), DistDirty: g.distDirty}
+	base := map[int64]float64{}
 	feed := make(map[int64]*FeederStatus, len(g.feeders))
 	for h, fi := range g.feeders {
 		feed[h] = &FeederStatus{Head: h, GI: fi.GI, TrafoGI: fi.TrafoGI}
@@ -1689,6 +1736,7 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 			c := g.custLocked(id, n)
 			s.Customers.Total += c
 			s.LoadVA += float64(n.loadVA)
+			base[g.liveOfLocked(id)] += float64(n.loadVA)
 			if !on {
 				s.Customers.Off += c
 				s.LoadOffVA += float64(n.loadVA)
@@ -1872,8 +1920,22 @@ func (g *Graph) PowerSummary() (PowerSummary, []FeederStatus) {
 		}
 		sec[id] = x
 	}
-	g.sumCache, g.sumFeed, g.sumGD, g.sumSec, g.sumAt = &s, list, gdList, sec, time.Now()
+	g.sumCache, g.sumFeed, g.sumGD, g.sumSec, g.sumBase, g.sumAt = &s, list, gdList, sec, base, time.Now()
 	return s, list
+}
+
+// FeederContractVA mengembalikan daya kontrak pelanggan beroperasi per penyulang penyuplai saat ini (bagian yang
+// dilimpahkan lewat manuver ikut penyulang penyuplainya; bagian padam ikut penyulang normal), dari cache ringkasan.
+// Penyebut alokasi beban penyulang ke pelanggan. Kunci 0 = pelanggan tanpa penyulang.
+func (g *Graph) FeederContractVA() map[int64]float64 {
+	g.PowerSummary()
+	g.sumMu.Lock()
+	defer g.sumMu.Unlock()
+	out := make(map[int64]float64, len(g.sumBase))
+	for k, v := range g.sumBase {
+		out[k] = v
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------

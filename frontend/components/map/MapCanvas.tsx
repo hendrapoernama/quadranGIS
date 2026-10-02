@@ -17,6 +17,7 @@ import {
   baseFilters,
   buildLayers,
   energizedExpr,
+  feederIdExpr,
   offClusterRadius,
   offMarkerLayers,
   typeFilter,
@@ -104,6 +105,9 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
   const feederStyle = useRef<FeederStyle>({ colors: {}, live: true, highlight: null });
   const visibleCodes = useRef<string[] | null>(null);
   const energyFilter = useRef<'all' | 'on' | 'off'>('all');
+  const feederFilter = useRef<{ ids: Set<number>; live: boolean } | null>(null);
+  /** id penyulang sebuah objek (properti tile / penanda: fdr normal, fdl penyuplai saat ini bila berbeda) */
+  const feederOf = (pr: { fdr?: number | null; fdl?: number | null }, live: boolean) => Number(live && pr.fdl != null ? pr.fdl : pr.fdr ?? 0);
   const { t, pick } = useT();
   const i18n = useRef({ t, pick });
   i18n.current = { t, pick };
@@ -134,7 +138,9 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     if (!src) return;
     const { t: tt } = i18n.current;
     const features: GeoFeature[] = [];
+    const ff = feederFilter.current;
     for (const it of parData.current || []) {
+      if (ff && !ff.ids.has(it.a.id) && !ff.ids.has(it.b.id)) continue;
       const label = tt('par.map_label', { a: it.a.code || `#${it.a.id}`, b: it.b.code || `#${it.b.id}` });
       const spots = it.ties.length > 0 ? it.ties.map((x) => ({ c: [x.lng, x.lat] as Coord, id: x.id })) : [{ c: [it.meet.lng, it.meet.lat] as Coord, id: 0 }];
       for (const sp of spots) features.push(pt(sp.c, { label, node_id: sp.id }));
@@ -169,7 +175,9 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     const src = mapRef.current?.getSource(OFF_SOURCE) as GeoJSONSource | undefined;
     if (!src) return;
     const codes = visibleCodes.current ? new Set(visibleCodes.current) : null;
-    const items = energyFilter.current === 'on' ? [] : (offData.current || []).filter((m) => !codes || codes.has(m.type_code));
+    const ff = feederFilter.current;
+    const items =
+      energyFilter.current === 'on' ? [] : (offData.current || []).filter((m) => (!codes || codes.has(m.type_code)) && (!ff || ff.ids.has(feederOf(m, ff.live))));
     offShown.current = items;
     // pembaruan berkala dengan isi sama tidak mengisi ulang sumber (cluster tidak dihitung ulang)
     const key = items.map((m) => `${m.id}:${m.outage_id ?? ''}:${m.lng},${m.lat}`).join('|');
@@ -230,11 +238,13 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
     const parts: any[] = [];
     if (visibleCodes.current) parts.push(typeFilter(visibleCodes.current));
     if (energyFilter.current !== 'all') parts.push(['==', energizedExpr(), energyFilter.current === 'on']);
+    const ff = feederFilter.current;
+    if (ff) parts.push(['in', feederIdExpr(ff.live), ['literal', Array.from(ff.ids)]]);
     for (const id of typeFilteredLayers) {
       if (!map.getLayer(id)) continue;
       const all = [...(baseFilters[id] ? [baseFilters[id]] : []), ...parts];
-      // kepadatan tidak punya status: disembunyikan saat memfilter padam
-      if ((id === 'density' || id === 'density-label') && energyFilter.current === 'off') all.push(['!', true]);
+      // kepadatan tidak punya status & penyulang: disembunyikan saat memfilter padam / penyulang
+      if ((id === 'density' || id === 'density-label') && (energyFilter.current === 'off' || ff)) all.push(['!', true]);
       map.setFilter(id, all.length === 0 ? null : all.length === 1 ? all[0] : ['all', ...all]);
     }
     renderOff();
@@ -998,6 +1008,12 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         parData.current = items;
         renderPar();
       },
+      setFeederFilter: (ids, live) => {
+        feederFilter.current = ids && ids.length > 0 ? { ids: new Set(ids), live } : null;
+        offKey.current = null;
+        applyFilters();
+        renderPar();
+      },
       setFeederStyle: (st) => {
         feederStyle.current = { ...feederStyle.current, ...st };
         const map = mapRef.current;
@@ -1010,7 +1026,7 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(props, ref) {
         const cnt = new Map<number, number>();
         for (const f of map.queryRenderedFeatures({ layers: ['edges', 'nodes', 'nodes-symbol'].filter((l) => map.getLayer(l)) })) {
           const pr = f.properties || {};
-          const id = Number(live && pr.fdl != null ? pr.fdl : pr.fdr ?? 0);
+          const id = feederOf(pr, live);
           if (id) cnt.set(id, (cnt.get(id) || 0) + 1);
         }
         return Array.from(cnt, ([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count);

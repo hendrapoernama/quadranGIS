@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 261f5261-5265-4074-9b49-c76938cb617f
-  modified: 2026-09-27T01:41:26.738Z
+  modified: 2026-09-30T06:22:22.501Z
 ---
 
 Usulan fitur lanjutan yang disampaikan 27 Sep 2026 dan diminta disimpan pengguna ("simpan ke memori"). Belum ada yang dipilih untuk dikerjakan.
@@ -22,9 +22,11 @@ Pendukung: 9. integrasi AMI/meter pintar (last gasp); 10. versi & riwayat peruba
 
 Sudah dibangun sejak daftar dibuat: #10 (alur persetujuan editing); #6 (lokasi gangguan dari arus relai + impedansi, panel di FLISR, migrasi 039; parameter sumber default 500 MVA / NGR 40 ohm belum dikonfirmasi pengguna); sebagian #8 (susut gardu → kWh pelanggan bulanan, lihat [[quadrangis-customer-losses]]; pemisahan teknis/non-teknis & target P2TL belum); sebagian #1 (load profile SCADA/AMR via Kafka, tanpa status alat/trip); sebagian #7 (prakiraan & N-1, tanpa hosting capacity PLTS). Juga menu Master Data › Data Aset (hirarki GI → pelanggan), Dashboard › Keandalan & Operasi, Master Data › Titik SCADA.
 
+Sejak 30 Sep 2026 ada daftar kebutuhan baru yang lebih rinci dari pengguna (SCADA, CMMS, aset register, executive reporting) yang mencakup #1, #4, dan #5 di atas; lihat [[quadrangis-scada-cmms-requirements]].
+
 Rekomendasi urutan yang disampaikan: mulai dari #2 (Work Order, menyambung laporan gangguan + FLISR + menu Lapangan), lalu #1 (SCADA) bila sumber data tersedia.
 
-Pekerjaan terbuka dari fitur sebelumnya: menu Dokumentasi & deck presentasi (artifact Slides https://claude.ai/artifact/1mGd4Wu1ra1xBXTEiKQ61p, 31 slide, generator di scratchpad deck-v2/gen.py) sudah diperbarui 27 Sep 2026 untuk semua fitur s.d. menu Dashboard & Titik SCADA; berkas docs/Presentasi QuadranGIS.pptx di repo masih versi lama sampai diunduh ulang; uji PWA di ponsel nyata dengan HTTPS bersertifikat resmi; commit & push ke GitHub belum dilakukan (menunggu permintaan pengguna).
+Pekerjaan terbuka dari fitur sebelumnya: menu Dokumentasi & deck presentasi (artifact Slides https://claude.ai/artifact/1mGd4Wu1ra1xBXTEiKQ61p) diperbarui 2 Okt 2026 menjadi 38 slide (versi 8): slide Pembaruan & Perbaikan Okt 2026, penyulang, posisi normal, impor GDB, beban padam, Kafka; nama menu baru; nomor halaman ditulis manual di footer tiap slide (skrip pembaruan di scratchpad sesi c6f0a2fc deck-v3/build.py, foto deck-shots/); berkas docs/Presentasi QuadranGIS.pptx di repo masih versi lama sampai diunduh ulang; uji PWA di ponsel nyata dengan HTTPS bersertifikat resmi; commit & push ke GitHub belum dilakukan (menunggu permintaan pengguna).
 
 **Why:** pengguna ingin daftar ini tersedia untuk dipilih di sesi berikutnya.
 

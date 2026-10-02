@@ -46,8 +46,8 @@ func (s *Server) gdbImportStart(c *gin.Context) {
 			"Tag is required: letters, digits, dot, underscore, hyphen (max 40)."))
 		return
 	}
-	if s.gdb.Running() {
-		fail(c, http.StatusConflict, pick(c, "Impor lain sedang berjalan.", "Another import is running."))
+	if s.gdb.Busy() {
+		fail(c, http.StatusConflict, pick(c, "Impor lain sedang berjalan atau menunggu tinjauan.", "Another import is running or awaiting review."))
 		return
 	}
 	f, err := os.CreateTemp("", "gdbimp-*.zip")
@@ -73,7 +73,7 @@ func (s *Server) gdbImportStart(c *gin.Context) {
 	if err != nil {
 		os.Remove(f.Name())
 		if errors.Is(err, gdbimport.ErrBusy) {
-			fail(c, http.StatusConflict, pick(c, "Impor lain sedang berjalan.", "Another import is running."))
+			fail(c, http.StatusConflict, pick(c, "Impor lain sedang berjalan atau menunggu tinjauan.", "Another import is running or awaiting review."))
 			return
 		}
 		handleErr(c, err)
@@ -81,6 +81,62 @@ func (s *Server) gdbImportStart(c *gin.Context) {
 	}
 	s.d.Audit.Log(&p.UserID, p.Username, "gdb.import", "gdb_import", tag, gin.H{"file": c.Query("name"), "bytes": n, "options": opt}, clientIP(c))
 	c.JSON(http.StatusAccepted, job)
+}
+
+// GET /api/admin/gdb-import/changes?action=&kind=&type=&q=&offset=&limit= — daftar perbedaan pratinjau yang sedang ditinjau
+func (s *Server) gdbImportChanges(c *gin.Context) {
+	f := gdbimport.ChangeFilter{Action: c.Query("action"), Kind: c.Query("kind"), Type: c.Query("type"), Q: c.Query("q"),
+		Offset: queryInt(c, "offset", 0), Limit: queryInt(c, "limit", 100)}
+	items, total, err := s.gdb.Changes(c.Request.Context(), f)
+	if errors.Is(err, gdbimport.ErrNoReview) {
+		fail(c, http.StatusConflict, pick(c, "Tidak ada impor yang menunggu tinjauan.", "No import is awaiting review."))
+		return
+	}
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	ok(c, gin.H{"items": items, "total": total})
+}
+
+// POST /api/admin/gdb-import/apply {conflict: keep|gdb, deletes: bool} — terapkan pratinjau per objek
+func (s *Server) gdbImportApply(c *gin.Context) {
+	var body gdbimport.ApplyOptions
+	if err := c.ShouldBindJSON(&body); err != nil {
+		failT(c, http.StatusBadRequest, "common.bad_payload")
+		return
+	}
+	if body.Conflict != "gdb" {
+		body.Conflict = "keep"
+	}
+	job, err := s.gdb.Apply(body)
+	if errors.Is(err, gdbimport.ErrNoReview) {
+		fail(c, http.StatusConflict, pick(c, "Tidak ada impor yang menunggu tinjauan.", "No import is awaiting review."))
+		return
+	}
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	p := s.person(c)
+	s.d.Audit.Log(&p.UserID, p.Username, "gdb.apply", "gdb_import", job.Tag, gin.H{"options": body, "preview": job.Preview}, clientIP(c))
+	c.JSON(http.StatusAccepted, job)
+}
+
+// POST /api/admin/gdb-import/cancel — batalkan pratinjau (jaringan tidak berubah)
+func (s *Server) gdbImportCancel(c *gin.Context) {
+	job, err := s.gdb.Cancel()
+	if errors.Is(err, gdbimport.ErrNoReview) {
+		fail(c, http.StatusConflict, pick(c, "Tidak ada impor yang menunggu tinjauan.", "No import is awaiting review."))
+		return
+	}
+	if err != nil {
+		handleErr(c, err)
+		return
+	}
+	p := s.person(c)
+	s.d.Audit.Log(&p.UserID, p.Username, "gdb.cancel", "gdb_import", job.Tag, nil, clientIP(c))
+	ok(c, job)
 }
 
 // GET /api/admin/gdb-import/status — job yang sedang / terakhir berjalan (sejak server hidup)
@@ -105,7 +161,7 @@ func (s *Server) gdbImportDelete(c *gin.Context) {
 	res, err := s.gdb.Delete(c.Request.Context(), tag, apply)
 	switch {
 	case errors.Is(err, gdbimport.ErrBusy):
-		fail(c, http.StatusConflict, pick(c, "Impor sedang berjalan.", "An import is running."))
+		fail(c, http.StatusConflict, pick(c, "Impor sedang berjalan atau menunggu tinjauan.", "An import is running or awaiting review."))
 		return
 	case errors.Is(err, gdbimport.ErrNotFound):
 		fail(c, http.StatusNotFound, pick(c, "Batch impor tidak ditemukan.", "Import batch not found."))

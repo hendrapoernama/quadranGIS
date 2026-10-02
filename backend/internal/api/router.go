@@ -172,6 +172,8 @@ func NewRouter(d *Deps) *gin.Engine {
 	ge.POST("/edges/:id/split", s.gisSplitEdge)
 	ge.POST("/nodes/:id/merge", s.gisMergeAtJunction)
 	ge.POST("/topology/rebuild", s.topologyRebuild)
+	ge.GET("/normal-deviations", s.gisNormalDeviations)
+	ge.POST("/normal-positions", s.gisSetNormalPositions)
 
 	// paket perubahan (alur persetujuan editing): lihat = penyusun / penyetuju / perilis
 	gc := authed.Group("/gis/changesets")
@@ -295,6 +297,9 @@ func NewRouter(d *Deps) *gin.Engine {
 	ex := authed.Group("/exec")
 	ex.Use(middleware.RequirePermission("exec.view"))
 	ex.GET("/dashboard", s.execDashboard)
+	ex.GET("/infographic", s.execInfographic)
+	ex.GET("/infographic/log", s.execInfographicLog)
+	ex.GET("/infographic/customers", s.execInfographicCustomers)
 	ex.GET("/regions", s.execRegions)
 	ex.GET("/regions/:id", s.execRegion)
 	ex.POST("/regions/recompute", middleware.RequirePermission("exec.report"), s.execRecomputeRegions)
@@ -324,6 +329,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	pw.GET("/gi", s.powerGI)
 	pw.GET("/customers", s.powerCustomers)
 	pw.GET("/gardu", s.powerGardu)
+	pw.GET("/trafo", s.powerTrafo)
 	pw.GET("/outages", s.powerOutages)
 	pw.GET("/outages/:id", s.powerOutage)
 	pw.GET("/maneuvers", s.powerManeuvers)
@@ -377,6 +383,9 @@ func NewRouter(d *Deps) *gin.Engine {
 	// impor Esri File Geodatabase (ZIP) → jaringan
 	adm.POST("/gdb-import", middleware.RequirePermission("admin.config"), s.gdbImportStart)
 	adm.GET("/gdb-import/status", middleware.RequirePermission("admin.config"), s.gdbImportStatus)
+	adm.GET("/gdb-import/changes", middleware.RequirePermission("admin.config"), s.gdbImportChanges)
+	adm.POST("/gdb-import/apply", middleware.RequirePermission("admin.config"), s.gdbImportApply)
+	adm.POST("/gdb-import/cancel", middleware.RequirePermission("admin.config"), s.gdbImportCancel)
 	adm.GET("/gdb-import/batches", middleware.RequirePermission("admin.config"), s.gdbImportBatches)
 	adm.DELETE("/gdb-import/batches/:tag", middleware.RequirePermission("admin.config"), s.gdbImportDelete)
 

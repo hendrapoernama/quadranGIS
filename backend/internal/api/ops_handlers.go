@@ -981,6 +981,7 @@ func (s *Server) openContinuations(ctx context.Context, closed []int64, maneuver
 			if report.Customers == 0 {
 				continue
 			}
+			report.Alloc = s.allocateLoad(ctx, sum.LoadByFeeder, time.Now())
 			rj, _ := json.Marshal(report)
 			cn, _ := s.d.Power.NodeCodes(ctx, []int64{iso})
 			c := cn[iso]

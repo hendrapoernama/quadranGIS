@@ -9,7 +9,15 @@
 - [Alur persetujuan editing](quadrangis-approval-workflow.md) — edit peta via paket perubahan (draf→rilis) sejak 27 Sep 2026; belum ada akun supervisor/manajer; cara uji & pulihkan
 - [Susut gardu → pelanggan](quadrangis-customer-losses.md) — impor kWh tagihan bulanan (27 Sep 2026); keputusan lag BLTH & kebutuhan idpel GIS belum dikonfirmasi
 - [Impor GDB Kramat Jati](quadrangis-gdb-kjt-import.md) — tag KJT-05082026 (28 Sep 2026), menu Administrasi › Impor GDB, keterbatasan data sumber
+- [Alokasi beban penyulang](quadrangis-load-allocation.md) — monitoring.load_basis kontrak|alokasi_penyulang (2 Okt 2026); dibekukan per kejadian, ENS; KJT belum ada data SCADA penyulang
+- [Impor GDB bertahap](quadrangis-gdb-import-sync.md) — pratinjau perbandingan + penerapan per objek (id tetap) sejak 1 Okt 2026; kunci/baseline, hasil uji, belum di server
 - [Integrasi Kafka energize/de-energize](quadrangis-kafka-switch.md) — topik scada.switch.events, execManeuver bersama, log switch_events; uji di REC-GMB-02-05 & pulihkan
 - [Penanda padam & batasan AI](quadrangis-off-markers-ai-scope.md) — kedip 2 keadaan GD/trafo GI + cluster merah; ai.scope_strict belum diuji ke model asli
-- [Pewarnaan per penyulang & paralel](quadrangis-feeder-coloring-plan.md) — Normal/Aktual di Pusat Operasi, Editor, SLD + penanda paralel (29 Sep 2026); 103 loop normal data KJT
+- [Pewarnaan per penyulang & paralel](quadrangis-feeder-coloring-plan.md) — Normal/Aktual di Pusat Operasi, Editor, SLD + penanda paralel (29 Sep 2026); filter penyulang Pusat Operasi & Editor, tab Normal posisi aktual→normal (2 Okt 2026); 103 loop normal data KJT
+- [Batas editing per UP3 (tunda)](quadrangis-edit-scope-plan.md) — review 2 Okt 2026: unit kerja pengguna + aturan lintas batas → level atas; 5 keputusan menunggu pengguna
+- [Filter tipe Pusat Operasi (tunda)](quadrangis-ops-type-filter-plan.md) — [Semua | Tipe ▾ | Nyala | Padam]; direview 30 Sep 2026, jangan dikerjakan sebelum diminta
+- [Deploy server 10.3.187.7](quadrangis-server-deploy.md) — https://10.3.187.7 sejak 30 Sep 2026; override compose, DB tersaring tanpa simulasi, cara deploy ulang, server bersama sync_ems.py
+- [Kebutuhan SCADA/CMMS/Aset/Executive](quadrangis-scada-cmms-requirements.md) — modul 1/2/5/6 (30 Sep 2026): status per butir (3 ada / 6 sebagian / 9 belum), urutan usulan, pertanyaan terbuka
+- [Infografis pemulihan](quadrangis-infographic.md) — Dashboard › Infografis (2 Okt 2026) dari PDF UP2D; atribut prioritas baru, definisi terdampak/padam/nyala, judul dari UID
+- [Nama menu peta](quadrangis-menu-names.md) — 2 Okt 2026: Map Editor → Peta Kelistrikan, Editor Peta Jaringan → Peta Jaringan (/map); memori lama pakai nama lama
 - [Lokasi memori & skill](quadrangis-claude-setup.md) — memori di .claude/memory (autoMemoryDirectory di settings.local.json), skill proyek di .claude/skills

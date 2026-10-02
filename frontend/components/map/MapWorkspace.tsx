@@ -18,17 +18,20 @@ import { SearchBox } from './SearchBox';
 import { BoundaryControl, useBoundaryOverlay } from './BoundaryOverlay';
 import { OffMarkerCheckbox, useOffMarkers } from './useOffMarkers';
 import { FeederLegend, useFeederColoring } from './FeederColoring';
+import { EDITOR_FEEDERS_KEY, FeederFilterButton, FeederFilterPanel, useFeederFilter } from './FeederFilter';
 import { ParallelBanner, useParallelFeeders } from './ParallelFeeders';
 import { LayerPanel } from './LayerPanel';
+import NormalPositionsPanel from './NormalPositionsPanel';
 import { FeaturePanel } from './FeaturePanel';
 import { ChangesPanel } from './ChangesPanel';
 import { TracePanel, type TraceSeed } from './TracePanel';
 import { ExchangePanel } from './ExchangePanel';
 import { modeLabel, type BasemapKind, type BasemapPref, type ColorMode, type ConnectedEdge, type DrawMode, type MapHandle, type MeasureResult } from './types';
 
-type Tab = 'layers' | 'feature' | 'trace' | 'data' | 'changes';
+type Tab = 'layers' | 'feature' | 'trace' | 'data' | 'changes' | 'normal';
 const BASEMAP_KEY = 'qgis_basemap';
 const CS_KEY = 'qgis_changeset';
+const COLOR_KEY = 'qgis_editor_color_by';
 
 function readBasemapPref(): BasemapPref {
   try {
@@ -78,7 +81,23 @@ export default function MapWorkspace() {
   const [lastEvent, setLastEvent] = useState<string>('');
   const [helpOpen, setHelpOpen] = useState(false);
   const [measure, setMeasure] = useState<MeasureResult | null>(null);
-  const [colorMode, setColorMode] = useState<ColorMode>('type');
+  // pewarnaan peta (per tipe / nyala-padam / per penyulang), disimpan per browser, terpisah dari Pusat Operasi
+  const [colorMode, setColorModeState] = useState<ColorMode>(() => {
+    try {
+      const v = window.localStorage.getItem(COLOR_KEY);
+      return v === 'status' || v === 'feeder' ? v : 'type';
+    } catch {
+      return 'type';
+    }
+  });
+  const setColorMode = useCallback((v: ColorMode) => {
+    setColorModeState(v);
+    try {
+      window.localStorage.setItem(COLOR_KEY, v);
+    } catch {
+      /* penyimpanan browser tidak tersedia */
+    }
+  }, []);
   const [area, setArea] = useState<[number, number][] | null>(null);
 
   const canEdit = has('gis.edit');
@@ -288,10 +307,17 @@ export default function MapWorkspace() {
     mapRef.current?.setSelected(null);
   };
 
-  // ?select=node:123 (mis. dari halaman monitoring): pilih & arahkan peta ke objek tersebut
+  // ?select=node:123 (mis. dari halaman monitoring): pilih & arahkan peta ke objek tersebut;
+  // ?at=lng,lat (mis. objek baru di pratinjau impor GDB yang belum punya id): arahkan peta ke titik itu
   useEffect(() => {
     if (!loaded) return;
-    const q = new URLSearchParams(window.location.search).get('select');
+    const params = new URLSearchParams(window.location.search);
+    const at = (params.get('at') || '').split(',').map(Number);
+    if (at.length === 2 && at.every(Number.isFinite)) {
+      const d = 0.0004;
+      setTimeout(() => mapRef.current?.fitBBox([at[0] - d, at[1] - d, at[0] + d, at[1] + d]), 600);
+    }
+    const q = params.get('select');
     if (!q) return;
     const [k, idStr] = q.split(':');
     const fid = Number(idStr);
@@ -529,6 +555,8 @@ export default function MapWorkspace() {
   const offMarks = useOffMarkers(mapRef, configs, mapReady);
   const feeder = useFeederColoring(mapRef, mapReady, colorMode === 'feeder');
   const parallel = useParallelFeeders(mapRef, configs, mapReady);
+  const [fdrOpen, setFdrOpen] = useState(false);
+  const feederFilter = useFeederFilter(mapRef, mapReady, feeder.live, fdrOpen, EDITOR_FEEDERS_KEY);
 
   // ------------------------------------------------------------ trace
   const onTraceResult = useCallback((r: TraceResponse | null) => {
@@ -593,6 +621,25 @@ export default function MapWorkspace() {
     >
       {label}
     </button>
+  );
+  // filter penyulang + warna peta: di baris pencarian (desktop) atau baris sendiri (ponsel)
+  const viewBar = (
+    <div className="flex w-fit shrink-0 flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
+      <FeederFilterButton state={feederFilter} open={fdrOpen} onToggle={() => setFdrOpen(!fdrOpen)} />
+      <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs" role="group" aria-label={t('fdr.color_by')}>
+        {(['type', 'status', 'feeder'] as const).map((v) => (
+          <button
+            key={v}
+            className={`px-2.5 py-1 ${colorMode === v ? 'bg-brand-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+            onClick={() => setColorMode(v)}
+            aria-pressed={colorMode === v}
+            title={t('fdr.color_by')}
+          >
+            {v === 'type' ? t('fdr.by_type') : v === 'status' ? t('fdr.by_status') : t('fdr.by_feeder')}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 
   return (
@@ -659,7 +706,9 @@ export default function MapWorkspace() {
             >
               <Icon name="info" size={18} />
             </button>
+            {!mobile && viewBar}
           </div>
+          {mobile && viewBar}
           <div className={`w-fit max-w-md rounded-md px-2 py-1 text-xs shadow ${mode.kind === 'select' ? 'bg-white/90 text-gray-600' : 'bg-amber-100 text-amber-900'}`}>
             {modeText}
             {mode.kind !== 'select' && (
@@ -669,6 +718,7 @@ export default function MapWorkspace() {
             )}
           </div>
           <ParallelBanner items={parallel.items} mapRef={mapRef} />
+          {fdrOpen && <FeederFilterPanel state={feederFilter} live={feeder.live} setLive={feeder.setLive} onClose={() => setFdrOpen(false)} note={t('fdr.filter_edit_note')} />}
           {mobile && colorMode === 'feeder' && <FeederLegend state={feeder} defaultOpen={false} normalLoops={parallel.normalLoops} />}
           {helpOpen && (
             <div className="w-[26rem] max-w-[calc(100vw-6rem)] rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-800 shadow-xl">
@@ -741,6 +791,7 @@ export default function MapWorkspace() {
               {canTrace && tabBtn('trace', t('map.tab_trace'))}
               {tabBtn('data', t('map.tab_data'))}
               {approval && (canEdit || viewCs > 0) && tabBtn('changes', t('cs.tab'))}
+              {canEdit && tabBtn('normal', t('np.tab'))}
             </>
           )}
           <button className="p-2 text-gray-500 hover:text-gray-800" onClick={() => setPanelOpen(!panelOpen)} aria-label={t('map.collapse_panel')}>
@@ -830,6 +881,30 @@ export default function MapWorkspace() {
                     return;
                   }
                   mapRef.current?.refreshTiles();
+                  api('/api/gis/topology/status').then(setGraph).catch(() => {});
+                }}
+              />
+            )}
+            {tab === 'normal' && canEdit && (
+              <NormalPositionsPanel
+                canEdit={canEdit}
+                csQuery={csq}
+                feederIds={feederFilter.ids}
+                typeName={typeName}
+                onSelect={(id) => {
+                  select('node', id).then((f) => {
+                    const b = f ? bboxOf([f]) : null;
+                    if (b) mapRef.current?.fitBBox(b);
+                  });
+                }}
+                onApplied={(changesetId) => {
+                  if (changesetId) {
+                    if (changesetId !== csId) setCsId(changesetId);
+                    setViewCs(0);
+                    setCsRefresh((x) => x + 1);
+                    return;
+                  }
+                  setTimeout(() => mapRef.current?.refreshTiles(), 6000);
                   api('/api/gis/topology/status').then(setGraph).catch(() => {});
                 }}
               />

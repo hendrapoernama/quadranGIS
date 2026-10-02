@@ -124,6 +124,8 @@ type groupReport struct {
 	ParentGICodes []gis.CodeName `json:"parent_gi"`
 	FeederCodes   []gis.CodeName `json:"penyulang"`
 	ZoneCodes     []gis.CodeName `json:"zona"`
+	// beban padam teralokasi dari beban penyulang (dibekukan saat padam dimulai; lihat load_alloc.go)
+	Alloc *loadAlloc `json:"beban_alokasi,omitempty"`
 }
 
 func (s *Server) buildGroupReport(ctx context.Context, sum gis.GroupSummary) groupReport {
@@ -387,6 +389,13 @@ func (s *Server) execManeuver(ctx context.Context, req maneuverReq, a maneuverAc
 	}
 	sum := s.d.Graph.Summarize(affectedNodes, affectedEdges)
 	report := s.buildGroupReport(pctx, sum)
+	if open && len(affectedNodes) > 0 {
+		at := time.Now()
+		if a.At != nil {
+			at = *a.At
+		}
+		report.Alloc = s.allocateLoad(pctx, sum.LoadByFeeder, at)
+	}
 	reportJSON, _ := json.Marshal(report)
 	channel := a.Channel
 	m := gis.ManeuverRecord{TargetKind: targetKind, NodeID: targetID, NodeCode: code, NodeType: typeCode, Action: req.Action, WayEdgeID: wayEdge,
@@ -534,7 +543,11 @@ func (s *Server) powerSummary(c *gin.Context) {
 		off = off[:20]
 	}
 	s.fillFeederCodes(c.Request.Context(), off)
-	ok(c, gin.H{"summary": sum, "active_outages": active, "feeders_off": off, "graph": s.d.Graph.Status()})
+	res := gin.H{"summary": sum, "active_outages": active, "feeders_off": off, "graph": s.d.Graph.Status(), "load_basis": s.loadBasis()}
+	if s.loadBasis() == gis.LoadBasisAlloc {
+		res["load_alloc"] = s.realtimeLoadAlloc(c.Request.Context())
+	}
+	ok(c, res)
 }
 
 const offMarkerLimit = 20000
@@ -981,6 +994,7 @@ func (s *Server) reliabilityParams() gis.ReliabilityParams {
 		LoadFactor:       s.d.Configs.Float("reliability.load_factor", 0.6),
 		PowerFactor:      s.d.Configs.Float("reliability.power_factor", 0.85),
 		SustainedMinutes: s.d.Configs.Float("reliability.sustained_minutes", 5),
+		LoadBasis:        s.loadBasis(),
 	}
 }
 
@@ -1182,6 +1196,74 @@ func (s *Server) powerManeuvers(c *gin.Context) {
 		return
 	}
 	ok(c, gin.H{"items": items})
+}
+
+// GET /api/power/trafo?state=all|on|partial|off&q=&limit= — trafo distribusi (Pusat Operasi › tab Trafo Distribusi)
+func (s *Server) powerTrafo(c *gin.Context) {
+	all := s.d.Graph.TrafoStatuses()
+	state := c.Query("state")
+	limit := queryInt(c, "limit", 200)
+	if limit <= 0 || limit > 2000 {
+		limit = 200
+	}
+	list := make([]gis.TrafoStatus, 0, len(all))
+	for _, x := range all {
+		if state != "" && state != "all" && x.State != state {
+			continue
+		}
+		list = append(list, x)
+	}
+	gis.SortTrafoStatuses(list)
+	ctx := c.Request.Context()
+	if q := strings.TrimSpace(c.Query("q")); q != "" {
+		// cari lewat index kode/nama/kode SSOT, lalu irisan dengan daftar status
+		hits, err := s.d.Features.Search(ctx, q, 100)
+		if err != nil {
+			handleErr(c, err)
+			return
+		}
+		want := map[int64]bool{}
+		for _, h := range hits {
+			if h.Kind == "node" && h.TypeCode == "trafo_distribusi" {
+				want[h.ID] = true
+			}
+		}
+		filtered := list[:0]
+		for _, x := range list {
+			if want[x.ID] {
+				filtered = append(filtered, x)
+			}
+		}
+		list = filtered
+	}
+	total := len(list)
+	if len(list) > limit {
+		list = list[:limit]
+	}
+	ids := make([]int64, 0, len(list)*4)
+	tids := make([]int64, 0, len(list))
+	for _, x := range list {
+		ids = append(ids, x.ID, x.GD, x.Feeder, x.GI)
+		tids = append(tids, x.ID)
+	}
+	names, _ := s.d.Power.NodeCodes(ctx, ids)
+	kva, _ := s.d.Power.NodeKVA(ctx, tids)
+	for i := range list {
+		if n, ok := names[list[i].ID]; ok {
+			list[i].Code, list[i].Name = n.Code, n.Name
+		}
+		if n, ok := names[list[i].GD]; ok {
+			list[i].GDCode = n.Code
+		}
+		if n, ok := names[list[i].Feeder]; ok {
+			list[i].FeederCode = n.Code
+		}
+		if n, ok := names[list[i].GI]; ok {
+			list[i].GICode = n.Code
+		}
+		list[i].CapacityKVA = kva[list[i].ID]
+	}
+	ok(c, gin.H{"items": list, "total": total})
 }
 
 // GET /api/power/gardu?state=all|on|partial|off&q=&limit=

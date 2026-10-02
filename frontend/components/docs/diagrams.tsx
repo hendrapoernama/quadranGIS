@@ -94,7 +94,7 @@ export function ArchitectureDiagram() {
         <Band x={438} w={400} label="APLIKASI" tone="app" />
         <Band x={864} w={306} label="DATA & LAYANAN" tone="data" />
 
-        <Box x={24} y={74} w={172} h={170} tone="client" title="Browser" lines={['Editor Peta Jaringan', 'Pusat Operasi', 'Single Line Diagram', 'Aliran Daya · AI', 'Dokumentasi']} />
+        <Box x={24} y={74} w={172} h={170} tone="client" title="Browser" lines={['Peta Jaringan', 'Pusat Operasi', 'Single Line Diagram', 'Aliran Daya · AI', 'Dokumentasi']} />
         <Box x={24} y={268} w={172} h={104} tone="client" title="QGIS / ArcGIS" lines={['GeoJSON (edit & impor)', 'File GDB (ekspor)']} />
         <Box x={24} y={396} w={172} h={120} tone="client" title="Peran pengguna" lines={['Admin · Editor GIS', 'Operator / Dispatcher', 'Operator TR (ULP)', 'Viewer']} />
 

@@ -5,6 +5,7 @@ import { API_BASE, api, getToken } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { fmtNum } from '@/lib/format';
 import { Badge, Button, PageHeader, Spinner, useToast } from '@/components/ui';
+import type { ComponentType } from '@/lib/types';
 
 // ---------------------------------------------------------------- kamus
 
@@ -29,7 +30,7 @@ const ID = {
   cond_open: 'untuk open',
   one_of: 'salah satu',
   f_code: 'Kode / nama objek (juga kode SSOT atau IDPEL pelanggan).',
-  f_type: 'Jenis objek: kode tipe (lbs_2way, gd, pelanggan_tr, ...) atau nama tipe. Membantu bila kode sama dipakai beberapa objek.',
+  f_type: 'Jenis objek: kode tipe atau nama tipe (daftar di bawah). Membantu bila kode sama dipakai beberapa objek.',
   f_status: 'open = buka / de-energize (padam), close = tutup / energize (nyala). Diterima juga buka / tutup, off / on, trip, deenergize / energize.',
   f_category: 'Kategori pemadaman: {cats}. Wajib untuk open; untuk close mengikuti kejadian padam aktif.',
   f_time: 'Tanggal kejadian: ISO 8601 (2026-09-29T10:15:00+07:00), "YYYY-MM-DD HH:MM:SS" (WIB), atau epoch detik / milidetik. Kosong = waktu terima.',
@@ -72,6 +73,21 @@ const ID = {
   outage: 'kejadian padam',
   ch_kafka: 'Kafka',
   ch_uji: 'uji langsung',
+  types: 'Kode tipe objek',
+  types_hint: 'Nilai kolom type: kode tipe (disarankan) atau nama tipe. Semua tipe bertopologi bisa dibuka / ditutup, tidak hanya alat switching.',
+  feeder_hint: 'Penyulang tidak punya tipe sendiri. Kirim kubikel keluar di GI: type kubikel_20kv dan code = nama penyulang (mis. ABIMANYU).',
+  t_code: 'Kode tipe',
+  t_name: 'Nama tipe',
+  t_cat: 'Kategori',
+  switching: 'switching',
+  feeder_head: 'kepala penyulang',
+  cat_sumber: 'Sumber',
+  cat_bangunan: 'Bangunan',
+  cat_peralatan: 'Peralatan',
+  cat_pengaman: 'Pengaman',
+  cat_jaringan: 'Jaringan',
+  cat_pelanggan: 'Pelanggan',
+  cat_topologi: 'Topologi',
 };
 type Dict = typeof ID;
 const EN: Dict = {
@@ -95,7 +111,7 @@ const EN: Dict = {
   cond_open: 'for open',
   one_of: 'one of',
   f_code: 'Object code / name (also SSOT code or customer IDPEL).',
-  f_type: 'Object type: type code (lbs_2way, gd, pelanggan_tr, ...) or type name. Helps when several objects share a code.',
+  f_type: 'Object type: type code or type name (list below). Helps when several objects share a code.',
   f_status: 'open = open / de-energize (outage), close = close / energize (restore). Also accepts buka / tutup, off / on, trip, deenergize / energize.',
   f_category: 'Outage category: {cats}. Required for open; close follows the active outage.',
   f_time: 'Event time: ISO 8601 (2026-09-29T10:15:00+07:00), "YYYY-MM-DD HH:MM:SS" (WIB), or epoch seconds / milliseconds. Empty = time received.',
@@ -138,6 +154,21 @@ const EN: Dict = {
   outage: 'outage',
   ch_kafka: 'Kafka',
   ch_uji: 'direct test',
+  types: 'Object type codes',
+  types_hint: 'Value of the type field: type code (recommended) or type name. Every topology type can be opened / closed, not only switching devices.',
+  feeder_hint: 'Feeders have no type of their own. Send the outgoing cubicle at the substation: type kubikel_20kv and code = feeder name (e.g. ABIMANYU).',
+  t_code: 'Type code',
+  t_name: 'Type name',
+  t_cat: 'Category',
+  switching: 'switching',
+  feeder_head: 'feeder head',
+  cat_sumber: 'Source',
+  cat_bangunan: 'Building',
+  cat_peralatan: 'Equipment',
+  cat_pengaman: 'Protection',
+  cat_jaringan: 'Network',
+  cat_pelanggan: 'Customer',
+  cat_topologi: 'Topology',
 };
 
 function useS() {
@@ -228,6 +259,14 @@ export default function SwitchEvents() {
   const [body, setBody] = useState(() => template('open'));
   const [busy, setBusy] = useState('');
   const [more, setMore] = useState(false);
+  const [types, setTypes] = useState<ComponentType[] | null>(null);
+
+  useEffect(() => {
+    // tipe yang diterima kolom type = tipe bertopologi (lihat switchTypes di backend)
+    api<{ items: ComponentType[] }>('/api/gis/types')
+      .then((r) => setTypes(r.items.filter((t) => t.topology !== false).sort((a, b) => a.sort_order - b.sort_order)))
+      .catch(() => setTypes([]));
+  }, []);
 
   const load = useCallback(
     async (beforeId = 0) => {
@@ -398,6 +437,46 @@ export default function SwitchEvents() {
               <li>{S('note2')}</li>
               <li>{S('note3', { sec: 120 })}</li>
             </ul>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="mb-1 text-sm font-semibold text-gray-900">{S('types')}</h3>
+            <p className="text-xs text-gray-600">{S('types_hint')}</p>
+            <p className="mb-2 mt-1 text-xs text-gray-600">{S('feeder_hint')}</p>
+            {!types ? (
+              <Spinner />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px] text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-wide text-gray-500">
+                      <th className="py-1 pr-2">{S('t_code')}</th>
+                      <th className="py-1 pr-2">{S('t_name')}</th>
+                      <th className="py-1">{S('t_cat')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {types.map((t) => (
+                      <tr key={t.code} className="border-b border-gray-100 align-top">
+                        <td className="whitespace-nowrap py-1 pr-2 font-mono text-gray-900">{t.code}</td>
+                        <td className="py-1 pr-2 text-gray-700">
+                          {(locale === 'en' && t.name_en) || t.name}
+                          {t.code === 'kubikel_20kv' && <span className="ml-1 text-[10px] text-gray-500">· {S('feeder_head')}</span>}
+                        </td>
+                        <td className="whitespace-nowrap py-1 text-gray-700">
+                          {S(`cat_${t.category}`)}
+                          {t.is_switch && (
+                            <span className="ml-1">
+                              <Badge tone="blue">{S('switching')}</Badge>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 

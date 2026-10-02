@@ -136,8 +136,9 @@ Migrasi `029_units_workflow_branding.sql`, konfigurasi `gis.approval_enabled` (b
 - **Kunci objek**: satu objek aktif hanya boleh memiliki usulan di satu paket terbuka.
 - **Deteksi konflik**: bila objek berubah atau terhapus setelah diusulkan, rilis ditolak seluruhnya.
   Penyusun lalu menyinkronkan (*rebase*) atau membatalkan item tersebut.
-- Menu induk **Map Editor** (migrasi `030_menu_map_editor.sql`) berisi submenu **Editor Peta
-  Jaringan** (`/map`) dan **Persetujuan Perubahan** (`/changes`).
+- Menu induk **Peta Kelistrikan** (migrasi `030_menu_map_editor.sql`, nama diganti di
+  `050_menu_peta_kelistrikan.sql`; dulu *Map Editor*) berisi submenu **Peta Jaringan** (`/map`, dulu *Editor Peta
+  Jaringan*) dan **Persetujuan Perubahan** (`/changes`).
 - Menu **Persetujuan Perubahan** (`/changes`) memuat:
   - daftar paket per status ("Perlu tindakan" sesuai izin);
   - tahapan beserta pelaku & waktunya;
@@ -283,18 +284,31 @@ Migrasi `007_power_monitoring.sql` menambahkan:
   rekap per group dan tombol *Tampilkan di peta* (area terdampak); daftar
   penyulang dengan filter status. Diperbarui otomatis (`monitoring.power_refresh_seconds`)
   dan lewat WebSocket.
-- **Penanda padam berkedip** (Pusat Operasi dan Editor Peta, `GET /api/power/off-markers`):
+- **Penanda padam berkedip** (Pusat Operasi dan Peta Jaringan, `GET /api/power/off-markers`):
   - gardu distribusi dan trafo GI yang padam tampil dengan simbol merah berkedip dan gelombang merah;
   - bila banyak dan berdekatan, penanda dikelompokkan menjadi **cluster merah** berangka;
   - klik cluster untuk memperbesar peta; klik penanda untuk memilih objek; arahkan kursor untuk
     melihat kejadian padam aktifnya;
   - objek rencana / non aktif / bongkar tidak ditandai;
   - diperbarui lewat WebSocket setelah manuver / energize dan setiap `monitoring.power_refresh_seconds`;
-  - tombol *Tanda padam* (Pusat Operasi) dan kotak centang di tab *Layer* (Editor Peta) menyembunyikannya
+  - tombol *Tanda padam* (Pusat Operasi) dan kotak centang di tab *Layer* (Peta Jaringan) menyembunyikannya
     (disimpan per browser);
   - animasi hanya berjalan selama ada penanda di area tampilan, dan dimatikan bila browser meminta
     gerak dikurangi (`prefers-reduced-motion`).
 
+- **Filter penyulang** (Pusat Operasi, tombol *Semua penyulang ▾* setelah filter Semua / Nyala / Padam; juga di
+  **Peta Jaringan** di samping kotak pencarian; `components/map/FeederFilter.tsx`): hanya penyulang yang dicentang yang
+  tampil di peta, dari kubikel outgoing
+  (kepala penyulang) sampai pelanggan. Panel berisi pencarian, daftar penyulang per GI (centang per GI untuk
+  semua penyulangnya), klik nama = tampilkan penyulang itu saja & perbesar, tombol *Perbesar* (gabungan batas
+  `GET /api/power/feeders/:id/extent`) dan *Tampilkan semua*. Keanggotaan mengikuti pilihan **Normal / Aktual**
+  yang sama dengan pewarnaan per penyulang (properti tile `fdr` / `fdl`). Digabung (AND) dengan filter tipe &
+  status di `MapCanvas.setFeederFilter`; penanda padam berkedip (`fdr`/`fdl` di `GET /api/power/off-markers`) dan
+  penanda paralel ikut tersaring, lapisan kepadatan disembunyikan, objek tanpa penyulang (GI, trafo GI, tiang,
+  pelanggan tak tersambung) tidak tampil. Pilihan disimpan per browser, terpisah per halaman (`qgis_ops_feeders`,
+  `qgis_editor_feeders`); hanya peta yang disaring, rekap & daftar di panel tetap seluruh jaringan. Di Peta Jaringan
+  penyulang lain hanya disembunyikan: snapping & topologi saat menggambar tetap memakai semua objek (catatan
+  ditampilkan di panel), dan draf paket perubahan tetap tampil.
 - **Pewarnaan per penyulang** (Pusat Operasi, tombol *Warna peta: Status | Penyulang*):
   - setiap penyulang diberi satu dari 12 warna; penyulang yang tersambung lewat tie point, keluar dari
     GI / trafo GI yang sama, atau berjalan berdekatan dibedakan warnanya, dan warna stabil antar-perhitungan
@@ -309,10 +323,12 @@ Migrasi `007_power_monitoring.sql` menambahkan:
     penyulang; kartu objek menampilkan *Disuplai saat ini* bila objek sedang dilimpahkan;
   - pengisian awal saat migrasi `047_feeder_coloring.sql` pertama kali berjalan menulis ±5,9 juta baris di
     latar belakang (±4,5 menit pada data simulasi massal);
-  - tersedia juga di **Editor Peta** (tab *Layer* › Pewarnaan › *Penyulang*) dan **SLD** (Warna: *Penyulang
+  - tersedia juga di **Peta Jaringan** (tombol *Tipe | Status | Penyulang* di samping filter penyulang — di ponsel
+    di baris kedua di bawah pencarian — sama dengan tab *Layer* › Pewarnaan; pilihan disimpan per browser di
+    `qgis_editor_color_by`, terpisah dari Pusat Operasi) dan **SLD** (Warna: *Penyulang
     (normal)* / *Penyulang (aktual)*; legenda diagram & cetak berisi penyulang yang tampil); di ponsel legenda
     berada di bawah kotak cari dan tertutup bawaan agar tidak tertutup panel bawah.
-- **Penanda penyulang paralel** (`GET /api/power/parallel`, Pusat Operasi & Editor Peta):
+- **Penanda penyulang paralel** (`GET /api/power/parallel`, Pusat Operasi & Peta Jaringan):
   - dua penyulang paralel = ada saluran tertutup & bertegangan yang kedua ujungnya disuplai penyulang berbeda
     (titik temu suplai dalam satu loop); saluran yang menempel kepala penyulang (busbar antar-kubikel GI)
     tidak dihitung;
@@ -321,6 +337,21 @@ Migrasi `007_power_monitoring.sql` menambahkan:
   - spanduk "⚠ Paralel: A ⇄ B lewat …" di bawah toolbar (klik = menuju tie) dan toast saat paralel baru terjadi;
   - loop yang sudah ada pada posisi normal switch (mis. data impor tanpa tie bertanda normally-open) tidak
     ditandai; jumlahnya (`normal_loops`) tampil sebagai catatan data di legenda penyulang.
+- **Posisi aktual → normal** (Peta Jaringan, tab *Normal*, izin `gis.edit`; `components/map/NormalPositionsPanel.tsx`,
+  `api/normalpos_handlers.go`, `gis/normalpos.go`): menjadikan konfigurasi saat ini sebagai konfigurasi normal
+  setelah pelimpahan / pemindahan titik buka permanen.
+  - daftar alat switching beroperasi yang posisinya berbeda dari normal (`GET /api/gis/normal-deviations?feeders=`):
+    buka/tutup berbeda, atau arah terbuka LBS multi-arah berbeda; cakupan = penyulang yang sedang difilter atau
+    seluruh jaringan; ringkasan dampak = perpindahan objek & pelanggan antarpenyulang normal (override aktual);
+  - *disarankan* (tercentang bawaan) = kedua sisi alat bertegangan dan bukan penyebab padam aktif; alat yang
+    menghadap sisi padam (isolasi gangguan / pemeliharaan) diberi tanda dan tidak dicentang;
+  - `POST /api/gis/normal-positions {ids}` (maks. 500) mengisi atribut `normal` = status saat ini, dan untuk LBS
+    multi-arah atribut baru `normal_open_ways` (array id saluran yang normal terbuka) = arah terbuka saat ini.
+    Status buka/tutup tidak berubah. Mengikuti mode editor: bila alur persetujuan aktif masuk paket perubahan
+    (`?cs=`), bila tidak langsung diterapkan lalu keanggotaan penyulang Normal (`feeder_id`) dihitung ulang dan
+    override aktual hilang;
+  - sebelumnya arah normal LBS 3-arah hanya diambil dari arah terbuka saat graf dimuat; kini atribut
+    `normal_open_ways` (bila ada) selalu dipakai, juga saat atribut diubah (`Refresh`).
 
   Konfigurasi penanda padam:
 
@@ -352,8 +383,22 @@ Migrasi `012_reliability.sql`:
   dipotong ke periode; kejadian aktif dihitung sampai sekarang):
   - SAIDI = Σ(pelanggan padam × menit) ÷ jumlah pelanggan dilayani (menit/plg)
   - SAIFI = Σ pelanggan padam ÷ jumlah pelanggan dilayani (kali/plg)
-  - ENS (kWh) = daya terpasang padam (kVA) × faktor beban × cos φ × jam
+  - ENS (kWh) = daya terpasang padam (kVA) × faktor beban × cos φ × jam, atau — bila
+    `monitoring.load_basis = alokasi_penyulang` — beban teralokasi (kW) × jam (lihat di bawah)
   - ENS (Rupiah) = ENS (kWh) × harga per kWh
+
+  **Beban pelanggan padam teralokasi** (`monitoring.load_basis`, bawaan `kontrak`; migrasi 049,
+  `api/load_alloc.go`): beban pelanggan = daya kontrak pelanggan ÷ Σ daya kontrak pelanggan beroperasi
+  penyulang × beban penyulang. Beban penyulang diambil **sebelum padam**: sampel 30 menit terakhir yang
+  lengkap (maks. `monitoring.load_alloc_max_age_min`, 120 menit), lalu profil dasar slot itu (median 28 hari
+  per jenis hari); tanpa titik SCADA penyulang → estimasi daya kontrak × faktor beban (daya aktif × cos φ).
+  Penyebut = pelanggan beroperasi yang disuplai penyulang itu saat ini (bagian yang dilimpahkan lewat manuver
+  ikut penyulang penyuplainya). Faktor dibatasi 0,05–3. Saat padam dimulai, rincian per penyulang
+  (`beban_per_penyulang`) dan alokasinya (`beban_alokasi`: kVA terdampak, total kVA penyulang, beban
+  penyulang, faktor, sumber terukur / profil / estimasi) **dibekukan** di ringkasan kejadian padam dan menjadi
+  dasar ENS; kejadian lama tanpa data alokasi tetap memakai daya kontrak. Pusat Operasi: KPI *Beban alok.*
+  (`load_alloc` di `GET /api/power/summary`; penyulang dengan kejadian padam aktif memakai faktor yang
+  dibekukan), baris *Beban teralokasi* di tiap kejadian, dan label dasar ENS (`ens_basis`, `load_kw`).
 
   Padam lebih singkat dari `reliability.sustained_minutes` dihitung *momentary*:
   tidak masuk SAIDI/SAIFI, tetap masuk ENS. Parameter diatur di *Konfigurasi* grup
@@ -434,7 +479,7 @@ Migrasi `014_equipment_operate.sql`:
   non-switch & saluran). Saat membuka / deenergize **kategori pemadaman wajib**:
   GANGGUAN, PEMELIHARAAN, MLS, MANUVER, atau BENCANA ALAM. Saat menutup / energize kategori boleh
   kosong (mengikuti kejadian padam yang ditutup). Kotak yang sama dipakai di panel Fitur
-  Editor Peta. Status objek topologi tidak lagi diubah lewat formulir edit, hanya lewat
+  Peta Jaringan. Status objek topologi tidak lagi diubah lewat formulir edit, hanya lewat
   operasi (tercatat sebagai manuver, kejadian padam, dan SOE).
 - **Tab GI (gardu induk)** di Pusat Operasi (setelah tab *Trace*;
   `GET /api/power/gi?state=all|on|partial|off&q=`): tiap GI dengan status nyala /
@@ -442,7 +487,14 @@ Migrasi `014_equipment_operate.sql`:
   penyulang padam/sebagian atau trafo GI padam), trafo GI, penyulang, gardu distribusi,
   pelanggan, dan beban (nyala/total). Filter status, pencarian, klik kode untuk menuju GI,
   dan *Lihat n penyulang* membuka tab *Penyulang* yang tersaring ke GI itu.
-- **Tab Pelanggan** di Pusat Operasi (setelah tab *Gardu*;
+- **Tab Trafo Distribusi** di Pusat Operasi (setelah tab *Gardu*; `GET /api/power/trafo?state=all|on|partial|off&q=&limit=`,
+  `gis.TrafoStatuses`): tiap trafo distribusi yang beroperasi dengan gardu & penyulang induk, status (padam = trafo
+  tidak bertegangan; sebagian = trafo bertegangan tetapi ada pelanggan di hilirnya padam), kapasitas (`daya_kva`),
+  jumlah jurusan, pelanggan, dan beban (nyala/total). Pemetaan trafo → jurusan sama dengan Data Aset (ujung saluran
+  TR pertama, langsung atau lewat rak TR); nyala/padam pelanggan dibaca langsung dari graf. Bermasalah di atas,
+  filter status, pencarian, klik kode untuk menuju trafo. Klik widget rekap *Trafo Distribusi* membuka tab ini
+  (grup Monitoring; filter padam bila ada trafo padam).
+- **Tab Pelanggan** di Pusat Operasi (setelah tab *Trafo Distribusi*;
   `GET /api/power/customers?state=all|on|off&q=&limit=&offset=`): daftar pelanggan nyala /
   padam dengan paging di server (100 per halaman, *Muat berikutnya*), padam ditampilkan
   lebih dulu. Tiap baris: tipe, daya, penyulang, gardu distribusi, jurusan, kode SSOT; untuk
@@ -479,7 +531,7 @@ adalah gabungan (dissolve) poligon ULP per `nama_area`.
   dan titik label; di-cache di server, ETag + gzip (±120 KB).
 - Warna isi memakai **pewarnaan peta 5 warna** (UP3 bersebelahan selalu berbeda); warna
   tidak mewakili nilai. Merah/hijau tidak dipakai agar tidak tertukar dengan status nyala/padam.
-- Di **Editor Peta** (tab *Layer*) dan **Pusat Operasi** (tombol *UP3* di toolbar
+- Di **Peta Jaringan** (tab *Layer*) dan **Pusat Operasi** (tombol *UP3* di toolbar
   peta): tampilkan/sembunyikan batas UP3, garis batas ULP (putus-putus), label nama wilayah,
   dan slider **transparansi isi** (0–100%). Pilihan tiap pengguna diingat di browser;
   bawaan dari konfigurasi `map.boundary_visible` dan `map.boundary_opacity`.
@@ -558,7 +610,8 @@ manuver & kejadian padam yang sudah ada.
   `scada.switch_topic`, consumer group `scada.switch_group`; ubah = mulai ulang backend). Kunci pesan
   sebaiknya kode objek agar urutan perintah satu objek terjaga.
 - Kolom (nama fleksibel ID / EN, diurai `internal/switchcmd`): `code` / `kode` / `name` / `nama` (atau `id`),
-  `type` / `jenis` (kode / nama tipe), `status` open | close (juga buka / tutup, off / on, trip,
+  `type` / `jenis` (kode / nama tipe bertopologi, daftar di halaman admin; penyulang = kubikel keluar di GI:
+  `type` `kubikel_20kv`, `code` = nama penyulang), `status` open | close (juga buka / tutup, off / on, trip,
   deenergize / energize), `outage_category` / `kategori` (wajib untuk open), `timestamp` / `tanggal`
   (ISO 8601, "YYYY-MM-DD HH:MM:SS" WIB, epoch), `event_id` (anti duplikat), `note`, `source`.
 - Objek dicari dari kode / nama / kode SSOT / IDPEL (+ jenis); dijalankan lewat `execManeuver` — jalur
@@ -572,13 +625,35 @@ manuver & kejadian padam yang sudah ada.
 
 - **Administrasi → Impor GDB** (izin `admin.config`): unggah ZIP berisi folder `*.gdb`
   (maks. 1 GB) + tag batch. Job latar belakang: ekstrak → cek 18 layer wajib → `ogr2ogr`
-  PGDump → `psql` ke skema `stg_<tag>` → `backend/internal/gdbimport/import_staging.sql`
-  (satu transaksi) → unit pemilik dari lokasi (opsional) → hapus staging (opsional simpan)
-  → muat ulang graf.
+  PGDump → `psql` ke skema `stg_<tag>` → `build_staging.sql` (jaringan hasil pemetaan di staging,
+  belum ditulis) → `diff_staging.sql` (perbandingan dengan batch yang sudah ada) → **menunggu
+  tinjauan** (status `review`) → pengguna menerapkan atau membatalkan → `apply_staging.sql`
+  (perbandingan diulang + penerapan per objek, satu transaksi) → unit pemilik untuk aset yang
+  belum punya unit (opsional) → hapus staging (opsional simpan) → muat ulang graf. Skrip di
+  `backend/internal/gdbimport/`.
 - Pemetaan tipe, pemotongan garis di simpul (grid 1 cm), tiang sebagai objek pendukung,
-  dan kepala penyulang sintesis di GI dijelaskan di kepala skrip SQL.
-- Objek bertanda `properties.import = <tag>`; tag sama = ganti batch. Riwayat di tabel
-  `gdb_imports`; indeks parsial `gis_nodes_import_idx` / `gis_edges_import_idx`.
+  dan kepala penyulang sintesis di GI dijelaskan di kepala `build_staging.sql`.
+- Objek bertanda `properties.import = <tag>`; tag sama = **pembaruan batch**: hanya perbedaannya yang
+  diterapkan dan id objek yang sudah ada tetap, sehingga riwayat manuver, kejadian padam, foto, titik
+  SCADA, dan rencana manuver tetap terhubung. Riwayat di tabel `gdb_imports` (ringkasan pratinjau di
+  kolom `preview`); indeks parsial `gis_nodes_import_idx` / `gis_edges_import_idx`.
+- **Perbandingan** (migrasi `048_gdb_import_sync.sql`): identitas objek = GlobalID ESRI (`g:`), posisi
+  UTM grid 1 cm untuk junction / ujung garis / kubikel sintesis (`p:`), nama GI (`gi:`); saluran = GlobalID
+  garis (atau `s:<tipe>` sintesis) + kunci kedua ujung (satu garis GDB bisa terpotong menjadi beberapa
+  saluran). Tabel `gdb_import_objects (tag, kind, key, obj_id, hash)` menyimpan kunci → id dan sidik isi
+  milik GDB saat terakhir diterapkan (baseline: tipe, kode, nama, geometri & denah asli sebelum denah
+  gardu diperbesar, atribut `qgis_gdb_prop_keys()`). Perbandingan tiga arah GDB baru / baseline /
+  QuadranGIS: `insert`, `update`, `delete`, `same`, `local` (diubah lokal, GDB tetap → dipertahankan),
+  `conflict` (`both_changed`, `deleted_local`, `changed_local`, `used_by_local` = simpul masih dipakai
+  saluran lain). Batch impor lama tanpa baseline: perubahan lokal dikenali dari `feature_history` sejak
+  impor terakhir. Pratinjau juga menghitung rujukan objek usulan hapus dan GlobalID yang sudah dipakai
+  batch lain.
+- **Penerapan**: konflik dipertahankan (`conflict=keep`, bawaan) atau diganti data GDB (`gdb`);
+  penghapusan opsional. Kolom operasional (`status` buka/tutup, `open_ways`, `energized`, `unit_id`,
+  `feeder_id`) dan atribut di luar `qgis_gdb_prop_keys()` tidak disentuh. Simpul hanya dihapus bila
+  semua saluran yang menempel ikut dihapus. Denah gardu yang diperbesar dan tersentuh perubahan
+  (≤ 0,6 m) dikembalikan ke posisi asli dari `gis_layout_backup`, lalu bersama gardu baru diperbesar
+  ulang. Setiap perubahan dicatat di `feature_history` dengan pelaku `gdb-import`.
 - Impor langsung, **tidak** melalui alur persetujuan.
 - Denah gardu miniatur (skematik GDB, median ±1,6 m; komponen berjarak cm) diperbesar dengan
   `SELECT * FROM qgis_expand_gardu_layout('<tag>', 10, 25)` (migrasi 044; target 10 m dibatasi 90% jarak ke
@@ -588,17 +663,22 @@ manuver & kejadian padam yang sudah ada.
   properties = n.properties - 'denah_skala' FROM gis_layout_backup b WHERE b.kind = 'node' AND b.id = n.id AND b.tag = '<tag>'`
   (dan serupa untuk `gis_edges` dengan `geom`, `length_m`), lalu naikkan versi tile.
 - Status GDB `INACTIVE` → `status_operasi = "Non aktif"`, `DECOMMISSIONED` → `"Bongkar"` (gardu, trafo,
-  PHB-TR, pelanggan; nilai asli di `gdb_status`); pelanggan tanpa SR → `"Tidak operasi"`; gardu berkode /
+  PHB-TR, pelanggan; nilai asli di `gdb_status`); pelanggan tanpa SR → `"Tidak operasi"` (mengalahkan
+  status GDB); gardu berkode /
   bernomor mengandung kata `REN` / `RENCANA` → `"Rencana"`. Atribut `status_operasi` (Operasi / Rencana /
   Non aktif / Tidak operasi / Bongkar, semua objek titik bertopologi) mengecualikan objek dari rekap graf (dilewati di rekap nyala /
   padam & dampak kejadian; pelanggan bukan sink), rekap wilayah, dan daftar pelanggan; di tile peta
   properti `nonaktif` → abu-abu. Kondisi SQL bersama: `gis.SQLNonOperating`.
 - API: `POST /api/admin/gdb-import?tag=&name=&assign_units=1&keep_staging=0` (badan ZIP),
-  `GET /api/admin/gdb-import/status`, `GET /api/admin/gdb-import/batches`,
-  `DELETE /api/admin/gdb-import/batches/:tag?apply=0|1`.
+  `GET /api/admin/gdb-import/status` (job + `preview`), `GET /api/admin/gdb-import/changes?action=&kind=&type=&q=&offset=&limit=`
+  (daftar perbedaan), `POST /api/admin/gdb-import/apply` `{conflict: keep|gdb, deletes: bool}`,
+  `POST /api/admin/gdb-import/cancel`, `GET /api/admin/gdb-import/batches`,
+  `DELETE /api/admin/gdb-import/batches/:tag?apply=0|1`. Job yang terputus karena backend dimulai ulang
+  ditandai gagal dan staging-nya dihapus.
 - `POST /api/units/auto-assign` menerima `import_tag` untuk membatasi penetapan unit ke satu batch.
 - Manual (tanpa UI): muat layer ke skema staging lalu
-  `psql -v src=stg_x -v tag=X -f backend/internal/gdbimport/import_staging.sql`.
+  `psql -v src=stg_x -v tag=X -f backend/internal/gdbimport/build_staging.sql`, kemudian `diff_staging.sql`
+  (dan `apply_staging.sql`, variabel `since`, `conflict`, `deletes`) dalam satu transaksi.
 
 ## Single Line Diagram (SLD) otomatis
 
@@ -642,7 +722,7 @@ aliran daya. Tidak ada gambar terpisah yang perlu dirawat.
   (`power.switch_*`, `power.energize_*`) sama dengan peta, dan tercatat sama di manuver,
   kejadian padam, SOE, dan indeks keandalan.
 - **Sorot silang**: *Lihat di peta* / *Monitoring* membuka objek di peta. Tombol **Buka SLD**
-  di panel Fitur Editor Peta dan popup Monitoring membuka SLD cakupan objek itu
+  di panel Fitur Peta Jaringan dan popup Monitoring membuka SLD cakupan objek itu
   (`/sld?focus=node:ID`, cakupan dipilih otomatis lewat `GET /api/sld/resolve`).
 - **Overlay aliran daya**: warna seksi menurut pembebanan (<60 / 60–80 / 80–100 / >100 %) dan
   tegangan pu di tiap elemen (dihitung lewat `/api/powerflow/feeder` untuk penyulang dalam
@@ -768,6 +848,34 @@ bulanan di tabel `periodic_reports`:
   UP3 → ULP, dan rincian wilayah: kategori, penyulang, dan kejadian beserta porsi wilayahnya.
 - Setelah batas wilayah diubah, hitung ulang lewat `POST /api/exec/regions/recompute`.
 
+**Dashboard › Infografis** (`/infographic`, izin `exec.view`; migrasi `051_infographic.sql`;
+`GET /api/exec/infographic?from&to&kind&outage`, `api/infographic.go`, `components/exec/Infographic.tsx`):
+infografis pemulihan kelistrikan satu halaman (dapat dicetak / disimpan PDF). Kepala memakai logo PLN di kiri dan
+logo Danantara Indonesia di kanan (`frontend/public/brand/pln-logo.png`, `danantara-logo.png` berlatar transparan;
+folder `brand` dikecualikan dari middleware login).
+
+- Filter: jenis kejadian (Semua / Gangguan / Pemeliharaan / Bencana Alam, + MLS / Manuver bila ada), rentang
+  tanggal, satu nomor kejadian, muat ulang otomatis (mati / 1–10 menit; juga otomatis sesudah manuver).
+- Satu event = kejadian induk + kejadian lanjutannya (sisa padam sesudah pemulihan sebagian). **Terdampak** = isi
+  kejadian induk, **padam** = isi kejadian yang masih aktif, **nyala** = terdampak − padam, pemulihan % = nyala ÷
+  terdampak. Kartu: jumlah event per jenis, beban (MW: alokasi penyulang bila tersedia, selain itu kontrak × faktor
+  beban × cos φ), GI, trafo GI, penyulang, zona, gardu distribusi, pelanggan.
+- **Prioritas pelanggan**: atribut SSOT baru `prioritas` (VVIP / VIP / KTT / Prioritas) pada tipe pelanggan;
+  pelanggan TT dihitung KTT walau atribut kosong. Angkanya 0 sampai atribut diisi.
+- **Gardu UP3 terdampak** (gardu terdampak per poligon UP3), **peta kejadian** (titik penyebab per jenis, gardu induk
+  — kotak "GI": padam / pulih / induk yang menyuplai penyulang terdampak / lain —, gardu distribusi padam (berkedip dua keadaan 700 ms selama terlihat di layar) / nyala, serta saluran JTM / JTR / SR,
+  trafo distribusi (simbol dua lingkaran), dan pelanggan yang sedang padam dari kejadian aktif terpilih — saluran tidak bertegangan yang menyentuh node terdampak,
+  maks. 30.000 per jenis; JTR, SR, trafo distribusi, dan pelanggan tampil mulai zoom minimum tipenya di Pengaturan Layer,
+  mis. trafo z≥13, JTR z≥14, SR & pelanggan TR z≥15, ditulis di legenda), **log event terdampak** per GI / trafo GI / penyulang / zona / gardu distribusi / trafo distribusi
+  (gardu & kapasitas kVA) / pelanggan (nama, IDPEL/kode, gardu, daya) — waktu padam & nyala, durasi H:JJ:MM, wilayah,
+  status; yang masih padam lebih dulu, jumlah total di judul tab). Log dimuat per halaman (10 / 25 / 50 baris) lewat
+  `GET /api/exec/infographic/log?level&q&page&size` (+ filter yang sama) dengan pencarian nama / kode objek (gardu, trafo,
+  pelanggan: juga IDPEL; dicari di seluruh baris, bukan hanya halaman yang tampil; maks. 50.000 baris dibaca).
+- **Kurva beban padam & nyala** (bertingkat; jumlah keduanya = beban terdampak kumulatif), SAIDI / SAIFI / ENS /
+  Rupiah total & per UP3 (perhitungan sama dengan Keandalan Wilayah), dan **detail pelanggan terdampak** per halaman
+  (`GET /api/exec/infographic/customers?…&q&page&size`; prioritas → TM → lainnya, yang masih padam di atas; cari nama / IDPEL /
+  kode; 10 / 25 / 50 baris per halaman).
+
 **AI untuk operasi.** Konteks disusun deterministik oleh backend dari data aplikasi; LLM hanya
 menulis analisis. Kunci API dan penyedia sama dengan AI Assistant.
 
@@ -808,7 +916,7 @@ QuadranGIS dapat dipasang di ponsel sebagai **Progressive Web App** (`public/man
   Tombol GPS menampilkan posisi dan akurasi di peta.
 - **SLD**: cubit dua jari untuk zoom. Panel cakupan menjadi laci; objek terpilih menjadi lembar bawah.
 - Dasbor Eksekutif, Laporan Berkala, dan Keandalan Wilayah menyesuaikan layar kecil.
-- **Editor Peta**: panel tertutup bawaan dan alat gambar disembunyikan. Pengeditan lengkap
+- **Peta Jaringan**: panel tertutup bawaan dan alat gambar disembunyikan. Pengeditan lengkap
   tetap di desktop/tablet.
 
 **Menu Lapangan** (`/field`):
@@ -1191,6 +1299,7 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | GET  | `/api/power/parallel` | penyulang yang beroperasi paralel (tie penyebab, titik temu) + jumlah loop pada posisi normal |
 | GET  | `/api/power/feeders?state&q` | daftar penyulang beserta status |
 | GET  | `/api/power/gi?state&q` | daftar gardu induk beserta rekap penyulang |
+| GET  | `/api/power/trafo?state&q&limit` | daftar trafo distribusi: gardu, penyulang, kapasitas, jurusan, pelanggan & beban nyala/total |
 | GET  | `/api/power/customers?state&q&limit&offset` | daftar pelanggan nyala / padam (paging) |
 | GET  | `/api/power/outages?active=1\|period=` / `/{id}` | kejadian padam per level, dengan ENS per kejadian (+ GeoJSON area terdampak) |
 | GET  | `/api/power/maneuvers?node_id` | riwayat manuver |
@@ -1208,6 +1317,9 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | GET  | `/api/ops/reports/suspects` | dugaan lokasi gangguan dari laporan terbuka |
 | GET  | `/api/ops/insights` | temuan operasi otomatis (tanpa LLM) |
 | GET  | `/api/exec/dashboard?period=` | dasbor eksekutif: KPI, tren 12 bulan, tahun berjalan vs target (`exec.view`) |
+| GET  | `/api/exec/infographic?from&to&kind&outage` | infografis pemulihan: event per jenis, terdampak/padam/nyala per level, prioritas pelanggan, gardu & keandalan per UP3, log, peta, pelanggan terdampak (`exec.view`) |
+| GET  | `/api/exec/infographic/log?from&to&kind&outage&level&q&page&size` | log event terdampak per halaman (level gi, trafo_gi, penyulang, zona, gd, trafo, pelanggan) dengan pencarian nama / kode / IDPEL |
+| GET  | `/api/exec/infographic/customers?from&to&kind&outage&q&page&size` | detail pelanggan terdampak per halaman (prioritas & TT/TM lebih dulu) |
 | GET  | `/api/exec/regions?period=` / `/{id}` | keandalan per UP3/ULP (id 0 = di luar batas wilayah) |
 | POST | `/api/exec/regions/recompute` | hitung ulang wilayah kejadian padam (`exec.report`) |
 | GET/POST/DELETE | `/api/exec/reports[/:id]` | laporan berkala `{kind: daily\|weekly\|monthly, date}` (ubah: `exec.report`) |
@@ -1222,6 +1334,7 @@ dialirkan (streaming) lewat `POST /api/ai/chat` sebagai server-sent events.
 | POST | `/api/load/simulator/backfill` · `/api/load/recompute` | isi riwayat simulasi · hitung ulang rekap/anomali |
 | GET/POST/PUT/DELETE | `/api/load/reports[/:id][/narrative]` | laporan beban harian/bulanan/tahunan |
 | GET  | `/api/load/forecast` · `/n1` · `/gd?point` · `/profiles` · `/health` · `/calibration` | analisa lanjutan |
+| GET/POST | `/api/gis/normal-deviations?feeders=` · `/api/gis/normal-positions {ids}` | alat switching yang posisinya berbeda dari normal + dampak · jadikan posisi saat ini sebagai posisi normal (paket perubahan bila persetujuan aktif); izin `gis.edit` |
 | GET/POST/PUT | `/api/gis/changesets[/:id]` · `/:id/geojson` · `POST /:id/submit\|approve\|reject\|release\|cancel` · `DELETE /:id/items/:item` · `POST /:id/items/:item/rebase` | paket perubahan (alur persetujuan editing); editing memakai `?cs=` |
 | GET/POST/PUT/DELETE | `/api/units[/:id]` · `GET /api/units/owner?kind&id` · `GET /api/units/:id/assets` · `POST /api/units/auto-assign` | master data unit & kepemilikan aset |
 | GET/PUT | `/api/branding` · `/api/branding/logo` (publik) · `PUT /api/admin/branding` | identitas aplikasi |

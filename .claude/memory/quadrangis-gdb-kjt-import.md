@@ -5,15 +5,15 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 261f5261-5265-4074-9b49-c76938cb617f
-  modified: 2026-09-28T13:47:41.418Z
+  modified: 2026-10-01T13:54:13.796Z
 ---
 
 Data `docs/mapping/kjt 05082026.gdb` sudah ada di DB dev sejak 28 Sep 2026. Isinya 248.744 node dan 227.143 edge, semuanya bertanda `properties->>'import' = 'KJT-05082026'`. Data simulasi massal tetap ada (lihat [[quadrangis-bulk-sim-state]]).
 
 - Diimpor ulang lewat menu **Administrasi › Impor GDB** (ZIP 85 MB, ±5,5 menit), dengan hasil identik dengan impor skrip. Unit pemilik sudah ditetapkan (sebagian besar ke ULP CONDET, di bawah UP3 KRAMATJATI).
 - Skema staging stg_kjt sudah di-DROP; skema staging tidak disimpan.
-- Skrip pemetaan: `backend/internal/gdbimport/import_staging.sql` (di-embed; skrip lama `scripts/import_gdb_staging.sql` sudah dipindah ke sana).
-- Riwayat batch ada di tabel `gdb_imports`. Tag yang sama menggantikan batch sebelumnya.
+- Sejak 1 Okt 2026 impor bertahap (lihat [[quadrangis-gdb-import-sync]]): `import_staging.sql` diganti `build_staging.sql` / `diff_staging.sql` / `apply_staging.sql`. Tag yang sama = pembaruan batch per objek (id tetap), bukan ganti total. Batch KJT dev sudah punya baseline (`gdb_import_objects`, 475.887 baris).
+- Riwayat batch ada di tabel `gdb_imports`.
 - Keterbatasan data sumber:
   - tidak ada titik normally-open;
   - 7.977 pelanggan tanpa SR diberi status_operasi = Tidak operasi (migrasi 041; keputusan pengguna 28 Sep 2026: tanpa SR = tidak operasi/bongkar, dikecualikan dari rekap); 112 pelanggan lain tetap padam karena SR/TR-nya tidak tersambung ke sumber;

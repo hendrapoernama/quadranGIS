@@ -85,9 +85,43 @@ export default function LayersPage() {
     }
   }
 
+  // tipe komponen yang diubah tetapi belum disimpan
+  const dirty = types.filter((x) => edits[x.code]);
+  async function saveAll() {
+    if (dirty.length === 0) return;
+    setSaving('all');
+    let ok = 0;
+    for (const x of dirty) {
+      try {
+        await api(`/api/admin/layers/${x.code}`, { method: 'PUT', body: { ...x, ...edits[x.code] } });
+        ok++;
+      } catch (e: any) {
+        toast.push(`${x.code}: ${e.message}`, 'error');
+      }
+    }
+    if (ok > 0) toast.push(t('layerspage.saved_all', { n: ok }), 'success');
+    setSaving(null);
+    load();
+  }
+
+  // perubahan belum disimpan: peringatkan sebelum halaman ditinggalkan / dimuat ulang
+  const unsaved = dirty.length > 0 || Object.keys(cfgDraft).some((k) => cfgDraft[k] !== configs.find((c) => c.key === k)?.value);
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [unsaved]);
+
   async function saveConfigs() {
     const changed = Object.keys(cfgDraft).filter((k) => cfgDraft[k] !== configs.find((c) => c.key === k)?.value);
-    if (!changed.length) return;
+    if (!changed.length) {
+      toast.push(t(dirty.length ? 'layerspage.params_none_types_pending' : 'layerspage.params_none'), 'info');
+      return;
+    }
     setSaving('cfg');
     try {
       await api('/api/admin/configs', { method: 'PUT', body: { items: changed.map((k) => ({ key: k, value: cfgDraft[k] })) } });
@@ -108,7 +142,7 @@ export default function LayersPage() {
         <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2">
           <div className="text-sm font-semibold text-gray-800">{t('layerspage.params_title')}</div>
           <Button size="sm" onClick={saveConfigs} loading={saving === 'cfg'} icon="check">
-            {t('common.save')}
+            {t('layerspage.save_params')}
           </Button>
         </div>
         <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
@@ -130,7 +164,20 @@ export default function LayersPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-800">{t('layerspage.types_title')}</div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
+          <div className="text-sm font-semibold text-gray-800">{t('layerspage.types_title')}</div>
+          {dirty.length > 0 && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{t('layerspage.unsaved', { n: dirty.length })}</span>}
+          <div className="ml-auto flex gap-2">
+            {dirty.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={() => setEdits({})} disabled={saving !== null}>
+                {t('layerspage.discard')}
+              </Button>
+            )}
+            <Button size="sm" onClick={saveAll} loading={saving === 'all'} disabled={dirty.length === 0} icon="check">
+              {t('layerspage.save_all', { n: dirty.length })}
+            </Button>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -149,7 +196,7 @@ export default function LayersPage() {
                 <th className="th">{t('layerspage.ways')}</th>
                 <th className="th">{t('layerspage.attributes')}</th>
                 <th className="th">{t('common.active')}</th>
-                <th className="th"></th>
+                <th className="th sticky right-0 bg-gray-50"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -233,7 +280,7 @@ export default function LayersPage() {
                   <td className="td">
                     <input type="checkbox" checked={val(x, 'is_active')} onChange={(e) => set(x.code, { is_active: e.target.checked })} />
                   </td>
-                  <td className="td text-right">
+                  <td className={`td sticky right-0 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.25)] ${edits[x.code] ? 'bg-amber-50' : 'bg-white'}`}>
                     <Button size="sm" disabled={!edits[x.code]} loading={saving === x.code} onClick={() => saveType(x)}>
                       {t('common.save')}
                     </Button>

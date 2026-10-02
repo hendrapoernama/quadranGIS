@@ -56,6 +56,8 @@ export interface MapHandle {
   setParallel: (items: ParallelItem[] | null) => void;
   /** filter status kelistrikan: semua / hanya nyala / hanya padam */
   setEnergyFilter: (f: 'all' | 'on' | 'off') => void;
+  /** hanya penyulang ini yang tampil (kubikel outgoing sampai pelanggan); null / [] = semua. live = penyulang penyuplai saat ini */
+  setFeederFilter: (ids: number[] | null, live: boolean) => void;
   cancelDraw: () => void;
   getZoom: () => number;
   startVertexEdit: (feature: GeoFeature, connected: ConnectedEdge[]) => void;
@@ -104,6 +106,9 @@ export interface OffMarker {
   outage_id: number | null;
   outage_kind: string | null;
   since: string | null;
+  /** penyulang normal (0 = tanpa penyulang) & penyulang penyuplai saat ini bila berbeda */
+  fdr?: number;
+  fdl?: number | null;
 }
 
 /** Tampilan overlay batas wilayah. opacity = kepekatan isi UP3 (0..1). */

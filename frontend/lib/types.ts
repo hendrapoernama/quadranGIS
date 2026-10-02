@@ -141,6 +141,26 @@ export interface PowerSummary {
   dist_dirty: boolean;
 }
 
+/** Rekap satu trafo distribusi (GET /api/power/trafo). */
+export interface TrafoStatus {
+  id: number;
+  code: string;
+  name: string;
+  gd_id: number;
+  gd_code: string;
+  feeder_id: number;
+  feeder_code: string;
+  gi_id: number;
+  gi_code: string;
+  state: 'on' | 'partial' | 'off';
+  energized: boolean;
+  jurusan: number;
+  pelanggan: number;
+  pelanggan_off: number;
+  beban_va: number;
+  beban_off_va: number;
+  kapasitas_kva: number;
+}
 export interface GDStatus {
   id: number;
   code: string;
@@ -194,6 +214,44 @@ export interface GroupReport {
   trafo_gd: number;
   pelanggan: number;
   beban_va: number;
+  /** beban padam teralokasi dari beban penyulang (dibekukan saat padam dimulai) */
+  beban_alokasi?: LoadAlloc;
+}
+
+/** Alokasi beban penyulang ke pelanggan: beban = daya kontrak ÷ Σ daya kontrak penyulang × beban penyulang. */
+export interface LoadAllocFeeder {
+  id: number;
+  code?: string;
+  kontrak_va: number;
+  total_va: number;
+  penyulang_va: number;
+  penyulang_w: number;
+  faktor_s: number;
+  faktor_p: number;
+  sumber: 'terukur' | 'profil' | 'estimasi';
+  ts?: string;
+  va: number;
+  w: number;
+}
+export interface LoadAlloc {
+  at: string;
+  kontrak_va: number;
+  va: number;
+  w: number;
+  sumber: Record<string, number>;
+  penyulang: LoadAllocFeeder[];
+}
+/** Rekap beban jaringan & beban padam saat ini menurut alokasi beban penyulang (monitoring.load_basis). */
+export interface RealtimeLoadAlloc {
+  at: string;
+  total_va: number;
+  total_w: number;
+  off_va: number;
+  off_w: number;
+  sumber: Record<string, number>;
+  dibekukan: number;
+  penyulang: number;
+  sumber_all: Record<string, number>;
 }
 
 export interface Outage {
@@ -217,6 +275,9 @@ export interface Outage {
   ens_kwh?: number;
   ens_rp?: number;
   momentary?: boolean;
+  /** dasar ENS: kontrak | alokasi */
+  ens_basis?: 'kontrak' | 'alokasi';
+  load_kw?: number;
 }
 
 export interface SOEEvent {
@@ -265,7 +326,7 @@ export interface Reliability {
   from: string;
   to: string;
   customers_served: number;
-  params: { tariff_rp_per_kwh: number; load_factor: number; power_factor: number; sustained_minutes: number };
+  params: { tariff_rp_per_kwh: number; load_factor: number; power_factor: number; sustained_minutes: number; load_basis?: string };
   total: ReliabilityGroup;
   by_level: Record<string, ReliabilityGroup>;
   by_kind: Record<string, ReliabilityGroup>;
